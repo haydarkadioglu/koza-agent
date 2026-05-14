@@ -30,8 +30,10 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         if model:
             cfg["model"] = model
 
-        # Init shared memory so sub-agent can read/write it
+        # Init both memory systems
         sm_init(cfg["db_path"])
+        from skills.working_memory import init_db as wm_init, wm_get_context
+        wm_init(cfg["db_path"])
 
         prov = get_provider(cfg)
 
@@ -43,11 +45,16 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
             tools = ALL_TOOLS
             handlers = ALL_HANDLERS
 
-        # Build system prompt with injected shared memory context
-        memory_ctx = get_relevant_context(goal, limit=8)
+        # Build system prompt:
+        # - Working memory: always included (recent events)
+        # - Shared memory: relevant permanent facts for this goal
+        wm_ctx  = wm_get_context()
+        mem_ctx = get_relevant_context(goal, limit=6)
         system_content = SYSTEM_PROMPT
-        if memory_ctx:
-            system_content = f"{SYSTEM_PROMPT}\n\n{memory_ctx}"
+        if wm_ctx:
+            system_content += f"\n\n{wm_ctx}"
+        if mem_ctx:
+            system_content += f"\n\n{mem_ctx}"
 
         messages = [
             {"role": "system", "content": system_content},

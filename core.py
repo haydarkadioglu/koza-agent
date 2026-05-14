@@ -8,7 +8,7 @@ from skills import (
     agents, creative, datascience, devops, email_skill, finance,
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
-    session_memory, messaging, shared_memory,
+    session_memory, messaging, shared_memory, working_memory,
 )
 
 SYSTEM_PROMPT = """You are Hermes, a powerful AI assistant with access to tools.
@@ -46,6 +46,7 @@ ALL_TOOLS = (
     + session_memory.TOOL_DEFINITIONS
     + messaging.TOOL_DEFINITIONS
     + shared_memory.TOOL_DEFINITIONS
+    + working_memory.TOOL_DEFINITIONS
 )
 
 ALL_HANDLERS: dict[str, Callable] = {
@@ -76,6 +77,7 @@ ALL_HANDLERS: dict[str, Callable] = {
     **session_memory.HANDLERS,
     **messaging.HANDLERS,
     **shared_memory.HANDLERS,
+    **working_memory.HANDLERS,
 }
 
 
@@ -89,6 +91,7 @@ class Agent:
         cron.init_db(db_path)
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
+        working_memory.init_db(db_path)
         if cfg:
             email_skill.init_email(cfg)
             media.init_media(cfg)
@@ -163,31 +166,48 @@ class Agent:
                 yield token
             self.messages.append({"role": "assistant", "content": full})
 
-    def _refresh_memory_context(self, query: str) -> None:
-        """Update the system prompt with relevant shared memories for this query."""
+    def _refresh_memory_context(self, user_input: str) -> None:
+        """
+        Dual-memory system prompt update:
+        - Working memory  → always injected (compact recent activity, last 20 events)
+        - Permanent memory → NOT auto-injected; only when agent calls memory_recall/search
+        """
         try:
-            mem_ctx = shared_memory.get_relevant_context(query, limit=6)
-            if not mem_ctx:
-                new_system = SYSTEM_PROMPT
-            else:
-                new_system = f"{SYSTEM_PROMPT}\n\n{mem_ctx}"
-            # Update system message in place (always first message)
+            wm_ctx = working_memory.wm_get_context()
+            new_system = SYSTEM_PROMPT
+            if wm_ctx:
+                new_system = f"{SYSTEM_PROMPT}\n\n{wm_ctx}"
             if self.messages and self.messages[0]["role"] == "system":
                 self.messages[0]["content"] = new_system
+            # Log user input to working memory
+            working_memory.wm_add(
+                summary=user_input[:120],
+                event_type="user",
+            )
         except Exception:
-            pass  # Never break chat due to memory errors
+            pass
 
     def _execute_tool(self, name: str, args: dict) -> str:
         handler = ALL_HANDLERS.get(name)
         if not handler:
             return f"Unknown tool: {name}"
         try:
-            return handler(**args)
+            result = handler(**args)
+            # Auto-log tool call to working memory
+            arg_preview = ", ".join(f"{k}={str(v)[:40]}" for k, v in args.items())
+            summary = f"{name}({arg_preview})"
+            detail = str(result)[:300]
+            working_memory.wm_add(summary=summary, detail=detail, event_type="tool")
+            return result
         except Exception as e:
-            return f"Tool error ({name}): {e}"
+            err = f"Tool error ({name}): {e}"
+            working_memory.wm_add(summary=f"{name} failed: {e}", event_type="error")
+            return err
 
     def reset(self):
+        self.auto_save()  # save session before clearing
         self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        working_memory.wm_clear()  # wipe short-term memory on reset
 
     def auto_save(self, title: str = "", summary: str = "") -> str:
         """Auto-save current session messages."""
