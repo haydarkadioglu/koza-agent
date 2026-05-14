@@ -1,0 +1,84 @@
+"""Sub-agent thread runner — heavy execution logic lives here."""
+import sys
+import threading
+import time
+
+from ._registry import _subagents
+
+
+def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
+                         tools_filter: list[str]) -> None:
+    """Run a sub-agent in a background thread using the core Agent."""
+    _subagents[agent_id]["status"] = "running"
+    try:
+        sys.path.insert(0, ".")
+        from config import load_config
+        from providers.factory import get_provider
+        from core import ALL_TOOLS, ALL_HANDLERS, SYSTEM_PROMPT
+        from skills.shared_memory import init_db as sm_init, get_relevant_context
+        from skills.working_memory import init_db as wm_init, wm_get_context
+
+        cfg = load_config()
+        if provider:
+            cfg["provider"] = provider
+        if model:
+            cfg["model"] = model
+
+        sm_init(cfg["db_path"])
+        wm_init(cfg["db_path"])
+        prov = get_provider(cfg)
+
+        if tools_filter:
+            tools    = [t for t in ALL_TOOLS    if t.get("name") in tools_filter]
+            handlers = {k: v for k, v in ALL_HANDLERS.items() if k in tools_filter}
+        else:
+            tools    = ALL_TOOLS
+            handlers = ALL_HANDLERS
+
+        wm_ctx  = wm_get_context()
+        mem_ctx = get_relevant_context(goal, limit=6)
+        system_content = SYSTEM_PROMPT
+        if wm_ctx:
+            system_content += f"\n\n{wm_ctx}"
+        if mem_ctx:
+            system_content += f"\n\n{mem_ctx}"
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user",   "content": goal},
+        ]
+
+        for _ in range(10):
+            response   = prov.chat(messages, tools=tools)
+            content    = response.get("content", "")
+            tool_calls = response.get("tool_calls")
+
+            if not tool_calls:
+                _subagents[agent_id]["result"] = content or ""
+                break
+
+            messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+            for tc in tool_calls:
+                handler = handlers.get(tc["name"])
+                if handler:
+                    try:
+                        res = handler(**tc.get("arguments", {}))
+                    except Exception as e:
+                        res = f"Tool error: {e}"
+                else:
+                    res = f"Unknown tool: {tc['name']}"
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", tc["name"]),
+                    "name": tc["name"],
+                    "content": str(res),
+                })
+        else:
+            _subagents[agent_id]["result"] = "Max iterations reached."
+
+        _subagents[agent_id]["messages"] = messages
+        _subagents[agent_id]["status"]   = "done"
+
+    except Exception as e:
+        _subagents[agent_id]["status"] = "error"
+        _subagents[agent_id]["result"] = f"Sub-agent error: {e}"
