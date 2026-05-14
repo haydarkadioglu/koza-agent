@@ -33,12 +33,15 @@ SYSTEM_PROMPT = """You are Koza, an autonomous AI agent with access to a rich se
 - **Email**: Send and read emails via SMTP/IMAP
 
 ## Behavior
+- **Understand intent first** — if the user asks "who is X?" or "what does X do?", answer about the *person/company*, not technical details
+- If a URL is given to learn about a person, use web_search to find biographical and professional info, not just fetch the URL
 - Think step by step before acting
 - Use tools whenever they help — don't guess when you can look it up
-- After tool results, synthesize and explain clearly
+- After tool results, synthesize and explain clearly in natural language
 - If a task is complex, break it down and use sub-agents when parallelism helps
 - Be concise in responses but thorough in execution
-- Never fabricate file contents, command outputs, or API responses"""
+- Never fabricate file contents, command outputs, or API responses
+- When given a domain or URL as context for a question about a person, search for who they are, not site metadata"""
 
 # ── Tool selection helpers ────────────────────────────────────────────────────
 # Keywords that hint at which tool categories are needed.
@@ -271,33 +274,50 @@ class Agent:
         return "Max tool iterations reached."
 
     def stream_chat(self, user_input: str):
-        """Stream chat — yields text tokens, handles tools internally."""
+        """
+        Stream chat — yields structured events:
+          {"type": "thinking"}                         — waiting for LLM
+          {"type": "tool_start", "name": ..., "args": ...}
+          {"type": "tool_done",  "name": ..., "result": ..., "elapsed": float}
+          {"type": "text", "token": ...}               — streamed response token
+        """
+        import time
         self._refresh_memory_context(user_input)
         self.messages.append({"role": "user", "content": user_input})
         tools = _select_tools(user_input)
 
-        # First check if tools are needed (non-streaming probe)
+        # First pass: check for tool calls
+        yield {"type": "thinking"}
         response = self.provider.chat(self._trim_messages(), tools=tools)
         tool_calls = response.get("tool_calls")
 
         if tool_calls:
-            self.messages.append({"role": "assistant", "content": response.get("content"), "tool_calls": tool_calls})
+            self.messages.append({
+                "role": "assistant",
+                "content": response.get("content"),
+                "tool_calls": tool_calls,
+            })
             for tc in tool_calls:
+                yield {"type": "tool_start", "name": tc["name"], "args": tc.get("arguments", {})}
+                t0 = time.time()
                 result = self._execute_tool(tc["name"], tc.get("arguments", {}))
-                yield f"\n🔧 **{tc['name']}**\n```\n{result}\n```\n"
+                elapsed = time.time() - t0
+                yield {"type": "tool_done", "name": tc["name"], "result": result, "elapsed": elapsed}
                 self.messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", tc["name"]),
                     "name": tc["name"],
                     "content": str(result),
                 })
+            # Stream final answer
+            yield {"type": "thinking"}
             for token in self.provider.stream_chat(self._trim_messages()):
-                yield token
+                yield {"type": "text", "token": token}
         else:
             full = ""
             for token in self.provider.stream_chat(self._trim_messages()):
                 full += token
-                yield token
+                yield {"type": "text", "token": token}
             self.messages.append({"role": "assistant", "content": full})
 
     def _refresh_memory_context(self, user_input: str) -> None:

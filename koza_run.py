@@ -77,11 +77,17 @@ def cmd_setup(args: list[str]) -> None:
     _hr("·", "grey")
     print(_C("  Primary Provider", "cyan", "bold"))
     _hr("·", "grey")
-    print(_C(f"  Options: {', '.join(PROVIDERS)}", "grey"))
-    provider = _prompt("Provider", default="ollama", choices=PROVIDERS)
+    try:
+        provider = _select_menu("Select provider", PROVIDERS, default_idx=0)
+    except (KeyboardInterrupt, EOFError):
+        sys.exit(0)
 
     default_model = PROVIDER_MODELS.get(provider, [""])[0]
-    model = _prompt("Model", default=default_model)
+    models = PROVIDER_MODELS.get(provider, [default_model])
+    try:
+        model = _select_menu("Select model", models, default_idx=0)
+    except (KeyboardInterrupt, EOFError):
+        sys.exit(0)
 
     api_key = ""
     if provider in NEEDS_KEY:
@@ -106,12 +112,15 @@ def cmd_setup(args: list[str]) -> None:
     fallback_key = ""
     if enable_fallback.lower() == "y":
         remaining = [p for p in PROVIDERS if p != provider]
-        print(_C(f"  Options: {', '.join(remaining)}", "grey"))
-        fallback_provider = _prompt("Fallback provider", choices=remaining)
-        fallback_model = _prompt(
-            "Fallback model",
-            default=PROVIDER_MODELS.get(fallback_provider, [""])[0],
-        )
+        try:
+            fallback_provider = _select_menu("Select fallback provider", remaining, default_idx=0)
+        except (KeyboardInterrupt, EOFError):
+            sys.exit(0)
+        fb_models = PROVIDER_MODELS.get(fallback_provider, [PROVIDER_MODELS.get(fallback_provider, [""])[0]])
+        try:
+            fallback_model = _select_menu("Select fallback model", fb_models, default_idx=0)
+        except (KeyboardInterrupt, EOFError):
+            sys.exit(0)
         if fallback_provider in NEEDS_KEY:
             fallback_key = _prompt_secret(f"API key for {fallback_provider} (optional if already set)")
 
@@ -267,6 +276,37 @@ def _config_path() -> str:
     return str(Path.home() / ".Koza" / "config.yaml")
 
 
+# ── Spinner ───────────────────────────────────────────────────────────────────
+import threading as _threading
+
+_spinner_active = False
+_spinner_thread = None
+
+_SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+def _spinner_start(msg: str) -> None:
+    import itertools, time as _time
+    global _spinner_active, _spinner_thread
+    _spinner_active = True
+    def _spin():
+        for ch in itertools.cycle(_SPINNER_CHARS):
+            if not _spinner_active:
+                break
+            print(f"\r{_C(ch, 'cyan')} {_C(msg, 'grey')}   ", end="", flush=True)
+            _time.sleep(0.08)
+        print("\r" + " " * (len(msg) + 6) + "\r", end="", flush=True)
+    _spinner_thread = _threading.Thread(target=_spin, daemon=True)
+    _spinner_thread.start()
+
+def _spinner_stop() -> None:
+    global _spinner_active, _spinner_thread
+    _spinner_active = False
+    if _spinner_thread:
+        _spinner_thread.join(timeout=0.3)
+        _spinner_thread = None
+    print("\r" + " " * 70 + "\r", end="", flush=True)
+
+
 def _print_error(exc: Exception, fatal: bool = False) -> None:
     """Display a styled error message instead of a raw traceback."""
     import traceback
@@ -298,6 +338,177 @@ def _print_error(exc: Exception, fatal: bool = False) -> None:
     print()
 
 
+def _select_menu(label: str, options: list[str], default_idx: int = 0) -> str:
+    """
+    Arrow-key interactive menu. Returns selected item.
+    Works on Windows (msvcrt) and Unix (tty/termios).
+    Falls back to plain input if terminal is not interactive.
+    """
+    import os, sys
+    try:
+        if not os.isatty(sys.stdin.fileno()):
+            raise OSError("not a tty")
+    except Exception:
+        # Non-interactive: just use _prompt
+        return _prompt(label, default=options[default_idx] if options else "", choices=options)
+
+    idx = default_idx
+
+    def _draw(idx):
+        print(f"  {_C(label, 'cyan', 'bold')}", flush=True)
+        for i, opt in enumerate(options):
+            if i == idx:
+                print(f"  {_C('❯', 'yellow')} {_C(opt, 'white', 'bold')}", flush=True)
+            else:
+                print(f"    {_C(opt, 'grey')}", flush=True)
+
+    def _clear(n):
+        # Move cursor up n lines and clear them
+        for _ in range(n + 1):
+            sys.stdout.write("\033[1A\033[2K")
+        sys.stdout.flush()
+
+    _draw(idx)
+
+    if sys.platform == "win32":
+        import msvcrt
+        while True:
+            ch = msvcrt.getch()
+            if ch in (b"\xe0", b"\x00"):
+                arrow = msvcrt.getch()
+                if arrow == b"H" and idx > 0:            # Up
+                    idx -= 1
+                elif arrow == b"P" and idx < len(options) - 1:  # Down
+                    idx += 1
+            elif ch == b"\r":  # Enter
+                break
+            _clear(len(options))
+            _draw(idx)
+    else:
+        import tty, termios
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            while True:
+                ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    seq = sys.stdin.read(2)
+                    if seq == "[A" and idx > 0:        # Up
+                        idx -= 1
+                    elif seq == "[B" and idx < len(options) - 1:  # Down
+                        idx += 1
+                elif ch in ("\r", "\n"):
+                    break
+                elif ch == "\x03":
+                    raise KeyboardInterrupt
+                _clear(len(options))
+                _draw(idx)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    # Print final confirmed selection
+    _clear(len(options))
+    print(f"  {_C(label, 'cyan')}  {_C('❯', 'yellow')} {_C(options[idx], 'white', 'bold')}", flush=True)
+    return options[idx]
+
+
+def _render_md(text: str) -> str:
+    """
+    Convert Markdown to ANSI-styled plain text.
+    Handles: headings, bold, italic, code, tables, hr, bullet/numbered lists.
+    """
+    import re, shutil
+    tw = shutil.get_terminal_size((100, 24)).columns - 6  # usable width inside box
+
+    def _inline(s: str) -> str:
+        """Apply inline formatting (bold/italic/code)."""
+        s = re.sub(r"\*\*(.+?)\*\*", lambda m: _C(m.group(1), "white", "bold"), s)
+        s = re.sub(r"\*(.+?)\*",     lambda m: _C(m.group(1), "white"), s)
+        s = re.sub(r"`([^`]+)`",     lambda m: _C(m.group(1), "cyan"), s)
+        return s
+
+    lines = text.splitlines()
+    out = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # ── Heading (# / ## / ###) ────────────────────────────────────────────
+        m = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if m:
+            level = len(m.group(1))
+            title = _inline(m.group(2))
+            if level == 1:
+                out.append(_C(title, "yellow", "bold"))
+                out.append(_C("─" * min(len(m.group(2)) + 2, tw), "gold"))
+            elif level == 2:
+                out.append(_C("  " + title, "yellow", "bold"))
+            else:
+                out.append(_C("    " + title, "cyan", "bold"))
+            i += 1
+            continue
+
+        # ── Horizontal rule (---  or  ===) ───────────────────────────────────
+        if re.match(r"^[-=]{3,}\s*$", stripped):
+            out.append(_C("─" * tw, "grey"))
+            i += 1
+            continue
+
+        # ── Markdown table  (|...|...|) ───────────────────────────────────────
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                table_lines.append(lines[i].strip())
+                i += 1
+            # Filter out separator rows (|---|---|)
+            data_rows = [r for r in table_lines if not re.match(r"^\|[-| :]+\|$", r)]
+            if data_rows:
+                # Parse cells
+                rows = [[c.strip() for c in r.strip("|").split("|")] for r in data_rows]
+                n_cols = max(len(r) for r in rows)
+                rows = [r + [""] * (n_cols - len(r)) for r in rows]
+                col_w = [max(len(re.sub(r"\x1b\[[^m]*m", "", c)) for c in col) for col in zip(*rows)]
+                # Header separator
+                sep = _C("  " + "┼".join("─" * (w + 2) for w in col_w), "grey")
+                for ri, row in enumerate(rows):
+                    cells = []
+                    for ci, cell in enumerate(row):
+                        plain = re.sub(r"\x1b\[[^m]*m", "", cell)
+                        pad = col_w[ci] - len(plain)
+                        cells.append(" " + _inline(cell) + " " * (pad + 1))
+                    styled_row = _C("  │", "grey") + _C("│", "grey").join(cells) + _C("│", "grey")
+                    if ri == 0:
+                        out.append(_C("  " + "┬".join("─" * (w + 2) for w in col_w), "grey"))
+                    out.append(styled_row)
+                    if ri == 0:
+                        out.append(sep)
+                out.append(_C("  " + "┴".join("─" * (w + 2) for w in col_w), "grey"))
+            continue
+
+        # ── Bullet list (- item  or  * item) ─────────────────────────────────
+        m = re.match(r"^[-*]\s+(.+)$", stripped)
+        if m:
+            out.append(_C("  • ", "yellow") + _inline(m.group(1)))
+            i += 1
+            continue
+
+        # ── Numbered list (1. item) ────────────────────────────────────────────
+        m = re.match(r"^(\d+)\.\s+(.+)$", stripped)
+        if m:
+            out.append(_C(f"  {m.group(1)}. ", "yellow") + _inline(m.group(2)))
+            i += 1
+            continue
+
+        # ── Normal text ───────────────────────────────────────────────────────
+        out.append(_inline(stripped) if stripped else "")
+        i += 1
+
+    return "\n".join(out)
+
+
 def _prompt(label: str, default: str = "", choices: list = None) -> str:
     hint = _C(f" [{default}]", "grey") if default else ""
     if choices:
@@ -318,15 +529,53 @@ def _prompt_secret(label: str) -> str:
 
 
 def _plain_cli(agent, cfg: dict) -> None:
+    import time, shutil
     _print_banner(cfg)
+
+    session_start = time.time()
+    total_tokens = 0
+
+    # Token limits per provider (rough estimates)
+    _TOKEN_LIMITS = {
+        "deepseek": 64_000, "openai": 128_000, "anthropic": 200_000,
+        "gemini": 1_000_000, "ollama": 32_000,
+    }
+    provider_name = cfg.get("provider", "")
+    model_name = cfg.get("model") or provider_name
+    token_limit = _TOKEN_LIMITS.get(provider_name, 32_000)
+
+    def _status_bar():
+        elapsed = int(time.time() - session_start)
+        h, m = divmod(elapsed // 60, 60)
+        s_time = f"{h}h {m:02d}m" if h else f"{m}m"
+        pct = min(100, int(total_tokens / token_limit * 100))
+        bar_w = 12
+        filled = int(bar_w * pct / 100)
+        bar = "█" * filled + "░" * (bar_w - filled)
+        tok_str = f"{total_tokens//1000}K/{token_limit//1000}K" if total_tokens >= 1000 else f"{total_tokens}/{token_limit//1000}K"
+        tw = shutil.get_terminal_size((100, 24)).columns
+        line = (
+            f"  {_C(model_name, 'cyan')}  {_C('│', 'grey')}  "
+            f"{_C(tok_str, 'white')}  {_C('│', 'grey')}  "
+            f"[{_C(bar, 'green' if pct < 70 else 'yellow' if pct < 90 else 'red')}]  "
+            f"{_C(f'{pct}%', 'grey')}  {_C('│', 'grey')}  "
+            f"{_C(s_time, 'grey')}"
+        )
+        print(_C("─" * tw, "grey"))
+        print(line)
+        print(_C("─" * tw, "grey"))
+
     while True:
         try:
-            user_input = input(_C("\n  You  › ", "cyan", "bold")).strip()
+            user_input = input(
+                _C("\n  ● ", "yellow", "bold") + _C("You  › ", "cyan", "bold")
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             _hr()
             print(_C("\n  Goodbye! 👋\n", "yellow"))
             _hr()
             break
+
         if not user_input:
             continue
         if user_input.lower() in ("exit", "quit"):
@@ -336,6 +585,7 @@ def _plain_cli(agent, cfg: dict) -> None:
             break
         if user_input == "/reset":
             agent.reset()
+            total_tokens = 0
             print(_C("  ✓  Chat reset.\n", "green"))
             continue
         if user_input == "/kanban":
@@ -351,16 +601,91 @@ def _plain_cli(agent, cfg: dict) -> None:
         if user_input in ("/help", "/?"):
             _print_inline_help()
             continue
-        print(_C("  Koza › ", "yellow", "bold"), end="", flush=True)
+
+        # Rough token estimate for user message (4 chars ≈ 1 token)
+        total_tokens += max(1, len(user_input) // 4)
+
+        # ── Streaming response with live status ──────────────────────────────
+        t_start = time.time()
+        text_started = False
+        full_response = ""
+
         try:
-            for token in agent.stream_chat(user_input):
-                print(token, end="", flush=True)
-            print()
+            for event in agent.stream_chat(user_input):
+                if not isinstance(event, dict):
+                    continue
+
+                etype = event.get("type")
+
+                if etype == "thinking":
+                    if not text_started:
+                        _spinner_start("  Koza is thinking…")
+
+                elif etype == "tool_start":
+                    _spinner_stop()
+                    name = event["name"]
+                    args = event.get("args", {})
+                    arg_str = ", ".join(f"{k}={repr(v)}" for k, v in list(args.items())[:2])
+                    print(
+                        _C(f"  ⚙  {name}", "cyan") +
+                        (_C(f"  ({arg_str})", "grey") if arg_str else ""),
+                        flush=True
+                    )
+                    _spinner_start(f"  Running {name}…")
+
+                elif etype == "tool_done":
+                    _spinner_stop()
+                    name = event["name"]
+                    elapsed = event.get("elapsed", 0)
+                    result = str(event.get("result", ""))
+                    lines = [l for l in result.splitlines() if l.strip()]
+                    summary = lines[0][:80] + ("…" if len(lines[0]) > 80 else "") if lines else "(no output)"
+                    extra = _C(f"  +{len(lines)-1} lines", "grey") if len(lines) > 1 else ""
+                    print(
+                        _C(f"  ✓  {name}", "green") +
+                        _C(f"  {elapsed:.2f}s", "grey") +
+                        _C(f"  → {summary}", "white") + extra,
+                        flush=True
+                    )
+
+                elif etype == "text":
+                    token = event.get("token", "")
+                    if not text_started:
+                        _spinner_stop()
+                        text_started = True
+                    full_response += token
+                    total_tokens += max(1, len(token) // 4)
+
         except KeyboardInterrupt:
+            _spinner_stop()
             print(_C("\n  (interrupted)", "grey"))
+            continue
         except Exception as exc:
-            print()  # newline after partial output
+            _spinner_stop()
+            print()
             _print_error(exc)
+            continue
+
+        _spinner_stop()
+        if text_started and full_response.strip():
+            elapsed = time.time() - t_start
+            tw = shutil.get_terminal_size((100, 24)).columns
+            # ── Render buffered response with markdown ────────────────────────
+            rendered_lines = _render_md(full_response).splitlines()
+            print()
+            print(_C("  ╭─ Koza ", "yellow", "bold") + _C("─" * (tw - 10), "gold"))
+            for rline in rendered_lines:
+                # Strip ANSI to measure actual display length for padding
+                import re as _re
+                plain_len = len(_re.sub(r"\x1b\[[^m]*m", "", rline))
+                if plain_len == 0 and not rline.strip():
+                    print(_C("  │", "yellow"))
+                else:
+                    print(_C("  │ ", "yellow") + rline)
+            print(_C("  ╰─", "yellow") + _C(f"  {elapsed:.1f}s", "grey"))
+            print()
+            _status_bar()
+        print()
 
 
 # ── Banner & colours ──────────────────────────────────────────────────────────
