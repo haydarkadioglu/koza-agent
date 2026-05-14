@@ -8,7 +8,7 @@ from skills import (
     agents, creative, datascience, devops, email_skill, finance,
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
-    session_memory,
+    session_memory, messaging,
 )
 
 SYSTEM_PROMPT = """You are Hermes, a powerful AI assistant with access to tools.
@@ -44,6 +44,7 @@ ALL_TOOLS = (
     + smarthome.TOOL_DEFINITIONS
     + social.TOOL_DEFINITIONS
     + session_memory.TOOL_DEFINITIONS
+    + messaging.TOOL_DEFINITIONS
 )
 
 ALL_HANDLERS: dict[str, Callable] = {
@@ -72,6 +73,7 @@ ALL_HANDLERS: dict[str, Callable] = {
     **smarthome.HANDLERS,
     **social.HANDLERS,
     **session_memory.HANDLERS,
+    **messaging.HANDLERS,
 }
 
 
@@ -93,6 +95,7 @@ class Agent:
             notes.init_notes(cfg.get("vault_path", ""))
             gh_token = cfg.get("providers", {}).get("github", {}).get("token", "")
             github_skill.init_github(gh_token)
+            messaging.init_messaging(cfg)
 
     def chat(self, user_input: str) -> str:
         """Send a user message, run tool loop, return final response."""

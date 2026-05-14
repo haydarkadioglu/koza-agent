@@ -14,13 +14,20 @@ def default_config() -> dict:
         "provider": "ollama",
         "model": "",
         "providers": {
-            "openai": {"api_key": "", "base_url": "https://api.openai.com/v1"},
-            "anthropic": {"api_key": ""},
-            "deepseek": {"api_key": "", "base_url": "https://api.deepseek.com/v1"},
-            "gemini": {"api_key": ""},
-            "ollama": {"base_url": "http://localhost:11434"},
+            "openai":     {"api_key": "", "base_url": "https://api.openai.com/v1"},
+            "anthropic":  {"api_key": ""},
+            "deepseek":   {"api_key": "", "base_url": "https://api.deepseek.com/v1"},
+            "gemini":     {"api_key": ""},
+            "ollama":     {"base_url": "http://localhost:11434"},
+            "github":     {"token": ""},
         },
-        "db_path": str(Path.home() / ".hermes" / "hermes.db"),
+        "messaging": {
+            "telegram":  {"token": "", "chat_id": ""},
+            "discord":   {"webhook_url": "", "token": "", "channel_id": ""},
+            "whatsapp":  {"account_sid": "", "auth_token": "", "from": "whatsapp:+14155238886", "to": ""},
+        },
+        "vault_path": str(Path.home() / "notes"),
+        "db_path":    str(Path.home() / ".hermes" / "hermes.db"),
     }
 
 
@@ -38,15 +45,25 @@ def load_config() -> dict:
                 cfg[key] = val
     # ENV overrides
     env_map = {
-        "OPENAI_API_KEY": ("providers", "openai", "api_key"),
-        "ANTHROPIC_API_KEY": ("providers", "anthropic", "api_key"),
-        "DEEPSEEK_API_KEY": ("providers", "deepseek", "api_key"),
-        "GEMINI_API_KEY": ("providers", "gemini", "api_key"),
+        "OPENAI_API_KEY":      ("providers", "openai", "api_key"),
+        "ANTHROPIC_API_KEY":   ("providers", "anthropic", "api_key"),
+        "DEEPSEEK_API_KEY":    ("providers", "deepseek", "api_key"),
+        "GEMINI_API_KEY":      ("providers", "gemini", "api_key"),
+        "GITHUB_TOKEN":        ("providers", "github", "token"),
+        "TELEGRAM_TOKEN":      ("messaging", "telegram", "token"),
+        "TELEGRAM_CHAT_ID":    ("messaging", "telegram", "chat_id"),
+        "DISCORD_WEBHOOK_URL": ("messaging", "discord", "webhook_url"),
+        "DISCORD_TOKEN":       ("messaging", "discord", "token"),
+        "DISCORD_CHANNEL_ID":  ("messaging", "discord", "channel_id"),
+        "TWILIO_ACCOUNT_SID":  ("messaging", "whatsapp", "account_sid"),
+        "TWILIO_AUTH_TOKEN":   ("messaging", "whatsapp", "auth_token"),
+        "WHATSAPP_FROM":       ("messaging", "whatsapp", "from"),
+        "WHATSAPP_TO":         ("messaging", "whatsapp", "to"),
     }
     for env_key, path in env_map.items():
         val = os.getenv(env_key)
         if val:
-            cfg[path[0]][path[1]][path[2]] = val
+            cfg.setdefault(path[0], {}).setdefault(path[1], {})[path[2]] = val
     return cfg
 
 
