@@ -8,7 +8,7 @@ from skills import (
     agents, creative, datascience, devops, email_skill, finance,
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
-    session_memory, messaging,
+    session_memory, messaging, shared_memory,
 )
 
 SYSTEM_PROMPT = """You are Hermes, a powerful AI assistant with access to tools.
@@ -45,6 +45,7 @@ ALL_TOOLS = (
     + social.TOOL_DEFINITIONS
     + session_memory.TOOL_DEFINITIONS
     + messaging.TOOL_DEFINITIONS
+    + shared_memory.TOOL_DEFINITIONS
 )
 
 ALL_HANDLERS: dict[str, Callable] = {
@@ -74,6 +75,7 @@ ALL_HANDLERS: dict[str, Callable] = {
     **social.HANDLERS,
     **session_memory.HANDLERS,
     **messaging.HANDLERS,
+    **shared_memory.HANDLERS,
 }
 
 
@@ -86,6 +88,7 @@ class Agent:
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)
+        shared_memory.init_db(db_path)
         if cfg:
             email_skill.init_email(cfg)
             media.init_media(cfg)
@@ -99,6 +102,7 @@ class Agent:
 
     def chat(self, user_input: str) -> str:
         """Send a user message, run tool loop, return final response."""
+        self._refresh_memory_context(user_input)
         self.messages.append({"role": "user", "content": user_input})
 
         for _ in range(10):  # max tool iterations
@@ -129,6 +133,7 @@ class Agent:
 
     def stream_chat(self, user_input: str):
         """Stream chat — yields text tokens, handles tools internally."""
+        self._refresh_memory_context(user_input)
         self.messages.append({"role": "user", "content": user_input})
 
         # First check if tools are needed (non-streaming probe)
@@ -157,6 +162,20 @@ class Agent:
                 full += token
                 yield token
             self.messages.append({"role": "assistant", "content": full})
+
+    def _refresh_memory_context(self, query: str) -> None:
+        """Update the system prompt with relevant shared memories for this query."""
+        try:
+            mem_ctx = shared_memory.get_relevant_context(query, limit=6)
+            if not mem_ctx:
+                new_system = SYSTEM_PROMPT
+            else:
+                new_system = f"{SYSTEM_PROMPT}\n\n{mem_ctx}"
+            # Update system message in place (always first message)
+            if self.messages and self.messages[0]["role"] == "system":
+                self.messages[0]["content"] = new_system
+        except Exception:
+            pass  # Never break chat due to memory errors
 
     def _execute_tool(self, name: str, args: dict) -> str:
         handler = ALL_HANDLERS.get(name)

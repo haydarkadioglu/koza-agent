@@ -21,13 +21,17 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         sys.path.insert(0, ".")
         from config import load_config
         from providers.factory import get_provider
-        from core import Agent, ALL_TOOLS, ALL_HANDLERS
+        from core import Agent, ALL_TOOLS, ALL_HANDLERS, SYSTEM_PROMPT
+        from skills.shared_memory import init_db as sm_init, get_relevant_context
 
         cfg = load_config()
         if provider:
             cfg["provider"] = provider
         if model:
             cfg["model"] = model
+
+        # Init shared memory so sub-agent can read/write it
+        sm_init(cfg["db_path"])
 
         prov = get_provider(cfg)
 
@@ -39,12 +43,14 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
             tools = ALL_TOOLS
             handlers = ALL_HANDLERS
 
-        # Build a lightweight in-process agent
-        from providers.base import LLMProvider
-        from core import SYSTEM_PROMPT
+        # Build system prompt with injected shared memory context
+        memory_ctx = get_relevant_context(goal, limit=8)
+        system_content = SYSTEM_PROMPT
+        if memory_ctx:
+            system_content = f"{SYSTEM_PROMPT}\n\n{memory_ctx}"
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_content},
             {"role": "user",   "content": goal},
         ]
 
