@@ -5,8 +5,8 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual import on
 
-from ..skills.kanban import list_tasks, create_task, move_task, delete_task, HANDLERS as kanban_handlers
-from ..skills.cron import list_crons
+from skills.kanban import list_tasks, create_task, move_task, delete_task, HANDLERS as kanban_handlers
+from skills.cron import list_crons
 
 
 COLUMN_ORDER = ["todo", "in_progress", "done", "auto"]
@@ -73,7 +73,7 @@ class KanbanApp(App):
     def _render_board(self) -> None:
         import sqlite3
         from pathlib import Path
-        from ..skills.kanban import _db_path, _conn
+        from skills.kanban import _db_path, _conn
 
         for col in COLUMN_ORDER:
             container = self.query_one(f"#col_{col}", Vertical)
@@ -104,7 +104,7 @@ class KanbanApp(App):
 
         # Also add cron jobs to auto column
         try:
-            from ..skills.cron import _db_path as cron_db, _conn as cron_conn
+            from skills.cron import _db_path as cron_db, _conn as cron_conn
             with cron_conn() as conn:
                 cron_rows = conn.execute("SELECT id, name, cron_expr FROM cron_jobs ORDER BY id").fetchall()
             container = self.query_one("#col_auto", Vertical)

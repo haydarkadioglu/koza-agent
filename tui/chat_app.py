@@ -6,7 +6,7 @@ from textual.containers import Container, Vertical, Horizontal
 from textual import on, work
 from textual.reactive import reactive
 
-from ..core import Agent
+from core import Agent
 
 
 class ChatApp(App):
@@ -49,6 +49,8 @@ class ChatApp(App):
         ("ctrl+r", "reset", "Reset chat"),
         ("ctrl+k", "switch_tab('kanban')", "Kanban"),
         ("ctrl+t", "switch_tab('chat')", "Chat"),
+        ("ctrl+s", "save_session", "Save Session"),
+        ("ctrl+h", "show_sessions", "Sessions"),
     ]
 
     status_text: reactive[str] = reactive("Ready")
@@ -106,6 +108,11 @@ class ChatApp(App):
 
         for token in self.agent.stream_chat(text):
             if token.startswith("\n🔧"):
+                # Show "preparing session_search..." style status for recall tools
+                if "recall_sessions" in token:
+                    self.call_from_thread(setattr, self, "status_text", "🔍 preparing session_search...")
+                elif "list_sessions" in token:
+                    self.call_from_thread(setattr, self, "status_text", "📋 recall  session list...")
                 self.call_from_thread(tool_log.write, token)
                 tool_buffer.append(token)
             else:
@@ -123,8 +130,8 @@ class ChatApp(App):
 
     def _refresh_kanban(self) -> None:
         try:
-            from ..skills.kanban import list_tasks
-            from ..skills.cron import list_crons
+            from skills.kanban import list_tasks
+            from skills.cron import list_crons
             log = self.query_one("#kanban_log", RichLog)
             log.clear()
             log.write("[bold cyan]═══ KANBAN BOARD ═══[/]\n")
@@ -135,10 +142,23 @@ class ChatApp(App):
             pass
 
     def action_reset(self) -> None:
+        self.agent.auto_save()  # auto-save before reset
         self.agent.reset()
         self.query_one("#chat_log", RichLog).clear()
-        self.query_one("#chat_log", RichLog).write("[bold cyan]Chat reset.[/]")
+        self.query_one("#chat_log", RichLog).write("[bold cyan]Chat reset. Session auto-saved.[/]")
         self.status_text = "Chat reset"
+
+    def action_save_session(self) -> None:
+        result = self.agent.auto_save()
+        self.status_text = f"💾 {result}"
+        self.query_one("#chat_log", RichLog).write(f"[dim]{result}[/]")
+
+    def action_show_sessions(self) -> None:
+        from skills.session_memory import list_sessions
+        sessions = list_sessions(20)
+        self.query_one("#tool_log", RichLog).write(
+            f"[bold cyan]📁 Session History[/]\n{sessions}"
+        )
 
     def action_switch_tab(self, tab_id: str) -> None:
         try:

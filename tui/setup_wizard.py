@@ -5,7 +5,7 @@ from textual.containers import Container, Vertical, Horizontal
 from textual.screen import Screen
 from textual import on
 
-from ..config import save_config, default_config
+from config import save_config, default_config
 
 PROVIDERS = ["ollama", "openai", "anthropic", "deepseek", "gemini"]
 

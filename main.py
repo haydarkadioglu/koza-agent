@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from agent.config import load_config, config_exists, save_config
+from config import load_config, config_exists, save_config
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
 
     # Setup wizard if first run or --setup flag
     if not config_exists() or args.setup:
-        from agent.tui.setup_wizard import SetupWizard
+        from tui.setup_wizard import SetupWizard
         wizard = SetupWizard()
         result = wizard.run()
         if result is None:
@@ -34,19 +34,19 @@ def main():
         cfg["model"] = args.model
 
     # Build provider and agent
-    from agent.providers.factory import get_provider
-    from agent.core import Agent
+    from providers.factory import get_provider
+    from core import Agent
 
     provider = get_provider(cfg)
-    agent = Agent(provider, db_path=cfg["db_path"])
+    agent = Agent(provider, db_path=cfg["db_path"], cfg=cfg)
 
     # Standalone Kanban view
     if args.kanban:
-        from agent.skills.kanban import init_db
-        from agent.skills.cron import init_db as cron_init_db
+        from skills.kanban import init_db
+        from skills.cron import init_db as cron_init_db
         init_db(cfg["db_path"])
         cron_init_db(cfg["db_path"])
-        from agent.tui.kanban_app import KanbanApp
+        from tui.kanban_app import KanbanApp
         KanbanApp().run()
         return
 
@@ -69,8 +69,8 @@ def main():
                 print("Chat reset.\n")
                 continue
             if user_input == "/kanban":
-                from agent.skills.kanban import list_tasks
-                from agent.skills.cron import list_crons
+                from skills.kanban import list_tasks
+                from skills.cron import list_crons
                 print(list_tasks())
                 print("\n--- CRON JOBS ---")
                 print(list_crons())
@@ -82,7 +82,7 @@ def main():
         return
 
     # Default: full TUI
-    from agent.tui.chat_app import ChatApp
+    from tui.chat_app import ChatApp
     ChatApp(agent).run()
 
 

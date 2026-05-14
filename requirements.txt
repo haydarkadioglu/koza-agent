@@ -3,8 +3,27 @@ openai>=1.30.0
 anthropic>=0.28.0
 google-genai>=0.7.0
 google-auth>=2.29.0
+google-api-python-client>=2.0.0
 requests>=2.31.0
 apscheduler>=3.10.4
 psutil>=5.9.8
 pyyaml>=6.0.1
 python-dotenv>=1.0.1
+
+# Creative
+pyfiglet>=1.0.2
+
+# Media
+yt-dlp>=2024.1.1
+spotipy>=2.24.0
+
+# Research / data
+pandas>=2.0.0
+matplotlib>=3.8.0
+openpyxl>=3.1.0
+
+# Security
+python-whois>=0.9.4
+
+# Smart home
+paho-mqtt>=2.0.0
