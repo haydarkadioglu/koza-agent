@@ -9,7 +9,7 @@
    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
 ```
 
-> A powerful, extensible AI agent that runs entirely in your terminal — with a rich TUI, 99+ tools across 25+ skill categories, dual memory, sub-agents, Telegram bot, and cross-platform scheduling.
+> A powerful, extensible AI agent that runs entirely in your terminal, 99+ tools across 25+ skill categories, dual memory, sub-agents, Telegram bot, and cross-platform scheduling.
 
 ---
 
