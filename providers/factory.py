@@ -2,25 +2,39 @@
 from .base import LLMProvider
 
 
-def get_provider(cfg: dict) -> LLMProvider:
-    provider_name = cfg.get("provider", "ollama")
-    provider_cfg = cfg.get("providers", {}).get(provider_name, {})
-    provider_cfg["model"] = cfg.get("model", "") or provider_cfg.get("model", "")
-
-    if provider_name == "openai":
+def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
+    pcfg = cfg.get("providers", {}).get(name, {})
+    pcfg = {**pcfg, "model": model or pcfg.get("model", "")}
+    if name == "openai":
         from .openai_provider import OpenAIProvider
-        return OpenAIProvider(provider_cfg)
-    elif provider_name == "anthropic":
+        return OpenAIProvider(pcfg)
+    elif name == "anthropic":
         from .anthropic_provider import AnthropicProvider
-        return AnthropicProvider(provider_cfg)
-    elif provider_name == "deepseek":
+        return AnthropicProvider(pcfg)
+    elif name == "deepseek":
         from .deepseek_provider import DeepSeekProvider
-        return DeepSeekProvider(provider_cfg)
-    elif provider_name == "gemini":
+        return DeepSeekProvider(pcfg)
+    elif name == "gemini":
         from .gemini_provider import GeminiProvider
-        return GeminiProvider(provider_cfg)
-    elif provider_name == "ollama":
+        return GeminiProvider(pcfg)
+    elif name == "ollama":
         from .ollama_provider import OllamaProvider
-        return OllamaProvider(provider_cfg)
+        return OllamaProvider(pcfg)
     else:
-        raise ValueError(f"Unknown provider: {provider_name}")
+        raise ValueError(f"Unknown provider: {name}")
+
+
+def get_provider(cfg: dict) -> LLMProvider:
+    primary_name = cfg.get("provider", "ollama")
+    model = cfg.get("model", "")
+    primary = _build_provider(primary_name, cfg, model)
+
+    fallback_name = cfg.get("fallback_provider", "")
+    if fallback_name and fallback_name != primary_name:
+        fallback_model = cfg.get("fallback_model", "")
+        fallback = _build_provider(fallback_name, cfg, fallback_model)
+        from .fallback_provider import FallbackProvider
+        return FallbackProvider(primary, fallback)
+
+    return primary
+
