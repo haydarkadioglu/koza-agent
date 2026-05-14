@@ -1,6 +1,49 @@
-# 🪽 Koza Agent
+# Koza Agent
 
-> A powerful, extensible AI agent that runs entirely in your terminal — with a rich TUI, 96 tools across 25+ skill categories, dual memory, sub-agents, and cross-platform scheduling.
+```
+   ██╗  ██╗ ██████╗ ███████╗ █████╗
+   ██║ ██╔╝██╔═══██╗╚══███╔╝██╔══██╗
+   █████╔╝ ██║   ██║  ███╔╝ ███████║
+   ██╔═██╗ ██║   ██║ ███╔╝  ██╔══██║
+   ██║  ██╗╚██████╔╝███████╗██║  ██║
+   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
+```
+
+> A powerful, extensible AI agent that runs entirely in your terminal — with a rich TUI, 99+ tools across 25+ skill categories, dual memory, sub-agents, Telegram bot, and cross-platform scheduling.
+
+---
+
+## Quick Install
+
+### Linux / macOS — one-liner
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.sh | bash
+```
+
+The script will:
+- Clone the repo to `~/.koza-agent/`
+- Create a virtual environment automatically
+- Install all dependencies
+- Add the `koza` command to your PATH (`/usr/local/bin` or `~/.local/bin`)
+- On re-run: updates the existing install (`git pull`)
+
+> **Requirements:** Python 3.11+, git  
+> macOS: `brew install python@3.12 git` · Debian/Ubuntu: `sudo apt install python3.12 git`
+
+### Manual (all platforms)
+
+```bash
+# Clone and install (creates the `koza` command globally)
+git clone https://github.com/haydarkadioglu/koza-agent.git
+cd koza-agent
+pip install -e .
+
+# Launch — setup wizard runs on first start
+koza
+```
+
+> **Note:** Python 3.11+ required. Using a `venv` is recommended.
 
 ---
 
@@ -8,60 +51,71 @@
 
 | Category | What it does |
 |---|---|
-| **Multi-LLM** | OpenAI, Anthropic, DeepSeek, Gemini, Ollama (local) |
+| **Multi-LLM** | OpenAI, Anthropic, DeepSeek, Gemini, Ollama (local), GitHub Models |
 | **Rich TUI** | Textual-based chat UI, setup wizard, and Kanban board — navigate with arrow keys |
-| **96 Tools** | Files, shell, web, code runner, GitHub, research, crypto, smart home, media, and more |
+| **99+ Tools** | Files, shell, web, code runner, GitHub, research, crypto, smart home, media, and more |
 | **Kanban + Cron** | Task management board + scheduled jobs (syncs to OS crontab / Windows Task Scheduler) |
 | **Dual Memory** | Working memory (short-term ring buffer) + Permanent shared memory (cross-session SQLite) |
 | **Sub-agents** | Spawn autonomous sub-agents with their own tool loops in background threads |
-| **Messaging** | Send/receive via Telegram, Discord, WhatsApp (Twilio) |
+| **Messaging** | Telegram bot (auto-start, owner registration), Discord, WhatsApp (Twilio) |
+| **Config via Chat** | Tell Koza your API keys directly — it saves them without you touching config files |
 | **Session Recall** | Every conversation is saved and searchable across sessions |
-
----
-
-## Quick Start
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Run — setup wizard launches on first start
-python main.py
-```
 
 ---
 
 ## Commands
 
 ```bash
-python main.py              # Launch TUI (runs setup wizard on first start)
-python main.py setup        # Re-run setup wizard (providers, API keys)
-python main.py config       # Show current configuration (keys masked)
-python main.py kanban       # Open Kanban board
-python main.py start --plain  # Plain terminal mode (no TUI)
-python main.py uninstall    # Remove ~/.koza config and database
-python main.py help         # Show all commands
+koza              # Launch (setup wizard on first start)
+koza setup        # Re-run setup wizard
+koza config       # Show current configuration (keys masked)
+koza kanban       # Open Kanban board
+koza telegram     # Configure & start Telegram bot
+koza version      # Show version
+koza help         # Show all commands
 ```
 
 ---
 
 ## Configuration
 
-Config file: `~/.koza/config.yaml`  
-Database:    `~/.koza/koza.db`
+Config file: `~/.Koza/config.yaml`  
+Database:    `~/.Koza/koza.db`
 
-You can also set API keys via environment variables or a `.env` file (see `.env.example`):
+### Configure via chat (recommended)
+
+Just tell Koza what you want to set:
+
+```
+"deepseek api keyim sk-abc123"
+"openai modelini gpt-4o-mini yap"
+"telegram tokenım 1234567:ABC..."
+"hangi provider kullanılıyor"
+```
+
+### Environment variables / `.env` file
 
 ```env
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 DEEPSEEK_API_KEY=...
 GEMINI_API_KEY=...
+GITHUB_TOKEN=ghp-...
 TELEGRAM_TOKEN=...
 TELEGRAM_CHAT_ID=...
 DISCORD_WEBHOOK_URL=...
-GITHUB_TOKEN=...
 ```
+
+### Supported providers
+
+| Provider | Config key | Notes |
+|---|---|---|
+| `openai` | `providers.openai.api_key` | GPT-4o, o1, etc. |
+| `anthropic` | `providers.anthropic.api_key` | Claude 3.5 Sonnet, etc. |
+| `deepseek` | `providers.deepseek.api_key` | deepseek-chat, deepseek-reasoner |
+| `gemini` | `providers.gemini.api_key` | Gemini 2.0 Flash, etc. |
+| `ollama` | `providers.ollama.base_url` | Local models (default: localhost:11434) |
+| `github` | `providers.github.token` | GitHub Models (free tier via GitHub token) |
 
 ---
 
@@ -69,79 +123,71 @@ GITHUB_TOKEN=...
 
 ```
 koza-agent/
-├── main.py                     # Entry point + CLI command dispatch
+├── koza_run.py                 # CLI entry point (koza command)
 ├── core.py                     # Agent loop (tool-calling orchestration)
 ├── config.py                   # Config load/save + ENV overrides
+├── prompt.py                   # System prompt (unrestricted, cross-platform)
+├── tg_bot.py                   # Telegram bot (auto-start on koza launch)
+├── pyproject.toml              # Package config (installs `koza` command)
 ├── requirements.txt
 │
 ├── providers/                  # LLM backends
-│   ├── base.py
 │   ├── factory.py
 │   ├── openai_provider.py
 │   ├── anthropic_provider.py
 │   ├── deepseek_provider.py
 │   ├── gemini_provider.py
-│   └── ollama_provider.py
+│   ├── ollama_provider.py
+│   └── github_provider.py     # GitHub Models (OpenAI-compatible)
 │
-├── skills/                     # Tool skill modules (96 tools total)
-│   ├── filesystem.py           # read/write/list/delete files
-│   ├── shell.py                # run shell commands (pwsh/bash)
-│   ├── web.py                  # web search + URL fetch
-│   ├── code_runner.py          # run Python / Node / scripts
-│   ├── system_info.py          # OS info, env vars, processes
-│   ├── kanban.py               # Kanban task management
-│   ├── cron.py                 # Cron job orchestrator (thin)
-│   ├── cron_db.py              # Cron SQLite layer
-│   ├── cron_scheduler.py       # APScheduler + OS sync
-│   ├── session_memory.py       # Per-session conversation recall
-│   ├── shared_memory.py        # Permanent cross-session memory
-│   ├── working_memory.py       # Short-term ring buffer (last 20 events)
-│   ├── agents/                 # Sub-agent engine (package)
-│   │   ├── __init__.py         # spawn/status/list tools
-│   │   ├── runner.py           # background thread runner
-│   │   └── _registry.py       # in-memory agent registry
-│   ├── messaging/              # Messaging integrations (package)
-│   │   ├── __init__.py         # unified router + tools
-│   │   ├── telegram.py
-│   │   ├── discord.py
-│   │   └── whatsapp.py
-│   ├── creative.py             # ASCII art, diagrams, image gen
-│   ├── datascience.py          # Jupyter, pandas, matplotlib
-│   ├── devops.py               # Git, Docker, webhooks
-│   ├── email_skill.py          # Send/read email (SMTP/IMAP)
-│   ├── finance.py              # Crypto + stock prices
-│   ├── gaming.py               # Minecraft, Pokémon
-│   ├── github_skill.py         # GitHub API (search, issues, PRs)
-│   ├── mcp_skill.py            # MCP tool bridge
-│   ├── media.py                # Spotify, YouTube, GIFs
-│   ├── mlops.py                # HuggingFace, evals, benchmarks
-│   ├── notes.py                # Obsidian / markdown vault
-│   ├── productivity.py         # Google Calendar, Sheets, Airtable
-│   ├── research.py             # arXiv, Wikipedia, Polymarket
-│   ├── security.py             # Port scan, SSL, WHOIS, headers
-│   ├── smarthome.py            # Philips Hue, MQTT, Home Assistant
-│   └── social.py               # Twitter/X, Reddit, Mastodon
+├── skills/                     # Tool skill modules (99+ tools)
+│   ├── config_manager.py       # get_config / set_config / delete_config
+│   ├── filesystem.py
+│   ├── shell.py
+│   ├── web.py
+│   ├── code_runner.py
+│   ├── system_info.py
+│   ├── kanban.py
+│   ├── cron.py
+│   ├── session_memory.py
+│   ├── shared_memory.py
+│   ├── working_memory.py
+│   ├── agents.py               # Sub-agents
+│   ├── messaging.py            # Telegram, Discord, WhatsApp
+│   ├── creative.py
+│   ├── datascience.py
+│   ├── devops.py
+│   ├── email_skill.py
+│   ├── finance.py
+│   ├── gaming.py
+│   ├── github_skill.py
+│   ├── media.py
+│   ├── mlops.py
+│   ├── notes.py
+│   ├── productivity.py
+│   ├── research.py
+│   ├── security.py
+│   ├── smarthome.py
+│   └── social.py
 │
 ├── tools/
 │   └── registry.py             # ALL_TOOLS + ALL_HANDLERS assembly
 │
 └── tui/
-    ├── setup_wizard.py         # First-run setup (Textual)
-    ├── chat_app.py             # Main chat interface
-    └── kanban_app.py           # Kanban board
+    ├── setup_wizard.py
+    ├── chat_app.py
+    └── kanban_app.py
 ```
 
 ---
 
 ## Documentation
 
-Detailed guides live in the [`docs/`](docs/) folder:
-
 | Guide | Description |
 |---|---|
 | [Installation](docs/installation.md) | Full install, venv setup, optional deps |
 | [Configuration](docs/configuration.md) | All config keys, ENV vars, provider setup |
-| [Skills & Tools](docs/skills.md) | All 96 tools listed by category |
+| [Skills & Tools](docs/skills.md) | All tools listed by category |
 | [Memory System](docs/memory.md) | Working memory + permanent memory architecture |
 | [Sub-agents](docs/subagents.md) | How to spawn and use sub-agents |
 | [Messaging](docs/messaging.md) | Telegram, Discord, WhatsApp setup |

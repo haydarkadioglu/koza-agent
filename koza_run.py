@@ -64,6 +64,16 @@ def cmd_start(args: list[str]) -> None:
         _print_error(exc, fatal=True)
         return
 
+    # Auto-start Telegram bot in background if token is configured
+    if cfg.get("telegram_token"):
+        try:
+            from tg_bot import start_bot_thread
+            started = start_bot_thread(agent, cfg)
+            if started:
+                print(_C("  🤖  Telegram bot arka planda dinleniyor.\n", "grey"))
+        except Exception:
+            pass
+
     _plain_cli(agent, cfg)
 
 
@@ -229,26 +239,38 @@ def cmd_uninstall(args: list[str]) -> None:
 
 
 def cmd_telegram(args: list[str]) -> None:
-    """Start the Koza Telegram bot (polls for messages)."""
+    """Configure and start the Koza Telegram bot (foreground)."""
     from config import load_config, save_config
     cfg = load_config()
-    token = cfg.get("telegram_token", "")
+    token = cfg.get("telegram_token", "").strip()
+
     if not token:
         _hr()
-        print(_C("\n  Telegram bot token gerekli.\n", "yellow"))
-        token = input(_C("  Bot token (BotFather'dan): ", "cyan")).strip()
+        print(_C("\n  🤖  Koza Telegram Bot Kurulumu\n", "bold", "cyan"))
+        print(_C("  1. @BotFather'a git → /newbot → bir isim ver\n", "grey"))
+        print(_C("  2. BotFather'ın verdiği token'ı buraya yapıştır:\n", "grey"))
+        token = input(_C("  Bot token › ", "cyan")).strip()
         if not token:
             print(_C("  ✗  Token girilmedi.\n", "red"))
             return
         cfg["telegram_token"] = token
         save_config(cfg)
-        print(_C("  ✓  Token kaydedildi.\n", "green"))
+        print(_C("\n  ✓  Token kaydedildi.", "green"))
+        print(_C("  İlk mesajı atan kullanıcı otomatik olarak sahip olarak kaydedilecek.\n", "grey"))
         _hr()
 
-    allowed = cfg.get("telegram_allowed_users", [])
+    owner_id = cfg.get("telegram_owner_id")
+    if owner_id:
+        print(_C(f"  👤  Kayıtlı sahip: chat_id={owner_id}", "grey"))
+        reset = input(_C("  Sahip kaydını sıfırla? (e/H) › ", "cyan")).strip().lower()
+        if reset == "e":
+            cfg.pop("telegram_owner_id", None)
+            save_config(cfg)
+            print(_C("  ✓  Sıfırlandı. İlk mesajı atan yeni sahip olacak.\n", "green"))
+
     try:
-        from tg_bot import run_bot
-        run_bot(token, allowed_users=allowed if allowed else None)
+        from tg_bot import run_bot_foreground
+        run_bot_foreground(token=token, cfg=cfg)
     except KeyboardInterrupt:
         print(_C("\n  Telegram bot durduruldu.\n", "grey"))
     except ImportError as e:
@@ -587,8 +609,11 @@ def _plain_cli(agent, cfg: dict) -> None:
     }
     _session_allowed: set[str] = set()
     _permanent_allowed: set[str] = set(cfg.get("allowed_tools", []))
+    _session_allow_all = [False]  # mutable flag for closure
 
     def _ask_permission(name: str, args: dict) -> bool:
+        if _session_allow_all[0]:
+            return True
         if name in _SAFE_TOOLS or name in _session_allowed or name in _permanent_allowed:
             return True
         _spinner_stop()
@@ -602,16 +627,18 @@ def _plain_cli(agent, cfg: dict) -> None:
         try:
             choice = _select_menu(
                 "Allow this tool?",
-                ["Allow (once)", "Allow (this session)", "Allow permanently", "Deny"],
+                ["Allow (this session)", "Allow all tools (this session)", "Allow permanently", "Allow (once)", "Deny"],
                 default_idx=0,
             )
         except (KeyboardInterrupt, EOFError):
             return False
 
-        if choice == "Allow (once)":
-            return True  # allow but don't add to any set
-        elif choice == "Allow (this session)":
+        if choice == "Allow (this session)":
             _session_allowed.add(name)
+            return True
+        elif choice == "Allow all tools (this session)":
+            _session_allow_all[0] = True
+            print(_C("  ✓  Bu oturumda tüm tool'lar otomatik izinli.\n", "green"))
             return True
         elif choice == "Allow permanently":
             _permanent_allowed.add(name)
@@ -624,6 +651,8 @@ def _plain_cli(agent, cfg: dict) -> None:
                 save_config(c)
             except Exception:
                 pass
+            return True
+        elif choice == "Allow (once)":
             return True
         else:
             print(_C(f"  ✗  {name} denied.\n", "red"))
@@ -795,6 +824,7 @@ _LOGO = r"""
 
 # Tool categories for the startup panel
 _TOOL_CATEGORIES = {
+    "config":      ["get_config", "set_config", "delete_config"],
     "filesystem":  ["read_file", "write_file", "list_dir", "delete_file"],
     "shell":       ["run_command"],
     "web":         ["web_search", "fetch_url"],
