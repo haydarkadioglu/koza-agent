@@ -8,12 +8,169 @@ from skills import (
 )
 from tools.registry import ALL_TOOLS, ALL_HANDLERS
 
-SYSTEM_PROMPT = """You are Koza, a powerful AI assistant with access to tools.
-You can read/write files, run shell commands, search the web, execute code,
-manage Kanban tasks, schedule cron jobs, search GitHub, query research papers,
-check crypto/stock prices, control smart home devices, post to social media,
-manage notes, run data science workflows, and much more.
-Always think step by step. Use tools when needed. Be concise but thorough."""
+# How many recent messages to keep in context (system + last N)
+# Older messages are summarized/dropped to save tokens
+MAX_CONTEXT_MESSAGES = 20
+
+SYSTEM_PROMPT = """You are Koza, an autonomous AI agent with access to a rich set of tools.
+
+## Capabilities
+- **Files & Shell**: Read, write, list, delete files; run shell commands (PowerShell / bash)
+- **Web & Research**: Search the web, fetch URLs, query arXiv, Wikipedia, Polymarket
+- **Code**: Execute Python, Node.js, and shell scripts; run Jupyter cells; query data with pandas
+- **Tasks**: Manage Kanban boards (todo/doing/done) and schedule recurring cron jobs
+- **Memory**: Store and recall permanent facts; working memory tracks recent context automatically
+- **Sub-agents**: Spawn autonomous sub-agents to handle parallel or complex sub-tasks
+- **Messaging**: Send/receive messages on Telegram, Discord, WhatsApp
+- **GitHub**: Search code, create issues, manage pull requests, clone repos
+- **Finance**: Real-time crypto and stock prices
+- **Media**: Spotify, YouTube, GIF search and download
+- **Smart Home**: Control Philips Hue, MQTT, Home Assistant
+- **Security**: Port scan, SSL check, WHOIS, HTTP headers
+- **Social**: Search Twitter/X, Reddit; post to Mastodon
+- **Notes**: Create and search markdown notes in your vault
+- **Productivity**: Google Calendar, Sheets, Airtable
+- **Email**: Send and read emails via SMTP/IMAP
+
+## Behavior
+- Think step by step before acting
+- Use tools whenever they help — don't guess when you can look it up
+- After tool results, synthesize and explain clearly
+- If a task is complex, break it down and use sub-agents when parallelism helps
+- Be concise in responses but thorough in execution
+- Never fabricate file contents, command outputs, or API responses"""
+
+# ── Tool selection helpers ────────────────────────────────────────────────────
+# Keywords that hint at which tool categories are needed.
+# If the user message matches none, we send ALL_TOOLS (safe fallback).
+
+_TOOL_GROUPS: dict[str, list[str]] = {
+    "file":       ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
+    "shell":      ["run_command"],
+    "web":        ["web_search", "fetch_url"],
+    "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot"],
+    "kanban":     ["create_task", "list_tasks", "move_task", "update_task", "delete_task"],
+    "cron":       ["create_cron", "list_crons", "delete_cron"],
+    "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
+                   "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
+    "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents"],
+    "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
+                   "discord_send", "discord_get_messages", "whatsapp_send"],
+    "github":     ["github_search_code", "github_create_issue", "github_list_prs",
+                   "github_repo_info", "github_clone_repo"],
+    "finance":    ["crypto_price", "stock_price", "crypto_top"],
+    "media":      ["spotify_search", "youtube_search", "gif_search", "youtube_download"],
+    "system":     ["get_os_info", "get_env_var", "list_processes"],
+    "research":   ["arxiv_search", "wikipedia_search", "polymarket_search"],
+    "security":   ["port_scan", "http_headers_check", "ssl_check", "whois_lookup"],
+    "smarthome":  ["hue_list_lights", "hue_set_light", "mqtt_publish", "home_assistant_call"],
+    "social":     ["twitter_search", "reddit_search", "mastodon_post"],
+    "note":       ["note_create", "note_search", "note_read", "note_list"],
+    "email":      ["send_email", "read_emails"],
+    "devops":     ["git_operation", "docker_run", "webhook_listen"],
+    "creative":   ["ascii_art", "architecture_diagram", "generate_image"],
+    "mlops":      ["run_eval", "model_benchmark", "huggingface_model_info"],
+    "gaming":     ["minecraft_command", "pokemon_lookup"],
+    "mcp":        ["mcp_list_tools", "mcp_call_tool"],
+    "productivity": ["google_calendar_list", "google_calendar_create", "google_sheets_read", "airtable_query"],
+}
+
+_KEYWORD_MAP: dict[str, list[str]] = {
+    # file
+    "file": ["file"], "folder": ["file"], "directory": ["file"], "read": ["file"],
+    "write": ["file"], "delete": ["file"], "list": ["file", "kanban"],
+    # shell
+    "run": ["shell", "code"], "command": ["shell"], "terminal": ["shell"], "powershell": ["shell"],
+    # web
+    "search": ["web", "research"], "google": ["web"], "url": ["web"], "website": ["web"],
+    "browser": ["web"], "fetch": ["web"],
+    # code
+    "python": ["code"], "script": ["code"], "code": ["code"], "execute": ["code", "shell"],
+    "jupyter": ["code"], "pandas": ["code"], "plot": ["code"],
+    # kanban / tasks
+    "task": ["kanban"], "kanban": ["kanban"], "todo": ["kanban"], "doing": ["kanban"],
+    # cron / schedule
+    "schedule": ["cron"], "cron": ["cron"], "every day": ["cron"], "recurring": ["cron"],
+    # memory
+    "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
+    "session": ["memory"],
+    # agents
+    "agent": ["agent"], "subagent": ["agent"], "parallel": ["agent"],
+    # messaging
+    "telegram": ["message"], "discord": ["message"], "whatsapp": ["message"],
+    "send message": ["message"], "message": ["message"],
+    # github
+    "github": ["github"], "git": ["github", "devops"], "repo": ["github"],
+    "pull request": ["github"], "issue": ["github"],
+    # finance
+    "crypto": ["finance"], "bitcoin": ["finance"], "stock": ["finance"], "price": ["finance"],
+    "ethereum": ["finance"],
+    # media
+    "spotify": ["media"], "youtube": ["media"], "gif": ["media"], "music": ["media"],
+    "video": ["media"],
+    # system
+    "system": ["system"], "process": ["system"], "cpu": ["system"], "memory usage": ["system"],
+    # research
+    "arxiv": ["research"], "paper": ["research"], "wikipedia": ["research"], "research": ["research"],
+    # security
+    "port": ["security"], "ssl": ["security"], "whois": ["security"], "scan": ["security"],
+    "security": ["security"],
+    # smarthome
+    "hue": ["smarthome"], "light": ["smarthome"], "mqtt": ["smarthome"],
+    "home assistant": ["smarthome"],
+    # social
+    "twitter": ["social"], "reddit": ["social"], "mastodon": ["social"],
+    # notes
+    "note": ["note"], "obsidian": ["note"], "vault": ["note"], "markdown": ["note"],
+    # email
+    "email": ["email"], "mail": ["email"], "smtp": ["email"],
+    # devops
+    "docker": ["devops"], "container": ["devops"], "webhook": ["devops"],
+    # creative
+    "ascii": ["creative"], "diagram": ["creative"], "image": ["creative"],
+    # mlops
+    "eval": ["mlops"], "benchmark": ["mlops"], "huggingface": ["mlops"], "model": ["mlops"],
+    # gaming
+    "minecraft": ["gaming"], "pokemon": ["gaming"],
+    # productivity
+    "calendar": ["productivity"], "sheets": ["productivity"], "airtable": ["productivity"],
+}
+
+def _tool_name(t: dict) -> str:
+    """Get tool name regardless of nested or flat format."""
+    if "function" in t:
+        return t["function"]["name"]
+    return t.get("name", "")
+
+_TOOL_BY_NAME: dict[str, dict] = {_tool_name(t): t for t in ALL_TOOLS}
+
+
+def _select_tools(user_input: str) -> list[dict]:
+    """
+    Return a targeted subset of tools based on keywords in the user message.
+    Falls back to ALL_TOOLS if no keyword matched or if input is very short/generic.
+    Saves tokens when the intent is narrow.
+    """
+    lower = user_input.lower()
+    groups: set[str] = set()
+    for keyword, grp_list in _KEYWORD_MAP.items():
+        if keyword in lower:
+            groups.update(grp_list)
+
+    if not groups:
+        return ALL_TOOLS  # fallback: send everything
+
+    tool_names: set[str] = set()
+    for g in groups:
+        tool_names.update(_TOOL_GROUPS.get(g, []))
+
+    selected = [t for t in ALL_TOOLS if _tool_name(t) in tool_names]
+    # Always include core memory tools
+    for name in ("wm_add", "memory_store"):
+        if name in _TOOL_BY_NAME and not any(_tool_name(t) == name for t in selected):
+            selected.append(_TOOL_BY_NAME[name])
+
+    return selected if selected else ALL_TOOLS
 
 
 class Agent:
@@ -38,26 +195,33 @@ class Agent:
             github_skill.init_github(gh_token)
             messaging.init_messaging(cfg)
 
+    def _trim_messages(self) -> list[dict]:
+        """
+        Return a windowed view of messages: system prompt + last MAX_CONTEXT_MESSAGES.
+        The full history is still kept in self.messages for auto-save; only the
+        trimmed slice is sent to the LLM.
+        """
+        system = [m for m in self.messages if m.get("role") == "system"]
+        rest = [m for m in self.messages if m.get("role") != "system"]
+        return system + rest[-MAX_CONTEXT_MESSAGES:]
+
     def chat(self, user_input: str) -> str:
         """Send a user message, run tool loop, return final response."""
         self._refresh_memory_context(user_input)
         self.messages.append({"role": "user", "content": user_input})
+        tools = _select_tools(user_input)
 
         for _ in range(10):  # max tool iterations
-            response = self.provider.chat(self.messages, tools=ALL_TOOLS)
+            response = self.provider.chat(self._trim_messages(), tools=tools)
             content = response.get("content")
             tool_calls = response.get("tool_calls")
 
             if not tool_calls:
-                # Final text response
                 if content:
                     self.messages.append({"role": "assistant", "content": content})
                 return content or ""
 
-            # Append assistant message with tool calls
             self.messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
-
-            # Execute each tool call
             for tc in tool_calls:
                 result = self._execute_tool(tc["name"], tc.get("arguments", {}))
                 self.messages.append({
@@ -73,13 +237,13 @@ class Agent:
         """Stream chat — yields text tokens, handles tools internally."""
         self._refresh_memory_context(user_input)
         self.messages.append({"role": "user", "content": user_input})
+        tools = _select_tools(user_input)
 
         # First check if tools are needed (non-streaming probe)
-        response = self.provider.chat(self.messages, tools=ALL_TOOLS)
+        response = self.provider.chat(self._trim_messages(), tools=tools)
         tool_calls = response.get("tool_calls")
 
         if tool_calls:
-            # Execute tools then stream final answer
             self.messages.append({"role": "assistant", "content": response.get("content"), "tool_calls": tool_calls})
             for tc in tool_calls:
                 result = self._execute_tool(tc["name"], tc.get("arguments", {}))
@@ -90,13 +254,11 @@ class Agent:
                     "name": tc["name"],
                     "content": str(result),
                 })
-            # Stream final response
-            for token in self.provider.stream_chat(self.messages):
+            for token in self.provider.stream_chat(self._trim_messages()):
                 yield token
         else:
-            # Pure streaming
             full = ""
-            for token in self.provider.stream_chat(self.messages):
+            for token in self.provider.stream_chat(self._trim_messages()):
                 full += token
                 yield token
             self.messages.append({"role": "assistant", "content": full})

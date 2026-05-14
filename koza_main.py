@@ -96,6 +96,24 @@ def cmd_uninstall(args: list[str]) -> None:
         print("Cancelled.")
 
 
+def cmd_version(args: list[str]) -> None:
+    """Print Koza version."""
+    try:
+        from importlib.metadata import version
+        ver = version("koza")
+    except Exception:
+        # Fallback: read directly from pyproject.toml
+        try:
+            from pathlib import Path
+            import re
+            toml = (Path(__file__).parent / "pyproject.toml").read_text()
+            m = re.search(r'^version\s*=\s*"([^"]+)"', toml, re.MULTILINE)
+            ver = m.group(1) if m else "unknown"
+        except Exception:
+            ver = "unknown"
+    print(f"Koza v{ver}")
+
+
 def cmd_help(args: list[str]) -> None:
     """Print this help text."""
     print("""
@@ -112,6 +130,7 @@ COMMANDS
   setup        Run setup wizard (providers, API keys)
   config       Show current configuration
   kanban       Open Kanban board
+  version      Show Koza version
   uninstall    Remove ~/.koza config and database
   help         Show this help
 
@@ -120,6 +139,7 @@ EXAMPLES
   koza setup
   koza config
   koza kanban
+  koza version
   koza start --plain
   koza uninstall
 """)
@@ -169,6 +189,9 @@ _COMMANDS = {
     "setup":     cmd_setup,
     "config":    cmd_config,
     "kanban":    cmd_kanban,
+    "version":   cmd_version,
+    "--version": cmd_version,
+    "-v":        cmd_version,
     "uninstall": cmd_uninstall,
     "help":      cmd_help,
     "--help":    cmd_help,
