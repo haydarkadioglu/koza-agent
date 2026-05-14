@@ -326,15 +326,62 @@ class Agent:
                     "name": tc["name"],
                     "content": str(result),
                 })
-            # Stream final answer
+            # Stream final answer — pass tools so provider uses structured format
             yield {"type": "thinking"}
-            for token in self.provider.stream_chat(self._trim_messages()):
-                yield {"type": "text", "token": token}
+            full = ""
+            _streaming_tools: dict[int, dict] = {}
+            for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
+                if isinstance(item, dict) and item.get("__tool_chunk__"):
+                    idx = item["index"]
+                    if idx not in _streaming_tools:
+                        _streaming_tools[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
+                    if item.get("name"):
+                        _streaming_tools[idx]["name"] = item["name"]
+                    if item.get("id"):
+                        _streaming_tools[idx]["id"] = item["id"]
+                    _streaming_tools[idx]["args"] += item.get("args_chunk", "")
+                else:
+                    token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                    if token:
+                        full += token
+                        yield {"type": "text", "token": token}
+            if _streaming_tools:
+                import json as _json
+                extra_calls = []
+                for idx, stc in sorted(_streaming_tools.items()):
+                    try:
+                        args_parsed = _json.loads(stc["args"] or "{}")
+                    except Exception:
+                        args_parsed = {}
+                    extra_calls.append({"id": stc["id"] or stc["name"], "name": stc["name"], "arguments": args_parsed})
+                self.messages.append({"role": "assistant", "content": full or None, "tool_calls": extra_calls})
+                for etc in extra_calls:
+                    ename, eargs = etc["name"], etc["arguments"]
+                    if self.permission_callback and not self.permission_callback(ename, eargs):
+                        yield {"type": "tool_denied", "name": ename}
+                        self.messages.append({"role": "tool", "tool_call_id": etc["id"], "name": ename, "content": "Permission denied by user."})
+                        continue
+                    yield {"type": "tool_start", "name": ename, "args": eargs}
+                    t0 = time.time()
+                    result = self._execute_tool(ename, eargs)
+                    yield {"type": "tool_done", "name": ename, "result": result, "elapsed": time.time() - t0}
+                    self.messages.append({"role": "tool", "tool_call_id": etc["id"], "name": ename, "content": str(result)})
+                yield {"type": "thinking"}
+                for item in self.provider.stream_chat(self._trim_messages()):
+                    token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                    if token:
+                        yield {"type": "text", "token": token}
+            elif full:
+                self.messages.append({"role": "assistant", "content": full})
         else:
             full = ""
-            for token in self.provider.stream_chat(self._trim_messages()):
-                full += token
-                yield {"type": "text", "token": token}
+            for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
+                if isinstance(item, dict) and item.get("__tool_chunk__"):
+                    continue
+                token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                if token:
+                    full += token
+                    yield {"type": "text", "token": token}
             self.messages.append({"role": "assistant", "content": full})
 
     def _refresh_memory_context(self, user_input: str) -> None:
