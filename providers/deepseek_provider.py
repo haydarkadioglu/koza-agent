@@ -82,47 +82,23 @@ class DeepSeekProvider(LLMProvider):
                 }
 
         # ── Post-process text: extract any DSML blocks as tool calls ──────────
-        # DSML pattern: <｜｜DSML｜｜tool_calls>...<｜｜DSML｜｜invoke name="X">...</...>
+        # DSML uses fullwidth ｜ (U+FF5C), NOT ASCII |
+        # Patterns must match the actual unicode chars in the bleed-through text
+        _P = "｜"  # U+FF5C fullwidth vertical line
         dsml_pattern = re.compile(
-            r"<\|+DSML\|+tool_calls>(.*?)</\|+DSML\|+tool_calls>",
+            rf"<{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>",
             re.DOTALL
         )
         invoke_pattern = re.compile(
-            r'<\|+DSML\|+invoke\s+name=["\']([^"\']+)["\']>(.*?)</\|+DSML\|+invoke>',
+            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}invoke\s+name=["\']([^"\']+)["\']>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}invoke>',
             re.DOTALL
         )
         param_pattern = re.compile(
-            r'<\|+DSML\|+parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</\|+DSML\|+parameter>',
+            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}parameter>',
             re.DOTALL
         )
 
-        dsml_idx = len(tool_chunks)
-        def _replace_dsml(m):
-            nonlocal dsml_idx
-            block = m.group(1)
-            for inv in invoke_pattern.finditer(block):
-                tool_name = inv.group(1)
-                params = {}
-                for p in param_pattern.finditer(inv.group(2)):
-                    params[p.group(1)] = p.group(2).strip()
-                # Try to cast numeric params
-                for k, v in list(params.items()):
-                    try:
-                        params[k] = int(v)
-                    except (ValueError, TypeError):
-                        try:
-                            params[k] = float(v)
-                        except (ValueError, TypeError):
-                            pass
-                yield {
-                    "__tool_chunk__": True,
-                    "index": dsml_idx,
-                    "id": tool_name,
-                    "name": tool_name,
-                    "args_chunk": json.dumps(params),
-                }
-                dsml_idx += 1
-            return ""
+        dsml_counter = [len(tool_chunks)]  # mutable for closure
 
         # Extract DSML tool calls embedded in text
         dsml_tool_yields = []
@@ -143,11 +119,12 @@ class DeepSeekProvider(LLMProvider):
                             pass
                 dsml_tool_yields.append({
                     "__tool_chunk__": True,
-                    "index": dsml_idx,
+                    "index": dsml_counter[0],
                     "id": tool_name,
                     "name": tool_name,
                     "args_chunk": json.dumps(params),
                 })
+                dsml_counter[0] += 1
             return ""
 
         clean_text = dsml_pattern.sub(_collect_dsml, text_buf).strip()

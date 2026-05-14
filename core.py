@@ -251,108 +251,89 @@ class Agent:
           {"type": "thinking"}                         — waiting for LLM
           {"type": "tool_start", "name": ..., "args": ...}
           {"type": "tool_done",  "name": ..., "result": ..., "elapsed": float}
+          {"type": "tool_denied", "name": ...}
           {"type": "text", "token": ...}               — streamed response token
+
+        Agentic loop: keeps calling tools until the model produces a pure-text
+        response (no more tool calls / DSML bleed-through).
         """
-        import time
+        import time, json as _json
+
         self._refresh_memory_context(user_input)
         self.messages.append({"role": "user", "content": user_input})
         tools = _select_tools(user_input)
 
-        # First pass: check for tool calls
-        yield {"type": "thinking"}
-        response = self.provider.chat(self._trim_messages(), tools=tools)
-        tool_calls = response.get("tool_calls")
-
-        if tool_calls:
-            self.messages.append({
-                "role": "assistant",
-                "content": response.get("content"),
-                "tool_calls": tool_calls,
-            })
-            for tc in tool_calls:
-                name = tc["name"]
-                args = tc.get("arguments", {})
-
-                # ── Permission check ──────────────────────────────────────────
-                if self.permission_callback and not self.permission_callback(name, args):
-                    # User denied — tell the LLM the tool was blocked
-                    yield {"type": "tool_denied", "name": name}
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", name),
-                        "name": name,
-                        "content": "Permission denied by user.",
-                    })
-                    continue
-
-                yield {"type": "tool_start", "name": name, "args": args}
-                t0 = time.time()
-                result = self._execute_tool(name, args)
-                elapsed = time.time() - t0
-                yield {"type": "tool_done", "name": name, "result": result, "elapsed": elapsed}
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", tc["name"]),
-                    "name": tc["name"],
-                    "content": str(result),
-                })
-            # Stream final answer — pass tools so provider uses structured format
+        MAX_ROUNDS = 10  # safety cap
+        for _round in range(MAX_ROUNDS):
             yield {"type": "thinking"}
+
+            # ── Collect the streaming response ──────────────────────────────
             full = ""
-            _streaming_tools: dict[int, dict] = {}
+            _tool_buf: dict[int, dict] = {}
+
             for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
                 if isinstance(item, dict) and item.get("__tool_chunk__"):
                     idx = item["index"]
-                    if idx not in _streaming_tools:
-                        _streaming_tools[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
+                    if idx not in _tool_buf:
+                        _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
                     if item.get("name"):
-                        _streaming_tools[idx]["name"] = item["name"]
+                        _tool_buf[idx]["name"] = item["name"]
                     if item.get("id"):
-                        _streaming_tools[idx]["id"] = item["id"]
-                    _streaming_tools[idx]["args"] += item.get("args_chunk", "")
+                        _tool_buf[idx]["id"] = item["id"]
+                    _tool_buf[idx]["args"] += item.get("args_chunk", "")
                 else:
                     token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
                     if token:
                         full += token
                         yield {"type": "text", "token": token}
-            if _streaming_tools:
-                import json as _json
-                extra_calls = []
-                for idx, stc in sorted(_streaming_tools.items()):
-                    try:
-                        args_parsed = _json.loads(stc["args"] or "{}")
-                    except Exception:
-                        args_parsed = {}
-                    extra_calls.append({"id": stc["id"] or stc["name"], "name": stc["name"], "arguments": args_parsed})
-                self.messages.append({"role": "assistant", "content": full or None, "tool_calls": extra_calls})
-                for etc in extra_calls:
-                    ename, eargs = etc["name"], etc["arguments"]
-                    if self.permission_callback and not self.permission_callback(ename, eargs):
-                        yield {"type": "tool_denied", "name": ename}
-                        self.messages.append({"role": "tool", "tool_call_id": etc["id"], "name": ename, "content": "Permission denied by user."})
-                        continue
-                    yield {"type": "tool_start", "name": ename, "args": eargs}
-                    t0 = time.time()
-                    result = self._execute_tool(ename, eargs)
-                    yield {"type": "tool_done", "name": ename, "result": result, "elapsed": time.time() - t0}
-                    self.messages.append({"role": "tool", "tool_call_id": etc["id"], "name": ename, "content": str(result)})
-                yield {"type": "thinking"}
-                for item in self.provider.stream_chat(self._trim_messages()):
-                    token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
-                    if token:
-                        yield {"type": "text", "token": token}
-            elif full:
+
+            # ── No tool calls → pure text response, done ─────────────────────
+            if not _tool_buf:
                 self.messages.append({"role": "assistant", "content": full})
-        else:
-            full = ""
-            for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
-                if isinstance(item, dict) and item.get("__tool_chunk__"):
+                return
+
+            # ── Build call list from buffered chunks ─────────────────────────
+            calls = []
+            for idx, stc in sorted(_tool_buf.items()):
+                try:
+                    args_parsed = _json.loads(stc["args"] or "{}")
+                except Exception:
+                    args_parsed = {}
+                calls.append({
+                    "id": stc["id"] or stc["name"],
+                    "name": stc["name"],
+                    "arguments": args_parsed,
+                })
+
+            self.messages.append({
+                "role": "assistant",
+                "content": full or None,
+                "tool_calls": calls,
+            })
+
+            # ── Execute each tool call ────────────────────────────────────────
+            for call in calls:
+                name, args = call["name"], call["arguments"]
+                if self.permission_callback and not self.permission_callback(name, args):
+                    yield {"type": "tool_denied", "name": name}
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "name": name,
+                        "content": "Permission denied by user.",
+                    })
                     continue
-                token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
-                if token:
-                    full += token
-                    yield {"type": "text", "token": token}
-            self.messages.append({"role": "assistant", "content": full})
+                yield {"type": "tool_start", "name": name, "args": args}
+                t0 = time.time()
+                result = self._execute_tool(name, args)
+                yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "name": name,
+                    "content": str(result),
+                })
+            # loop → ask model again with tool results
 
     def _refresh_memory_context(self, user_input: str) -> None:
         """
