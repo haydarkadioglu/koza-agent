@@ -49,14 +49,19 @@ def cmd_start(args: list[str]) -> None:
     """Start the Koza plain CLI chat."""
     from config import load_config, config_exists
     if not config_exists():
-        print("No config found. Running setup first...\n")
+        print(_C("  No config found. Running setup first…\n", "grey"))
         cmd_setup([])
 
-    cfg = load_config()
-    from providers.factory import get_provider
-    from core import Agent
-    provider = get_provider(cfg)
-    agent = Agent(provider, db_path=cfg["db_path"], cfg=cfg)
+    try:
+        cfg = load_config()
+        from providers.factory import get_provider
+        from core import Agent
+        provider = get_provider(cfg)
+        agent = Agent(provider, db_path=cfg["db_path"], cfg=cfg)
+    except Exception as exc:
+        _print_error(exc, fatal=True)
+        return
+
     _plain_cli(agent, cfg)
 
 
@@ -262,6 +267,37 @@ def _config_path() -> str:
     return str(Path.home() / ".Koza" / "config.yaml")
 
 
+def _print_error(exc: Exception, fatal: bool = False) -> None:
+    """Display a styled error message instead of a raw traceback."""
+    import traceback
+    etype = type(exc).__name__
+    msg = str(exc)
+
+    # Friendly messages for common API errors
+    hint = ""
+    msg_lower = msg.lower()
+    if "401" in msg or "authentication" in msg_lower or "api key" in msg_lower:
+        hint = "Check your API key in:  koza config  or re-run  koza setup"
+    elif "400" in msg or "bad request" in msg_lower or "deserialize" in msg_lower:
+        hint = "The request was rejected by the provider. Try a different model or check tool format."
+    elif "429" in msg or "rate limit" in msg_lower:
+        hint = "Rate limit hit. Wait a moment and try again, or configure a fallback provider."
+    elif "connection" in msg_lower or "timeout" in msg_lower or "refused" in msg_lower:
+        hint = "Cannot reach the provider. Check your internet / Ollama is running."
+    elif "model" in msg_lower and ("not found" in msg_lower or "does not exist" in msg_lower):
+        hint = "Model not found. Run  koza config  to check the configured model."
+
+    _hr("─", "red")
+    print(_C(f"\n  ✗  {etype}", "red", "bold") + _C(f"  {'(fatal) ' if fatal else ''}","red"))
+    # Trim the message if it's very long
+    display_msg = msg if len(msg) <= 200 else msg[:200] + "…"
+    print(_C(f"  {display_msg}\n", "white"))
+    if hint:
+        print(_C(f"  💡 {hint}\n", "yellow"))
+    _hr("─", "red")
+    print()
+
+
 def _prompt(label: str, default: str = "", choices: list = None) -> str:
     hint = _C(f" [{default}]", "grey") if default else ""
     if choices:
@@ -316,9 +352,15 @@ def _plain_cli(agent, cfg: dict) -> None:
             _print_inline_help()
             continue
         print(_C("  Koza › ", "yellow", "bold"), end="", flush=True)
-        for token in agent.stream_chat(user_input):
-            print(token, end="", flush=True)
-        print()
+        try:
+            for token in agent.stream_chat(user_input):
+                print(token, end="", flush=True)
+            print()
+        except KeyboardInterrupt:
+            print(_C("\n  (interrupted)", "grey"))
+        except Exception as exc:
+            print()  # newline after partial output
+            _print_error(exc)
 
 
 # ── Banner & colours ──────────────────────────────────────────────────────────
@@ -466,21 +508,29 @@ _COMMANDS = {
 
 def main() -> None:
     argv = sys.argv[1:]
-    if not argv:
-        cmd_start([])
-        return
+    try:
+        if not argv:
+            cmd_start([])
+            return
 
-    command = argv[0].lower()
-    rest = argv[1:]
+        command = argv[0].lower()
+        rest = argv[1:]
 
-    handler = _COMMANDS.get(command)
-    if handler:
-        handler(rest)
-    else:
-        _hr()
-        print(_C(f"\n  ✗  Unknown command: {command!r}", "red"))
-        print(_C("  Run  koza help  for usage.\n", "grey"))
-        _hr()
+        handler = _COMMANDS.get(command)
+        if handler:
+            handler(rest)
+        else:
+            _hr()
+            print(_C(f"\n  ✗  Unknown command: {command!r}", "red"))
+            print(_C("  Run  koza help  for usage.\n", "grey"))
+            _hr()
+            sys.exit(1)
+    except KeyboardInterrupt:
+        print(_C("\n  Interrupted.\n", "grey"))
+    except SystemExit:
+        raise  # let sys.exit() pass through
+    except Exception as exc:
+        _print_error(exc, fatal=True)
         sys.exit(1)
 
 

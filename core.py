@@ -203,12 +203,44 @@ class Agent:
     def _trim_messages(self) -> list[dict]:
         """
         Return a windowed view of messages: system prompt + last MAX_CONTEXT_MESSAGES.
-        The full history is still kept in self.messages for auto-save; only the
-        trimmed slice is sent to the LLM.
+        Also normalizes assistant tool_calls and tool result messages to API format.
         """
+        import json
         system = [m for m in self.messages if m.get("role") == "system"]
         rest = [m for m in self.messages if m.get("role") != "system"]
-        return system + rest[-MAX_CONTEXT_MESSAGES:]
+        window = system + rest[-MAX_CONTEXT_MESSAGES:]
+
+        normalized = []
+        for m in window:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                # Ensure tool_calls use the full API format
+                api_tool_calls = []
+                for tc in m["tool_calls"]:
+                    if "function" in tc:
+                        # Already in API format — ensure type is present
+                        api_tool_calls.append({"type": "function", **tc} if "type" not in tc else tc)
+                    else:
+                        # Internal flat format → convert to API format
+                        args = tc.get("arguments", {})
+                        api_tool_calls.append({
+                            "id": tc.get("id", tc.get("name", "")),
+                            "type": "function",
+                            "function": {
+                                "name": tc.get("name", ""),
+                                "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                            },
+                        })
+                m = {**m, "tool_calls": api_tool_calls}
+                # content must be string or None, not missing
+                if "content" not in m:
+                    m = {**m, "content": None}
+            elif m.get("role") == "tool":
+                # Ensure tool result has content as string
+                m = {**m, "content": str(m.get("content", ""))}
+            elif m.get("role") == "assistant" and "content" not in m:
+                m = {**m, "content": ""}
+            normalized.append(m)
+        return normalized
 
     def chat(self, user_input: str) -> str:
         """Send a user message, run tool loop, return final response."""
