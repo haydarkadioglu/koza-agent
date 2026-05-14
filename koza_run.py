@@ -5,9 +5,11 @@ import sys
 # ── ANSI colours (defined first so every function can use _C) ─────────────────
 _ANSI = {
     "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
-    "yellow": "\033[93m", "gold": "\033[33m", "cyan": "\033[96m",
+    "teal": "\033[36m",  "cyan": "\033[96m",
     "green": "\033[92m", "red": "\033[91m", "blue": "\033[94m",
     "white": "\033[97m", "grey": "\033[90m", "magenta": "\033[95m",
+    # legacy aliases kept so nothing breaks
+    "yellow": "\033[36m", "gold": "\033[96m",
 }
 
 def _C(text: str, *styles: str) -> str:
@@ -570,18 +572,19 @@ def _plain_cli(agent, cfg: dict) -> None:
         try:
             choice = _select_menu(
                 "Allow this tool?",
-                ["Allow (this session)", "Allow permanently", "Deny"],
+                ["Allow (once)", "Allow (this session)", "Allow permanently", "Deny"],
                 default_idx=0,
             )
         except (KeyboardInterrupt, EOFError):
             return False
 
-        if choice == "Allow (this session)":
+        if choice == "Allow (once)":
+            return True  # allow but don't add to any set
+        elif choice == "Allow (this session)":
             _session_allowed.add(name)
             return True
         elif choice == "Allow permanently":
             _permanent_allowed.add(name)
-            # Persist to config
             try:
                 from config import load_config, save_config
                 c = load_config()
@@ -810,10 +813,10 @@ def _print_banner(cfg: dict) -> None:
     if fallback:
         header += f"· fallback: {fallback} "
     bar = "─" * max(0, term_w - 2)
-    print(_C(f"\n┌{bar}┐", "gold"))
+    print(_C(f"\n┌{bar}┐", "teal"))
     pad = max(0, term_w - 2 - len(header))
-    print(_C(f"│{header}{' ' * pad}│", "gold"))
-    print(_C(f"└{bar}┘", "gold"))
+    print(_C(f"│{header}{' ' * pad}│", "teal"))
+    print(_C(f"└{bar}┘", "teal"))
 
     # ── Logo + tool panel (side-by-side) ─────────────────────────────────
     logo_lines = _LOGO.split("\n")
@@ -838,7 +841,7 @@ def _print_banner(cfg: dict) -> None:
     for logo_l, panel_l in zip(logo_lines, panel_lines):
         # Pad raw text first, then colour — so terminal width calc stays correct
         padded = f"  {logo_l:<{logo_w}}"
-        print(f"{_C(padded, 'yellow')}  {panel_l}")
+        print(f"{_C(padded, 'teal')}  {panel_l}")
 
     # ── Tool count bar ───────────────────────────────────────────────────
     try:
@@ -848,9 +851,9 @@ def _print_banner(cfg: dict) -> None:
         n_tools = 0
     n_cats = len(_TOOL_CATEGORIES)
     summary = f"  {n_tools} tools · {n_cats} categories · type /help for commands"
-    print(_C("─" * term_w, "gold"))
+    print(_C("─" * term_w, "teal"))
     print(_C(summary, "grey"))
-    print(_C("─" * term_w, "gold"))
+    print(_C("─" * term_w, "teal"))
     print(_C("  Welcome to Koza! Type your message or /help for commands.\n", "green"))
 
 
