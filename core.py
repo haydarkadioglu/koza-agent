@@ -342,10 +342,12 @@ class Agent:
         - Permanent memory → NOT auto-injected; only when agent calls memory_recall/search
         """
         try:
+            from skills.shell import get_cwd as _get_cwd
             wm_ctx = working_memory.wm_get_context()
             new_system = SYSTEM_PROMPT
             if wm_ctx:
                 new_system = f"{SYSTEM_PROMPT}\n\n{wm_ctx}"
+            new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
             if self.messages and self.messages[0]["role"] == "system":
                 self.messages[0]["content"] = new_system
             # Log user input to working memory

@@ -2,6 +2,15 @@
 import os
 import shutil
 from pathlib import Path
+from skills.shell import get_cwd
+
+
+def _resolve(path: str) -> Path:
+    """Resolve path: expand ~, then resolve relative to shell's tracked CWD."""
+    p = Path(os.path.expanduser(path))
+    if not p.is_absolute():
+        p = Path(get_cwd()) / p
+    return p.resolve()
 
 
 TOOL_DEFINITIONS = [
@@ -37,10 +46,15 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "list_dir",
-            "description": "List contents of a directory.",
+            "description": (
+                "List contents of a directory. "
+                "Use '.' or omit for current directory, '~' for home directory, "
+                "or provide an absolute path like 'C:/Users/foo' or '/home/foo'. "
+                "Relative paths are resolved from the current working directory."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "default": "."}},
+                "properties": {"path": {"type": "string", "description": "Directory path. Use '~' for home, '.' for current.", "default": "."}},
                 "required": [],
             },
         },
@@ -77,18 +91,21 @@ TOOL_DEFINITIONS = [
 
 def read_file(path: str) -> str:
     try:
-        return Path(path).read_text(encoding="utf-8")
+        return _resolve(path).read_text(encoding="utf-8")
     except Exception as e:
         return f"ERROR: {e}"
 
 
 def write_file(path: str, content: str, append: bool = False) -> str:
     try:
-        p = Path(path)
+        p = _resolve(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
-        p.write_text(content, encoding="utf-8") if not append else p.open("a", encoding="utf-8").write(content)
-        return f"Written {len(content)} chars to {path}"
+        if append:
+            p.open("a", encoding="utf-8").write(content)
+        else:
+            p.write_text(content, encoding="utf-8")
+        return f"Written {len(content)} chars to {p}"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -96,7 +113,7 @@ def write_file(path: str, content: str, append: bool = False) -> str:
 def list_dir(path: str = ".") -> str:
     try:
         entries = []
-        for entry in sorted(Path(path).iterdir()):
+        for entry in sorted(_resolve(path).iterdir()):
             kind = "DIR " if entry.is_dir() else "FILE"
             entries.append(f"{kind}  {entry.name}")
         return "\n".join(entries) if entries else "(empty)"
@@ -106,15 +123,15 @@ def list_dir(path: str = ".") -> str:
 
 def create_dir(path: str) -> str:
     try:
-        Path(path).mkdir(parents=True, exist_ok=True)
-        return f"Directory created: {path}"
+        _resolve(path).mkdir(parents=True, exist_ok=True)
+        return f"Directory created: {_resolve(path)}"
     except Exception as e:
         return f"ERROR: {e}"
 
 
 def delete_file(path: str, recursive: bool = False) -> str:
     try:
-        p = Path(path)
+        p = _resolve(path)
         if p.is_dir():
             if recursive:
                 shutil.rmtree(p)
@@ -122,7 +139,7 @@ def delete_file(path: str, recursive: bool = False) -> str:
                 p.rmdir()
         else:
             p.unlink()
-        return f"Deleted: {path}"
+        return f"Deleted: {p}"
     except Exception as e:
         return f"ERROR: {e}"
 

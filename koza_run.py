@@ -228,6 +228,33 @@ def cmd_uninstall(args: list[str]) -> None:
         print(_C("  Cancelled.", "grey"))
 
 
+def cmd_telegram(args: list[str]) -> None:
+    """Start the Koza Telegram bot (polls for messages)."""
+    from config import load_config, save_config
+    cfg = load_config()
+    token = cfg.get("telegram_token", "")
+    if not token:
+        _hr()
+        print(_C("\n  Telegram bot token gerekli.\n", "yellow"))
+        token = input(_C("  Bot token (BotFather'dan): ", "cyan")).strip()
+        if not token:
+            print(_C("  ✗  Token girilmedi.\n", "red"))
+            return
+        cfg["telegram_token"] = token
+        save_config(cfg)
+        print(_C("  ✓  Token kaydedildi.\n", "green"))
+        _hr()
+
+    allowed = cfg.get("telegram_allowed_users", [])
+    try:
+        from tg_bot import run_bot
+        run_bot(token, allowed_users=allowed if allowed else None)
+    except KeyboardInterrupt:
+        print(_C("\n  Telegram bot durduruldu.\n", "grey"))
+    except ImportError as e:
+        print(_C(f"\n  ✗  {e}\n  pip install python-telegram-bot\n", "red"))
+
+
 def cmd_version(args: list[str]) -> None:
     """Print Koza version."""
     ver = _get_version()
@@ -247,6 +274,7 @@ def cmd_help(args: list[str]) -> None:
         ("setup",          "Configure provider, API keys, fallback"),
         ("config",         "Show current configuration"),
         ("kanban",         "Show Kanban board and cron jobs"),
+        ("telegram",       "Start Telegram bot (remote chat)"),
         ("version",        "Show Koza version"),
         ("uninstall",      "Remove ~/.Koza config and database"),
         ("help",           "Show this help"),
@@ -304,8 +332,10 @@ def _spinner_stop() -> None:
     global _spinner_active, _spinner_thread
     _spinner_active = False
     if _spinner_thread:
-        _spinner_thread.join(timeout=0.3)
+        _spinner_thread.join(timeout=0.5)
         _spinner_thread = None
+    import time as _t
+    _t.sleep(0.05)  # let terminal settle before next print
     print("\r" + " " * 70 + "\r", end="", flush=True)
 
 
@@ -357,7 +387,6 @@ def _select_menu(label: str, options: list[str], default_idx: int = 0) -> str:
     idx = default_idx
 
     def _draw(idx):
-        print(f"  {_C(label, 'cyan', 'bold')}", flush=True)
         for i, opt in enumerate(options):
             if i == idx:
                 print(f"  {_C('❯', 'yellow')} {_C(opt, 'white', 'bold')}", flush=True)
@@ -365,11 +394,12 @@ def _select_menu(label: str, options: list[str], default_idx: int = 0) -> str:
                 print(f"    {_C(opt, 'grey')}", flush=True)
 
     def _clear(n):
-        # Move cursor up n lines and clear them
-        for _ in range(n + 1):
-            sys.stdout.write("\033[1A\033[2K")
-        sys.stdout.flush()
+        import sys as _sys
+        for _ in range(n):
+            _sys.stdout.write("\033[1A\033[2K")
+        _sys.stdout.flush()
 
+    print(f"  {_C(label, 'cyan', 'bold')}", flush=True)
     _draw(idx)
 
     if sys.platform == "win32":
@@ -600,6 +630,12 @@ def _plain_cli(agent, cfg: dict) -> None:
             return False
 
     agent.permission_callback = _ask_permission
+
+    # Inject launch CWD into the agent's system prompt so model knows where it is
+    from skills.shell import get_cwd as _get_cwd
+    _launch_cwd = _get_cwd()
+    if agent.messages and agent.messages[0]["role"] == "system":
+        agent.messages[0]["content"] += f"\n\n**Current working directory:** `{_launch_cwd}`\nAll relative paths resolve from here. Use run_command with 'cd <path>' to change directory."
 
     def _status_bar():
         elapsed = int(time.time() - session_start)
@@ -878,6 +914,7 @@ _COMMANDS = {
     "setup":     cmd_setup,
     "config":    cmd_config,
     "kanban":    cmd_kanban,
+    "telegram":  cmd_telegram,
     "version":   cmd_version,
     "--version": cmd_version,
     "-v":        cmd_version,

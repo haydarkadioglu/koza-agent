@@ -3,17 +3,36 @@ import os
 import platform
 import subprocess
 
+# Tracks the current working directory across tool calls.
+# Initialized to where the user launched koza from.
+_CWD = os.getcwd()
+
+
+def get_cwd() -> str:
+    return _CWD
+
+
+def set_cwd(path: str) -> None:
+    global _CWD
+    _CWD = os.path.abspath(path)
+
+
 TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Run a shell command and return stdout+stderr. Supports Windows (PowerShell/cmd) and Linux/macOS (bash).",
+            "description": (
+                "Run a shell command and return stdout+stderr. "
+                "Supports Windows (PowerShell/cmd) and Linux/macOS (bash). "
+                "Use 'cwd' to run in a specific directory, or omit to use the current working directory. "
+                "Use 'cd <path>' as the command to change the working directory for future commands."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "The command to run"},
-                    "cwd": {"type": "string", "description": "Working directory", "default": "."},
+                    "cwd": {"type": "string", "description": "Working directory (absolute or relative). Defaults to current directory."},
                     "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
                 },
                 "required": ["command"],
@@ -23,25 +42,45 @@ TOOL_DEFINITIONS = [
 ]
 
 
-def run_command(command: str, cwd: str = ".", timeout: int = 30) -> str:
+def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
+    global _CWD
+
+    # Handle bare 'cd' commands — update our tracked CWD
+    stripped = command.strip()
+    if stripped.lower().startswith("cd ") or stripped.lower() == "cd":
+        parts = stripped.split(None, 1)
+        target = parts[1] if len(parts) > 1 else os.path.expanduser("~")
+        new_dir = os.path.abspath(os.path.join(_CWD, os.path.expanduser(target)))
+        if os.path.isdir(new_dir):
+            _CWD = new_dir
+            return f"Changed directory to: {_CWD}"
+        else:
+            return f"ERROR: Directory not found: {new_dir}"
+
+    effective_cwd = os.path.abspath(os.path.join(_CWD, os.path.expanduser(cwd))) if cwd else _CWD
+
     system = platform.system()
-    if system == "Windows":
-        # Try pwsh first, fall back to cmd
-        try:
+    try:
+        if system == "Windows":
+            try:
+                result = subprocess.run(
+                    ["pwsh", "-NoProfile", "-Command", command],
+                    capture_output=True, text=True, timeout=timeout, cwd=effective_cwd
+                )
+            except FileNotFoundError:
+                result = subprocess.run(
+                    ["cmd", "/c", command],
+                    capture_output=True, text=True, timeout=timeout, cwd=effective_cwd
+                )
+        else:
             result = subprocess.run(
-                ["pwsh", "-NoProfile", "-Command", command],
-                capture_output=True, text=True, timeout=timeout, cwd=cwd
+                ["bash", "-c", command],
+                capture_output=True, text=True, timeout=timeout, cwd=effective_cwd
             )
-        except FileNotFoundError:
-            result = subprocess.run(
-                ["cmd", "/c", command],
-                capture_output=True, text=True, timeout=timeout, cwd=cwd
-            )
-    else:
-        result = subprocess.run(
-            ["bash", "-c", command],
-            capture_output=True, text=True, timeout=timeout, cwd=cwd
-        )
+    except subprocess.TimeoutExpired:
+        return f"ERROR: Command timed out after {timeout}s"
+    except Exception as e:
+        return f"ERROR: {e}"
 
     output = []
     if result.stdout.strip():
