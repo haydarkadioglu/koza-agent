@@ -187,6 +187,8 @@ class Agent:
         self.provider = provider
         self.on_token = on_token
         self.messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # Permission hook: callable(name, args) -> bool  (None = allow all)
+        self.permission_callback: Callable[[str, dict], bool] | None = None
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)
@@ -298,11 +300,26 @@ class Agent:
                 "tool_calls": tool_calls,
             })
             for tc in tool_calls:
-                yield {"type": "tool_start", "name": tc["name"], "args": tc.get("arguments", {})}
+                name = tc["name"]
+                args = tc.get("arguments", {})
+
+                # ── Permission check ──────────────────────────────────────────
+                if self.permission_callback and not self.permission_callback(name, args):
+                    # User denied — tell the LLM the tool was blocked
+                    yield {"type": "tool_denied", "name": name}
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", name),
+                        "name": name,
+                        "content": "Permission denied by user.",
+                    })
+                    continue
+
+                yield {"type": "tool_start", "name": name, "args": args}
                 t0 = time.time()
-                result = self._execute_tool(tc["name"], tc.get("arguments", {}))
+                result = self._execute_tool(name, args)
                 elapsed = time.time() - t0
-                yield {"type": "tool_done", "name": tc["name"], "result": result, "elapsed": elapsed}
+                yield {"type": "tool_done", "name": name, "result": result, "elapsed": elapsed}
                 self.messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", tc["name"]),

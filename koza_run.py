@@ -544,6 +544,60 @@ def _plain_cli(agent, cfg: dict) -> None:
     model_name = cfg.get("model") or provider_name
     token_limit = _TOKEN_LIMITS.get(provider_name, 32_000)
 
+    # ── Tool permission system ────────────────────────────────────────────────
+    # Tools that are always auto-allowed (read-only / non-destructive)
+    _SAFE_TOOLS = {
+        "web_search", "fetch_url", "list_dir", "read_file", "wm_add", "wm_get",
+        "memory_recall", "memory_search", "memory_list", "recall_sessions",
+        "list_sessions", "list_tasks", "list_crons", "list_subagents",
+        "get_subagent_status", "github_search_code", "github_list_prs",
+        "github_repo_info", "pandas_query", "matplotlib_plot",
+    }
+    _session_allowed: set[str] = set()
+    _permanent_allowed: set[str] = set(cfg.get("allowed_tools", []))
+
+    def _ask_permission(name: str, args: dict) -> bool:
+        if name in _SAFE_TOOLS or name in _session_allowed or name in _permanent_allowed:
+            return True
+        _spinner_stop()
+        arg_preview = ", ".join(f"{k}={repr(v)[:40]}" for k, v in list(args.items())[:3])
+        print()
+        print(_C("  ┌─ Permission Required ", "yellow", "bold") + _C("─" * 40, "gold"))
+        print(_C("  │  Tool  : ", "grey") + _C(name, "cyan", "bold"))
+        if arg_preview:
+            print(_C("  │  Args  : ", "grey") + _C(arg_preview, "white"))
+        print(_C("  └" + "─" * 53, "yellow"))
+        try:
+            choice = _select_menu(
+                "Allow this tool?",
+                ["Allow (this session)", "Allow permanently", "Deny"],
+                default_idx=0,
+            )
+        except (KeyboardInterrupt, EOFError):
+            return False
+
+        if choice == "Allow (this session)":
+            _session_allowed.add(name)
+            return True
+        elif choice == "Allow permanently":
+            _permanent_allowed.add(name)
+            # Persist to config
+            try:
+                from config import load_config, save_config
+                c = load_config()
+                existing = set(c.get("allowed_tools", []))
+                existing.add(name)
+                c["allowed_tools"] = sorted(existing)
+                save_config(c)
+            except Exception:
+                pass
+            return True
+        else:
+            print(_C(f"  ✗  {name} denied.\n", "red"))
+            return False
+
+    agent.permission_callback = _ask_permission
+
     def _status_bar():
         elapsed = int(time.time() - session_start)
         h, m = divmod(elapsed // 60, 60)
