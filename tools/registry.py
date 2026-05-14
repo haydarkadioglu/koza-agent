@@ -9,7 +9,21 @@ from skills import (
     session_memory, messaging, shared_memory, working_memory,
 )
 
-ALL_TOOLS: list[dict] = (
+
+def _normalize(tools: list[dict]) -> list[dict]:
+    """Ensure every tool is in OpenAI's nested format: {"type":"function","function":{...}}"""
+    result = []
+    for t in tools:
+        if "function" in t:
+            # Already nested — ensure 'type' field is present
+            result.append({"type": "function", **t} if "type" not in t else t)
+        elif "name" in t:
+            # Flat format — wrap it
+            result.append({"type": "function", "function": t})
+        # Skip anything else (malformed)
+    return result
+
+ALL_TOOLS: list[dict] = _normalize(
     filesystem.TOOL_DEFINITIONS
     + shell.TOOL_DEFINITIONS
     + web.TOOL_DEFINITIONS

@@ -13,6 +13,8 @@ def default_config() -> dict:
     return {
         "provider": "ollama",
         "model": "",
+        "fallback_provider": "",
+        "fallback_model": "",
         "providers": {
             "openai":     {"api_key": "", "base_url": "https://api.openai.com/v1"},
             "anthropic":  {"api_key": ""},
@@ -25,6 +27,19 @@ def default_config() -> dict:
             "telegram":  {"token": "", "chat_id": ""},
             "discord":   {"webhook_url": "", "token": "", "channel_id": ""},
             "whatsapp":  {"account_sid": "", "auth_token": "", "from": "whatsapp:+14155238886", "to": ""},
+        },
+        "social": {
+            "twitter_bearer_token": "",
+            "mastodon_token": "",
+            "mastodon_instance": "https://mastodon.social",
+            "bluesky_handle": "",
+            "bluesky_app_password": "",
+            "linkedin_token": "",
+            "linkedin_person_urn": "",
+            "threads_user_id": "",
+            "threads_token": "",
+            "instagram_user_id": "",
+            "instagram_token": "",
         },
         "vault_path": str(Path.home() / "notes"),
         "db_path":    str(Path.home() / ".Koza" / "koza.db"),

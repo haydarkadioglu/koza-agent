@@ -64,7 +64,9 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "research":   ["arxiv_search", "wikipedia_search", "polymarket_search"],
     "security":   ["port_scan", "http_headers_check", "ssl_check", "whois_lookup"],
     "smarthome":  ["hue_list_lights", "hue_set_light", "mqtt_publish", "home_assistant_call"],
-    "social":     ["twitter_search", "reddit_search", "mastodon_post"],
+    "social":     ["twitter_search", "reddit_search", "mastodon_post",
+                   "bluesky_search", "bluesky_post", "hackernews_top", "hackernews_search",
+                   "linkedin_post", "threads_post", "instagram_post", "instagram_get_profile"],
     "note":       ["note_create", "note_search", "note_read", "note_list"],
     "email":      ["send_email", "read_emails"],
     "devops":     ["git_operation", "docker_run", "webhook_listen"],
@@ -120,6 +122,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "home assistant": ["smarthome"],
     # social
     "twitter": ["social"], "reddit": ["social"], "mastodon": ["social"],
+    "bluesky": ["social"], "bsky": ["social"], "hacker news": ["social"],
+    "hackernews": ["social"], "hn ": ["social"], "linkedin": ["social"],
+    "threads": ["social"], "instagram": ["social"],
     # notes
     "note": ["note"], "obsidian": ["note"], "vault": ["note"], "markdown": ["note"],
     # email
