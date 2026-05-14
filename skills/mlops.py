@@ -117,7 +117,7 @@ def huggingface_model_info(model_id: str) -> str:
     try:
         import urllib.request, json
         url = f"https://huggingface.co/api/models/{model_id}"
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         downloads = data.get("downloads", 0)

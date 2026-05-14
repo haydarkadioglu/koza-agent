@@ -44,7 +44,7 @@ def cmd_config(args: list[str]) -> None:
     """Show current configuration (API keys masked)."""
     from config import load_config, config_exists
     if not config_exists():
-        print("No config file found. Run:  python main.py setup")
+        print("No config file found. Run:  koza setup")
         return
 
     cfg = load_config()
@@ -102,7 +102,7 @@ def cmd_help(args: list[str]) -> None:
 Koza Agent — AI assistant with tools, memory, and TUI
 
 USAGE
-  python main.py [command] [options]
+  koza [command] [options]
 
 COMMANDS
   (none)       Start Koza TUI (default)
@@ -116,12 +116,12 @@ COMMANDS
   help         Show this help
 
 EXAMPLES
-  python main.py
-  python main.py setup
-  python main.py config
-  python main.py kanban
-  python main.py start --plain
-  python main.py uninstall
+  koza
+  koza setup
+  koza config
+  koza kanban
+  koza start --plain
+  koza uninstall
 """)
 
 
@@ -190,7 +190,7 @@ def main() -> None:
         handler(rest)
     else:
         print(f"Unknown command: {command!r}")
-        print("Run  python main.py help  for usage.")
+        print("Run  koza help  for usage.")
         sys.exit(1)
 
 

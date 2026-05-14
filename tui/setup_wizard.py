@@ -99,7 +99,7 @@ class WizardScreen(Screen):
 
 
 class SetupWizard(App):
-    TITLE = "Hermes Agent — Setup"
+    TITLE = "Koza Agent — Setup"
 
     def on_mount(self) -> None:
         self.push_screen(WizardScreen())

@@ -130,7 +130,7 @@ def gif_search(query: str, limit: int = 3) -> str:
         key = _tenor_key or "LIVDSRZULELA"  # Tenor demo key
         encoded = urllib.parse.quote_plus(query)
         url = f"https://tenor.googleapis.com/v2/search?q={encoded}&key={key}&limit={limit}"
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         results = data.get("results", [])

@@ -51,7 +51,7 @@ TOOL_DEFINITIONS = [
 
 
 def _fetch(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode())
 

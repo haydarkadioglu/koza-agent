@@ -1,4 +1,4 @@
-"""Main Chat TUI — Textual-powered interactive chat with Hermes Agent."""
+"""Main Chat TUI — Textual-powered interactive chat with Koza Agent."""
 import threading
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, RichLog, Label, TabbedContent, TabPane
@@ -71,14 +71,14 @@ class ChatApp(App):
                         yield Label("Tool Output", markup=False)
                         yield RichLog(id="tool_log", highlight=True, markup=True, wrap=True)
                 with Horizontal(id="input_bar"):
-                    yield Input(placeholder="Ask Hermes anything...", id="chat_input")
+                    yield Input(placeholder="Ask Koza anything...", id="chat_input")
             with TabPane("📋 Kanban", id="kanban"):
                 yield RichLog(id="kanban_log", highlight=True, markup=True, wrap=True)
         yield Label(id="status_bar")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#chat_log", RichLog).write("[bold cyan]Hermes Agent ready.[/] Type your message below.")
+        self.query_one("#chat_log", RichLog).write("[bold cyan]Koza Agent ready.[/] Type your message below.")
         self._refresh_kanban()
 
     def watch_status_text(self, value: str) -> None:
@@ -120,7 +120,7 @@ class ChatApp(App):
 
         full_response = "".join(response_parts).strip()
         if full_response:
-            self.call_from_thread(chat_log.write, f"[bold green]Hermes:[/] {full_response}")
+            self.call_from_thread(chat_log.write, f"[bold green]Koza:[/] {full_response}")
 
         self.call_from_thread(setattr, self, "status_text", "Ready")
 

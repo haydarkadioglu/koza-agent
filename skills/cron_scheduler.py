@@ -45,7 +45,7 @@ def remove_from_system(job_id: int, name: str, _command: str = "") -> None:
         try:
             result   = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
             existing = result.stdout if result.returncode == 0 else ""
-            marker   = f"# hermes-cron-{job_id}"
+            marker   = f"# koza-cron-{job_id}"
             lines    = [l for l in existing.splitlines() if marker not in l]
             with tempfile.NamedTemporaryFile(mode="w", suffix=".cron", delete=False) as f:
                 f.write("\n".join(lines) + "\n")
@@ -55,7 +55,7 @@ def remove_from_system(job_id: int, name: str, _command: str = "") -> None:
         except Exception:
             pass
     elif system == "Windows":
-        task_name = f"Hermes_{job_id}_{name.replace(' ', '_')}"
+        task_name = f"Koza_{job_id}_{name.replace(' ', '_')}"
         subprocess.run(["schtasks", "/delete", "/f", "/tn", task_name], capture_output=True)
 
 
@@ -63,7 +63,7 @@ def _sync_linux_cron(name: str, command: str, cron_expr: str, job_id: int) -> No
     try:
         result   = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         existing = result.stdout if result.returncode == 0 else ""
-        marker   = f"# hermes-cron-{job_id}"
+        marker   = f"# koza-cron-{job_id}"
         lines    = [l for l in existing.splitlines() if marker not in l]
         lines.append(f"{cron_expr} {command}  {marker}")
         new_crontab = "\n".join(lines) + "\n"
@@ -88,7 +88,7 @@ def _parse_cron_to_windows(cron_expr: str) -> tuple[str, str]:
 
 def _sync_windows_task(name: str, command: str, cron_expr: str, job_id: int) -> None:
     try:
-        task_name     = f"Hermes_{job_id}_{name.replace(' ', '_')}"
+        task_name     = f"Koza_{job_id}_{name.replace(' ', '_')}"
         schedule_type, start_time = _parse_cron_to_windows(cron_expr)
         subprocess.run([
             "schtasks", "/create", "/f",
@@ -112,13 +112,13 @@ def schedule_job(command: str, name: str, cron_expr: str, job_id: int) -> None:
         run_job,
         CronTrigger(minute=minute, hour=hour, day=dom, month=month, day_of_week=dow),
         args=[command, name],
-        id=f"hermes_{job_id}",
+        id=f"Koza_{job_id}",
         replace_existing=True,
     )
 
 
 def unschedule_job(job_id: int) -> None:
     try:
-        get_scheduler().remove_job(f"hermes_{job_id}")
+        get_scheduler().remove_job(f"Koza_{job_id}")
     except Exception:
         pass

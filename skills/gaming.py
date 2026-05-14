@@ -78,7 +78,7 @@ def minecraft_command(command: str, host: str = "localhost", port: int = 25575, 
 def pokemon_lookup(name: str) -> str:
     try:
         url = f"https://pokeapi.co/api/v2/pokemon/{name.lower().strip()}"
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         pname = data["name"].capitalize()

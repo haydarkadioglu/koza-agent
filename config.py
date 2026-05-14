@@ -1,4 +1,4 @@
-"""Hermes Agent — Configuration management."""
+"""Koza Agent — Configuration management."""
 import os
 from pathlib import Path
 import yaml
@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-CONFIG_PATH = Path.home() / ".hermes" / "config.yaml"
+CONFIG_PATH = Path.home() / ".Koza" / "config.yaml"
 
 
 def default_config() -> dict:
@@ -27,7 +27,7 @@ def default_config() -> dict:
             "whatsapp":  {"account_sid": "", "auth_token": "", "from": "whatsapp:+14155238886", "to": ""},
         },
         "vault_path": str(Path.home() / "notes"),
-        "db_path":    str(Path.home() / ".hermes" / "hermes.db"),
+        "db_path":    str(Path.home() / ".Koza" / "koza.db"),
     }
 
 

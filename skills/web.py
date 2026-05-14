@@ -49,7 +49,7 @@ def web_search(query: str, max_results: int = 5) -> str:
     try:
         encoded = urllib.parse.quote_plus(query)
         url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_redirect=1&no_html=1"
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
 
@@ -66,7 +66,7 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 def fetch_url(url: str, max_chars: int = 4000) -> str:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             content_type = resp.headers.get("Content-Type", "")
             raw = resp.read().decode("utf-8", errors="replace")

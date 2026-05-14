@@ -171,7 +171,7 @@ def airtable_query(base_id: str, table_name: str, filter_formula: str = "", max_
         query = urllib.parse.urlencode(params)
         url = f"https://api.airtable.com/v0/{base_id}/{urllib.parse.quote(table_name)}?{query}"
         req = urllib.request.Request(
-            url, headers={"Authorization": f"Bearer {token}", "User-Agent": "HermesAgent/1.0"}
+            url, headers={"Authorization": f"Bearer {token}", "User-Agent": "KozaAgent/1.0"}
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())

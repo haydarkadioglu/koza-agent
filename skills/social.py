@@ -72,7 +72,7 @@ def twitter_search(query: str, limit: int = 10) -> str:
         url = f"https://api.twitter.com/2/tweets/search/recent?query={encoded}&max_results={min(limit,100)}&tweet.fields=created_at,author_id,public_metrics"
         req = urllib.request.Request(
             url,
-            headers={"Authorization": f"Bearer {token}", "User-Agent": "HermesAgent/1.0"}
+            headers={"Authorization": f"Bearer {token}", "User-Agent": "KozaAgent/1.0"}
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
@@ -99,7 +99,7 @@ def reddit_search(query: str, subreddit: str = "", sort: str = "relevance", limi
             url = f"https://www.reddit.com/r/{subreddit}/search.json?q={q}&sort={sort}&limit={limit}&restrict_sr=1"
         else:
             url = f"https://www.reddit.com/search.json?q={q}&sort={sort}&limit={limit}"
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         posts = data.get("data", {}).get("children", [])

@@ -42,7 +42,7 @@ def _mcp_post(server_url: str, method: str, params: dict = None) -> dict:
     req = urllib.request.Request(
         server_url.rstrip("/") + "/",
         data=data,
-        headers={"Content-Type": "application/json", "User-Agent": "HermesAgent/1.0"},
+        headers={"Content-Type": "application/json", "User-Agent": "KozaAgent/1.0"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=15) as resp:

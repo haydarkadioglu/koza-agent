@@ -55,7 +55,7 @@ TOOL_DEFINITIONS = [
 
 
 def _fetch(url: str, headers: dict = None) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0", **(headers or {})})
+    req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0", **(headers or {})})
     with urllib.request.urlopen(req, timeout=15) as resp:
         return resp.read().decode("utf-8", errors="replace")
 

@@ -91,7 +91,7 @@ def init_github(token: str):
 def _gh_request(path: str, method: str = "GET", data: dict = None) -> dict:
     url = f"https://api.github.com{path}"
     headers = {
-        "User-Agent": "HermesAgent/1.0",
+        "User-Agent": "KozaAgent/1.0",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }

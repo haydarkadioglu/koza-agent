@@ -1,7 +1,7 @@
 """Shared Memory — cross-session, cross-agent persistent knowledge store.
 
 All agents (parent + sub-agents, any session) share the same SQLite table
-in hermes.db. Sub-agents automatically load relevant memories into their
+in koza.db. Sub-agents automatically load relevant memories into their
 context when spawned.
 """
 import sqlite3

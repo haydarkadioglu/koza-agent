@@ -13,7 +13,7 @@ def init(cfg_discord: dict) -> None:
     _channel_id = cfg_discord.get("channel_id",  os.getenv("DISCORD_CHANNEL_ID", ""))
 
 
-def send(text: str, channel_id: str = "", username: str = "Hermes") -> str:
+def send(text: str, channel_id: str = "", username: str = "koza") -> str:
     try:
         import requests
     except ImportError:

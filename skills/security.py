@@ -91,7 +91,7 @@ SECURITY_HEADERS = [
 
 def http_headers_check(url: str) -> str:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesAgent/1.0"}, method="HEAD")
+        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"}, method="HEAD")
         with urllib.request.urlopen(req, timeout=10) as resp:
             headers = dict(resp.headers)
         lines = [f"HTTP Headers check: {url}\n"]
