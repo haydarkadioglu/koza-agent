@@ -1,4 +1,5 @@
 """Setup wizard and provider command."""
+import os
 import sys
 
 from cli.ui import (
@@ -6,19 +7,82 @@ from cli.ui import (
     _extract_gemini_cookies,
 )
 
-PROVIDERS = ["ollama", "openai", "anthropic", "deepseek", "gemini api", "gemini cookie", "github"]
+PROVIDERS = ["ollama", "openai", "anthropic", "deepseek", "gemini api", "gemini cookie", "antigravity manager", "github"]
 PROVIDER_MODELS = {
-    "openai":         ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-    "anthropic":      ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
-    "deepseek":       ["deepseek-chat", "deepseek-reasoner", "deepseek-coder-v2"],
-    "gemini api":     ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview"],
-    "gemini cookie":  ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview"],
-    "gemini":         ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview"],
-    "ollama":         ["llama3.2", "mistral", "codellama"],
-    "github":         ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
+    "openai":              ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+    "anthropic":           ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
+    "deepseek":            ["deepseek-chat", "deepseek-reasoner", "deepseek-coder-v2"],
+    "gemini api":          ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    "gemini cookie":       ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    "gemini":              ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    "antigravity manager": ["gemini-3.1-pro-high", "gemini-3-flash-agent", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"],
+    "ollama":              ["llama3.2", "mistral", "codellama"],
+    "github":              ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
 }
 NEEDS_KEY = {"openai", "anthropic", "deepseek", "gemini api", "gemini", "github"}
 _OTHER = "other — enter manually"
+
+
+def _playwright_gemini_login() -> tuple[str, str]:
+    """Extract Gemini cookies from the running browser session.
+
+    Strategy:
+    1. Try browser_cookie3 (reads from running Chrome/Edge/Firefox directly)
+    2. If that fails (no session), open a fresh Playwright Chromium for manual login
+    """
+    # ── Step 1: try reading from running browser ──────────────────────────────
+    print(_C("\n  Checking for existing Google session in your browser…\n", "grey"))
+    psid, psidts, found_browser = _extract_gemini_cookies()
+
+    if psid:
+        print(_C(f"  ✓  Found active Google session in {found_browser}!\n", "green"))
+        return psid, psidts
+
+    # ── Step 2: no session found — open fresh Chromium for manual login ───────
+    print(_C("  ℹ  No active session found in any browser.", "grey"))
+    print(_C("  Opening a fresh browser window — please log in to your Google account.\n", "grey"))
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print(_C("  ⚠  playwright not installed. Run: pip install playwright && playwright install chromium", "yellow"))
+        return "", ""
+
+    psid = psidts = ""
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=False, slow_mo=50)
+            ctx = browser.new_context()
+            page = ctx.new_page()
+            page.goto("https://gemini.google.com", wait_until="domcontentloaded", timeout=20000)
+
+            print(_C("  ● Log in to your Google account in the browser.", "cyan"))
+            print(_C("  ● When you see the Gemini chat screen, press Enter here.\n", "grey"))
+            try:
+                input(_C("  Press Enter when logged in › ", "yellow"))
+            except (EOFError, KeyboardInterrupt):
+                browser.close()
+                return "", ""
+
+            cookies = ctx.cookies("https://gemini.google.com")
+            browser.close()
+
+            for c in cookies:
+                if c["name"] == "__Secure-1PSID":
+                    psid = c["value"]
+                elif c["name"] == "__Secure-1PSIDTS":
+                    psidts = c["value"]
+
+    except Exception as e:
+        print(_C(f"  ⚠  Browser login failed: {e}", "yellow"))
+        return "", ""
+
+    if psid:
+        print(_C("  ✓  Cookies captured successfully!\n", "green"))
+    else:
+        print(_C("  ✗  Could not find __Secure-1PSID — make sure you logged in fully.\n", "red"))
+
+    return psid, psidts
 
 
 def cmd_setup(args: list) -> None:
@@ -66,22 +130,41 @@ def cmd_setup(args: list) -> None:
     gemini_cookie_1psidts = ""
 
     if provider == "gemini" and gemini_auth == "cookie":
-        # Try auto-extract from browser first
+        # Step 1: try browser_cookie3 — reads Chrome/Edge/Firefox SQLite directly,
+        #         works even when the browser is already open (no process launch needed)
+        print(_C("\n  Extracting Google session cookies from your browser…\n", "grey"))
         auto_1psid, auto_1psidts, auto_browser = _extract_gemini_cookies()
+
         if auto_1psid:
-            print(_C(f"  ✓  Cookies found in {auto_browser}!", "green"))
-            use_auto = _prompt("Use these cookies?", default="y", choices=["y", "n"])
-            if use_auto.lower() == "y":
-                gemini_cookie_1psid   = auto_1psid
-                gemini_cookie_1psidts = auto_1psidts
-        if not gemini_cookie_1psid:
-            print(_C("  ℹ  Could not auto-extract. Make sure you're logged in to gemini.google.com", "grey"))
-            print(_C("  ℹ  Or: DevTools (F12) → Application → Cookies → __Secure-1PSID", "grey"))
-            gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID cookie value")
-            while not gemini_cookie_1psid:
-                print(_C("  ⚠  Cookie value required.", "red"))
+            print(_C(f"  ✓  Active Google session found in {auto_browser}!\n", "green"))
+            gemini_cookie_1psid   = auto_1psid
+            gemini_cookie_1psidts = auto_1psidts
+        else:
+            # No session found — offer Playwright or manual paste
+            print(_C("  ⚠  No active Google session found in Chrome/Edge/Firefox.", "yellow"))
+            print(_C("  Make sure you are logged in to gemini.google.com, then try again.\n", "grey"))
+            try:
+                choice = _select_menu(
+                    "How do you want to provide cookies?",
+                    [
+                        "Open a fresh browser window to log in",
+                        "Paste cookie manually (DevTools → Application → Cookies)",
+                    ],
+                    default_idx=0,
+                )
+            except (KeyboardInterrupt, EOFError):
+                sys.exit(0)
+
+            if "Open a fresh browser" in choice:
+                gemini_cookie_1psid, gemini_cookie_1psidts = _playwright_gemini_login()
+
+            if not gemini_cookie_1psid:
+                print(_C("  ℹ  DevTools (F12) → Application → Cookies → copy __Secure-1PSID", "grey"))
                 gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID cookie value")
-            gemini_cookie_1psidts = _prompt_secret("Paste __Secure-1PSIDTS (optional, Enter to skip)")
+                while not gemini_cookie_1psid:
+                    print(_C("  ⚠  Cookie value required.", "red"))
+                    gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID cookie value")
+                gemini_cookie_1psidts = _prompt_secret("Paste __Secure-1PSIDTS (optional, Enter to skip)")
     elif provider_choice in NEEDS_KEY:
         api_key = _prompt_secret(f"API key for {provider_choice}")
         while not api_key:
@@ -91,6 +174,12 @@ def cmd_setup(args: list) -> None:
     ollama_url = "http://localhost:11434"
     if provider == "ollama":
         ollama_url = _prompt("Ollama base URL", default="http://localhost:11434")
+
+    antigravity_url = "http://localhost:5188"
+    if provider == "antigravity manager":
+        print(_C("\n  Antigravity Tools LS — make sure it's running locally.", "grey"))
+        print(_C("  Install: https://github.com/lbjlaq/Antigravity-Tools-LS\n", "grey"))
+        antigravity_url = _prompt("Antigravity Tools LS URL", default="http://localhost:5188")
 
     # ── Fallback provider ─────────────────────────────────────────────────────
     _hr("·", "grey")
@@ -137,6 +226,8 @@ def cmd_setup(args: list) -> None:
         cfg["providers"][provider]["api_key"] = api_key
     if provider == "ollama":
         cfg["providers"]["ollama"]["base_url"] = ollama_url
+    if provider == "antigravity manager":
+        cfg["providers"].setdefault("antigravity manager", {})["base_url"] = antigravity_url
     if fallback_provider:
         cfg["fallback_provider"] = fallback_provider
         cfg["fallback_model"] = fallback_model

@@ -53,11 +53,30 @@ def get_daemon_port() -> int | None:
     try:
         pid  = int(PID_FILE.read_text().strip())
         port = int(PORT_FILE.read_text().strip())
-        os.kill(pid, 0)          # signal 0 = check existence, raises if dead
+        _is_pid_alive(pid)          # raises if dead
         return port
-    except (ProcessLookupError, ValueError, PermissionError, OSError):
+    except (ProcessLookupError, ValueError, PermissionError, OSError, SystemError):
         _cleanup()
         return None
+
+
+def _is_pid_alive(pid: int) -> None:
+    """Raise ProcessLookupError if process is not running (cross-platform)."""
+    if sys.platform == "win32":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not handle:
+            raise ProcessLookupError(f"PID {pid} not found")
+        exit_code = ctypes.c_ulong(0)
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        if exit_code.value != 259:  # 259 = STILL_ACTIVE
+            raise ProcessLookupError(f"PID {pid} has exited")
+    else:
+        os.kill(pid, 0)
 
 
 # ── Client session ────────────────────────────────────────────────────────────
@@ -215,8 +234,12 @@ class DaemonServer:
                 agent.permission_callback = None   # auto-allow in Telegram
                 if start_bot_thread(agent, self.cfg):
                     _log("Telegram bot started.")
+                else:
+                    _log("Telegram bot did not start (start_bot_thread returned False).")
             except Exception as e:
                 _log(f"Telegram start failed: {e}")
+        else:
+            _log("Telegram: no token found in config, skipping.")
 
     def run(self):
         # Bind to a random free port

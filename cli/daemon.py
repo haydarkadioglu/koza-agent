@@ -36,26 +36,31 @@ def cmd_start(args: list) -> None:
     from koza_daemon import get_daemon_port, start_as_background
     port = get_daemon_port()
     if not port:
-        print(_C("  ▸  Koza daemon başlatılıyor…", "grey"), flush=True)
+        # Try to start daemon silently
         ok = start_as_background()
         if ok:
             port = get_daemon_port()
-            print(_C("  ✓  Daemon başlatıldı (arka planda çalışıyor).\n", "green"))
-        else:
-            print(_C("  ⚠  Daemon başlatılamadı, standalone modda çalışıyor.\n", "yellow"))
-            try:
-                from providers.factory import get_provider
-                from core import Agent
-                agent = Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
-            except Exception as exc:
-                _print_error(exc, fatal=True)
-                return
-            _plain_cli(agent, cfg)
-            return
-    else:
-        print(_C("  ✓  Mevcut daemon'a bağlanılıyor…\n", "grey"))
 
-    _daemon_cli(port, cfg)
+    if port:
+        # Try to connect to daemon
+        import socket as _sock
+        try:
+            test = _sock.create_connection(("127.0.0.1", port), timeout=3)
+            test.close()
+            _daemon_cli(port, cfg)
+            return
+        except Exception:
+            pass
+
+    # Daemon not available — fall back to standalone silently
+    try:
+        from providers.factory import get_provider
+        from core import Agent
+        agent = Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
+    except Exception as exc:
+        _print_error(exc, fatal=True)
+        return
+    _plain_cli(agent, cfg)
 
 
 def cmd_status(args: list) -> None:
@@ -64,9 +69,9 @@ def cmd_status(args: list) -> None:
     port = get_daemon_port()
     if port:
         pid = PID_FILE.read_text().strip()
-        print(_C(f"\n  ✓  Koza daemon çalışıyor  (PID {pid}, port {port})\n", "green"))
+        print(_C(f"\n  ✓  Koza daemon running  (PID {pid}, port {port})\n", "green"))
     else:
-        print(_C("\n  ✗  Koza daemon çalışmıyor. Başlatmak için: koza\n", "grey"))
+        print(_C("\n  ✗  Koza daemon is not running. Start with: koza\n", "grey"))
 
 
 def cmd_quit(args: list) -> None:
@@ -75,7 +80,7 @@ def cmd_quit(args: list) -> None:
     from koza_daemon import get_daemon_port
     port = get_daemon_port()
     if not port:
-        print(_C("\n  Daemon zaten çalışmıyor.\n", "grey"))
+        print(_C("\n  Daemon is not running.\n", "grey"))
         return
     try:
         conn = _sock.create_connection(("127.0.0.1", port), timeout=5)
@@ -83,7 +88,7 @@ def cmd_quit(args: list) -> None:
         conn.settimeout(5)
         conn.recv(128)
         conn.close()
-        print(_C("\n  ✓  Koza daemon durduruldu.\n", "green"))
+        print(_C("\n  ✓  Koza daemon stopped.\n", "green"))
     except Exception:
         # Force kill via PID
         try:
@@ -91,9 +96,9 @@ def cmd_quit(args: list) -> None:
             pid = int(PID_FILE.read_text().strip())
             import signal as _sig
             os.kill(pid, _sig.SIGTERM)
-            print(_C("\n  ✓  Koza daemon (SIGTERM) durduruldu.\n", "green"))
+            print(_C("\n  ✓  Koza daemon stopped (SIGTERM).\n", "green"))
         except Exception as e:
-            print(_C(f"\n  ✗  Durdurulamadı: {e}\n", "red"))
+            print(_C(f"\n  ✗  Could not stop daemon: {e}\n", "red"))
 
 
 def _daemon_cli(port: int, cfg: dict) -> None:
@@ -106,7 +111,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
     try:
         conn = _sock.create_connection(("127.0.0.1", port), timeout=5)
     except Exception as e:
-        print(_C(f"\n  ✗  Daemon bağlantısı kurulamadı: {e}\n", "red"))
+        print(_C(f"\n  ✗  Could not connect to daemon: {e}\n", "red"))
         return
 
     _print_banner(cfg)
@@ -187,7 +192,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
             _session_allowed.add(name)
         elif choice == "Allow all tools (this session)":
             _session_allow_all[0] = True
-            print(_C("  ✓  Bu oturumda tüm tool'lar otomatik izinli.\n", "green"))
+            print(_C("  ✓  All tools allowed for this session.\n", "green"))
         elif choice == "Allow permanently":
             _permanent_allowed.add(name)
             try:
@@ -203,7 +208,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
             pass
         else:
             allowed = False
-            print(_C(f"  ✗  {name} reddedildi.\n", "red"))
+            print(_C(f"  ✗  {name} denied.\n", "red"))
         _send({"type": "permission_response", "allowed": allowed})
         return allowed
 
@@ -248,9 +253,9 @@ def _daemon_cli(port: int, cfg: dict) -> None:
             ).strip()
         except (EOFError, KeyboardInterrupt):
             _hr()
-            print(_C("\n  Console kapatıldı. Koza arka planda çalışmaya devam ediyor.\n", "teal"))
-            print(_C("  Tekrar bağlanmak için:  koza\n", "grey"))
-            print(_C("  Tamamen durdurmak için: koza quit\n", "grey"))
+            print(_C("\n  Console closed. Koza keeps running in the background.\n", "teal"))
+            print(_C("  Reconnect:  koza\n", "grey"))
+            print(_C("  Quit fully: koza quit\n", "grey"))
             _hr()
             _send({"type": "disconnect"})
             break
@@ -259,13 +264,13 @@ def _daemon_cli(port: int, cfg: dict) -> None:
             continue
         if user_input.lower() == "exit":
             _hr()
-            print(_C("\n  Console kapatıldı. Koza arka planda çalışmaya devam ediyor.\n", "teal"))
-            print(_C("  Tekrar bağlanmak için:  koza\n  Durdurmak için: koza quit\n", "grey"))
+            print(_C("\n  Console closed. Koza keeps running in the background.\n", "teal"))
+            print(_C("  Reconnect:  koza\n  Quit fully: koza quit\n", "grey"))
             _hr()
             _send({"type": "disconnect"})
             break
         if user_input.lower() in ("quit", "/quit"):
-            print(_C("\n  Koza daemon durduruluyor…\n", "yellow"))
+            print(_C("\n  Stopping Koza daemon…\n", "yellow"))
             _send({"type": "quit"})
             try:
                 recv_q.get(timeout=5)
@@ -273,7 +278,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
                 pass
             break
         if user_input == "/reset":
-            print(_C("  ℹ  Daemon modunda reset henüz desteklemiyor. Yeni oturum için konsoldan bağlan.\n", "grey"))
+            print(_C("  ℹ  Reset not supported in daemon mode. Reconnect for a fresh session.\n", "grey"))
             continue
         if user_input == "/kanban":
             from cli.commands import cmd_kanban
@@ -303,13 +308,13 @@ def _daemon_cli(port: int, cfg: dict) -> None:
                 try:
                     event = recv_q.get(timeout=120)
                 except _queue.Empty:
-                    print(_C("\n  ⚠  Yanıt timeout.\n", "yellow"))
+                    print(_C("\n  ⚠  Response timeout.\n", "yellow"))
                     break
 
                 etype = event.get("type")
 
                 if etype == "_closed":
-                    print(_C("\n  ✗  Daemon bağlantısı kesildi.\n", "red"))
+                    print(_C("\n  ✗  Daemon connection lost.\n", "red"))
                     return
 
                 elif etype == "done":

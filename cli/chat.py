@@ -6,7 +6,8 @@ import time
 
 from cli.ui import (
     _C, _hr, _print_error, _print_inline_help, _print_banner,
-    _spinner_start, _spinner_stop, _render_md, _select_menu,
+    _spinner_start, _spinner_stop, _spinner_set, _spinner_active_check,
+    _render_md, _select_menu,
 )
 
 
@@ -172,19 +173,56 @@ def _plain_cli(agent, cfg: dict) -> None:
 
                 if etype == "thinking":
                     if not text_started:
-                        _spinner_start("  Koza is thinking…")
+                        _spinner_start("  Thinking…")
 
                 elif etype == "tool_start":
-                    _spinner_stop()
                     name = event["name"]
                     args = event.get("args", {})
                     arg_str = ", ".join(f"{k}={repr(v)}" for k, v in list(args.items())[:2])
+
+                    # Friendly status label per tool category
+                    _TOOL_STATUS = {
+                        "web_search":  "Searching the web",
+                        "fetch_url":   "Fetching URL",
+                        "run_command": "Running command",
+                        "run_python":  "Running Python",
+                        "run_node":    "Running Node.js",
+                        "read_file":   "Reading file",
+                        "write_file":  "Writing file",
+                        "list_dir":    "Listing directory",
+                        "send_message":   "Sending message",
+                        "telegram_send":  "Sending Telegram message",
+                        "discord_send":   "Sending Discord message",
+                        "memory_store":   "Saving to memory",
+                        "memory_recall":  "Recalling memory",
+                        "github_search_code": "Searching GitHub",
+                        "github_create_issue": "Creating GitHub issue",
+                        "crypto_price":   "Fetching crypto price",
+                        "stock_price":    "Fetching stock price",
+                        "arxiv_search":   "Searching arXiv",
+                        "wikipedia_search": "Searching Wikipedia",
+                        "get_config":     "Checking config",
+                        "set_config":     "Updating config",
+                        "spawn_subagent": "Spawning sub-agent",
+                        "create_task":    "Creating task",
+                        "list_tasks":     "Listing tasks",
+                    }
+                    status_label = _TOOL_STATUS.get(name, f"Running {name}")
+                    if arg_str:
+                        short_args = arg_str[:60] + ("…" if len(arg_str) > 60 else "")
+                        _spinner_set(f"  {status_label}  ({short_args})")
+                    else:
+                        _spinner_set(f"  {status_label}…")
+                    if not _spinner_active_check():
+                        _spinner_start(f"  {status_label}…")
+
                     print(
+                        "\r" + " " * 80 + "\r" +
                         _C(f"  ⚙  {name}", "cyan") +
-                        (_C(f"  ({arg_str})", "grey") if arg_str else ""),
+                        (_C(f"  ({arg_str[:60]})", "grey") if arg_str else ""),
                         flush=True
                     )
-                    _spinner_start(f"  Running {name}…")
+                    _spinner_set(f"  {status_label}…")
 
                 elif etype == "tool_done":
                     _spinner_stop()
@@ -200,6 +238,7 @@ def _plain_cli(agent, cfg: dict) -> None:
                         _C(f"  → {summary}", "white") + extra,
                         flush=True
                     )
+                    _spinner_start("  Thinking…")
 
                 elif etype == "text":
                     token = event.get("token", "")

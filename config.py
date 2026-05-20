@@ -21,6 +21,7 @@ def default_config() -> dict:
             "deepseek":   {"api_key": "", "base_url": "https://api.deepseek.com/v1"},
             "gemini":     {"api_key": ""},
             "ollama":     {"base_url": "http://localhost:11434"},
+            "antigravity manager": {"base_url": "http://localhost:5188"},
             "github":     {"token": ""},
         },
         "messaging": {

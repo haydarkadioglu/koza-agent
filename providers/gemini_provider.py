@@ -5,10 +5,36 @@ Auth modes (set via config providers.gemini.auth):
   cookie   — browser cookie auth (no API key, uses Gemini Pro web limits)
              requires providers.gemini.cookie_1psid (and optionally cookie_1psidts)
 """
-import json
 import asyncio
+import threading
 from typing import Generator
 from .base import LLMProvider
+
+
+# ── Shared persistent event loop for cookie client ───────────────────────────
+_cookie_loop: asyncio.AbstractEventLoop | None = None
+_cookie_loop_lock = threading.Lock()
+
+
+def _get_cookie_loop() -> asyncio.AbstractEventLoop:
+    """Return (and lazily start) a persistent background event loop."""
+    global _cookie_loop
+    if _cookie_loop is not None and not _cookie_loop.is_closed():
+        return _cookie_loop
+    with _cookie_loop_lock:
+        if _cookie_loop is None or _cookie_loop.is_closed():
+            loop = asyncio.new_event_loop()
+            t = threading.Thread(target=loop.run_forever, daemon=True)
+            t.start()
+            _cookie_loop = loop
+    return _cookie_loop
+
+
+def _run_async(coro):
+    """Submit a coroutine to the background loop and block until done."""
+    loop = _get_cookie_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result(timeout=120)
 
 
 class GeminiProvider(LLMProvider):
@@ -16,6 +42,7 @@ class GeminiProvider(LLMProvider):
         auth_mode = cfg.get("auth", "api_key").lower()
         self._model = cfg.get("model", "gemini-3.5-flash")
         self._auth_mode = auth_mode
+        self._cookie_client = None
 
         if auth_mode == "cookie":
             self._cookie_1psid   = cfg.get("cookie_1psid", "")
@@ -28,7 +55,6 @@ class GeminiProvider(LLMProvider):
                     "Cookie auth: no cookie found.\n"
                     "Run 'koza setup' to configure, or log in to gemini.google.com in your browser."
                 )
-            self._cookie_client = None  # lazy-init (async)
         else:
             from google import genai
             api_key = cfg.get("api_key")
@@ -69,37 +95,37 @@ class GeminiProvider(LLMProvider):
                 continue
         return "", ""
 
-    # ── Cookie client (lazy async init) ──────────────────────────────────────
-
     def _get_cookie_client(self):
-        if self._cookie_client is None:
-            try:
-                from gemini_webapi import GeminiClient
-            except ImportError:
-                raise ImportError(
-                    "gemini-webapi not installed. Run:\n"
-                    "  pip install gemini-webapi"
-                )
-            async def _init():
-                client = GeminiClient(self._cookie_1psid, self._cookie_1psidts or None)
-                await client.init(timeout=30, auto_close=False, close_delay=300)
-                return client
-            self._cookie_client = asyncio.run(_init())
+        """Return (lazily initialized) persistent GeminiClient."""
+        if self._cookie_client is not None:
+            return self._cookie_client
+        try:
+            from gemini_webapi import GeminiClient
+        except ImportError:
+            raise ImportError("gemini-webapi not installed. Run: pip install gemini-webapi")
+
+        psid, psidts = self._cookie_1psid, self._cookie_1psidts or None
+
+        async def _init():
+            c = GeminiClient(psid, psidts)
+            await c.init(timeout=30, auto_close=False, close_delay=600, auto_refresh=True)
+            return c
+
+        self._cookie_client = _run_async(_init())
         return self._cookie_client
 
     def _cookie_generate(self, prompt: str) -> str:
         client = self._get_cookie_client()
+        from gemini_webapi.constants import Model
+
         async def _run():
-            resp = await client.generate_content(prompt)
+            try:
+                resp = await client.generate_content(prompt, model=self._model)
+            except ValueError:
+                resp = await client.generate_content(prompt, model=Model.UNSPECIFIED)
             return resp.text
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, _run())
-                return future.result(timeout=60)
-        except RuntimeError:
-            return asyncio.run(_run())
+
+        return _run_async(_run())
 
     @property
     def name(self) -> str:

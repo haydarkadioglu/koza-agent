@@ -1,7 +1,7 @@
 """Miscellaneous sub-commands."""
 import sys
 
-from cli.ui import _C, _hr, _config_path, _get_version
+from cli.ui import _C, _hr, _config_path, _get_version, _select_menu, _prompt_secret
 
 
 def cmd_config(args: list) -> None:
@@ -87,42 +87,133 @@ def cmd_uninstall(args: list) -> None:
 
 
 def cmd_telegram(args: list) -> None:
-    """Configure and start the Koza Telegram bot (foreground)."""
-    from config import load_config, save_config
+    """Configure Telegram bot token. Once configured, the daemon runs it automatically."""
+    from config import load_config, save_config, config_exists
+    from cli.ui import _prompt_secret
+
+    if not config_exists():
+        print(_C("  ✗  No config found. Run: koza setup", "red"))
+        return
+
     cfg = load_config()
-    token = cfg.get("telegram_token", "").strip()
+    tg = cfg.setdefault("messaging", {}).setdefault("telegram", {})
+    current_token = tg.get("token", "").strip()
 
-    if not token:
-        _hr()
-        print(_C("\n  🤖  Koza Telegram Bot Kurulumu\n", "bold", "cyan"))
-        print(_C("  1. @BotFather'a git → /newbot → bir isim ver\n", "grey"))
-        print(_C("  2. BotFather'ın verdiği token'ı buraya yapıştır:\n", "grey"))
-        token = input(_C("  Bot token › ", "cyan")).strip()
-        if not token:
-            print(_C("  ✗  Token girilmedi.\n", "red"))
+    _hr()
+    print(_C("\n  🤖  Koza Telegram Bot Setup\n", "bold", "cyan"))
+
+    if current_token:
+        masked = "*" * (len(current_token) - 6) + current_token[-6:]
+        print(_C(f"  ✓  Token already configured:  {masked}", "green"))
+        try:
+            choice = _select_menu(
+                "What do you want to do?",
+                ["Keep current token", "Replace token", "Remove token (disable Telegram)"],
+                default_idx=0,
+            )
+        except (KeyboardInterrupt, EOFError):
             return
-        cfg["telegram_token"] = token
-        save_config(cfg)
-        print(_C("\n  ✓  Token kaydedildi.", "green"))
-        print(_C("  İlk mesajı atan kullanıcı otomatik olarak sahip olarak kaydedilecek.\n", "grey"))
-        _hr()
 
-    owner_id = cfg.get("telegram_owner_id")
-    if owner_id:
-        print(_C(f"  👤  Kayıtlı sahip: chat_id={owner_id}", "grey"))
-        reset = input(_C("  Sahip kaydını sıfırla? (e/H) › ", "cyan")).strip().lower()
-        if reset == "e":
-            cfg.pop("telegram_owner_id", None)
+        if choice == "Keep current token":
+            print(_C("  No changes made.\n", "grey"))
+            return
+        elif choice == "Remove token (disable Telegram)":
+            tg["token"] = ""
+            tg["chat_id"] = ""
             save_config(cfg)
-            print(_C("  ✓  Sıfırlandı. İlk mesajı atan yeni sahip olacak.\n", "green"))
+            print(_C("  ✓  Telegram disabled.\n", "green"))
+            return
+
+    print(_C("  1. Open Telegram → search @BotFather → /newbot", "grey"))
+    print(_C("  2. Follow the steps and copy the bot token\n", "grey"))
+    try:
+        token = _prompt_secret("Paste bot token")
+    except (KeyboardInterrupt, EOFError):
+        return
+    if not token:
+        print(_C("  ✗  No token entered.\n", "red"))
+        return
+
+    tg["token"] = token
+    save_config(cfg)
+
+    _hr()
+    print(_C("  ✓  Token saved.\n", "green"))
+    print(_C("  The Telegram bot will start automatically next time Koza runs.", "teal"))
+    print(_C("  To start it now, restart Koza (koza quit → koza).\n", "grey"))
+    _hr()
+
+
+def cmd_clean(args: list) -> None:
+    """Reset Koza to factory state — removes config, database, and daemon files."""
+    import shutil
+    from pathlib import Path
+    from koza_daemon import get_daemon_port, PID_FILE, PORT_FILE, _cleanup
+
+    _hr()
+    print(_C("\n  ⚠   koza clean — Factory Reset\n", "red", "bold"))
+    print(_C("  This will permanently delete:\n", "grey"))
+    print(_C("    • ~/.Koza/config.yaml  (all provider keys & settings)", "grey"))
+    print(_C("    • ~/.Koza/koza.db      (tasks, memory, cron jobs)", "grey"))
+    print(_C("    • ~/.Koza/daemon.*     (daemon PID / port files)\n", "grey"))
+    print(_C("  The daemon will be stopped if running.\n", "grey"))
 
     try:
-        from tg_bot import run_bot_foreground
-        run_bot_foreground(token=token, cfg=cfg)
-    except KeyboardInterrupt:
-        print(_C("\n  Telegram bot durduruldu.\n", "grey"))
-    except ImportError as e:
-        print(_C(f"\n  ✗  {e}\n  pip install python-telegram-bot\n", "red"))
+        answer = input(_C("  Type 'reset' to confirm: ", "red")).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(_C("\n  Cancelled.\n", "grey"))
+        return
+
+    if answer != "reset":
+        print(_C("  Cancelled.\n", "grey"))
+        return
+
+    # Stop daemon and wait a moment for it to release file handles
+    port = get_daemon_port()
+    if port:
+        try:
+            pid = int(PID_FILE.read_text().strip())
+            if sys.platform == "win32":
+                import ctypes
+                ctypes.windll.kernel32.TerminateProcess(
+                    ctypes.windll.kernel32.OpenProcess(1, False, pid), 1
+                )
+            else:
+                import signal as _sig
+                import os as _os
+                _os.kill(pid, _sig.SIGTERM)
+            print(_C("  ✓  Daemon stopped.", "green"))
+        except Exception:
+            pass
+        _cleanup()
+        import time
+        time.sleep(1)  # allow OS to release file handles before deletion
+
+    # Remove files
+    koza_dir = Path.home() / ".Koza"
+    removed = []
+    skipped = []
+    for name in ["config.yaml", "koza.db", "daemon.pid", "daemon.port", "daemon.log"]:
+        f = koza_dir / name
+        if f.exists():
+            try:
+                f.unlink()
+                removed.append(name)
+            except PermissionError:
+                skipped.append(name)
+
+    if removed:
+        print(_C(f"  ✓  Removed: {', '.join(removed)}", "green"))
+    if skipped:
+        print(_C(f"  ⚠  Could not delete (still in use): {', '.join(skipped)}", "yellow"))
+        print(_C("     Close any open terminals using Koza and delete them manually.", "grey"))
+    if not removed and not skipped:
+        print(_C("  ℹ  Nothing to remove.", "grey"))
+
+    _hr()
+    print(_C("\n  ✅  Koza reset to factory defaults.\n", "green"))
+    print(_C("  Run 'koza setup' to configure again.\n", "teal"))
+    _hr()
 
 
 def cmd_version(args: list) -> None:
@@ -143,9 +234,13 @@ def cmd_help(args: list) -> None:
         ("(none) / start", "Start interactive chat (default)"),
         ("setup",          "Configure provider, API keys, fallback"),
         ("config",         "Show current configuration"),
+        ("provider",       "Switch active provider / model"),
         ("kanban",         "Show Kanban board and cron jobs"),
-        ("telegram",       "Start Telegram bot (remote chat)"),
+        ("telegram",       "Configure Telegram bot token"),
+        ("status",         "Show daemon status"),
+        ("quit",           "Stop Koza daemon"),
         ("version",        "Show Koza version"),
+        ("clean",          "Factory reset — remove all config & data"),
         ("uninstall",      "Remove ~/.Koza config and database"),
         ("help",           "Show this help"),
     ]
