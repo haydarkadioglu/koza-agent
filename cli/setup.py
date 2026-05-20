@@ -15,9 +15,9 @@ PROVIDER_MODELS = {
     "kimi":                ["kimi-k2-0711-preview", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-latest"],
     "minimax":             ["MiniMax-M1", "MiniMax-Text-01", "abab6.5s-chat"],
     "zai":                 ["glm-z1-air", "glm-z1-flash", "glm-4-plus", "glm-4-air", "glm-4-flash"],
-    "gemini api":          ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
-    "gemini cookie":       ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
-    "gemini":              ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    "gemini api":          ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],
+    "gemini cookie":       ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash", "gemini-3.1-pro", "gemini-3-pro", "gemini-3-flash-thinking", "gemini-3-pro-plus", "gemini-3-flash-advanced", "gemini-3-pro-advanced"],
+    "gemini":              ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],
     "antigravity manager": ["gemini-3.1-pro-high", "gemini-3-flash-agent", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"],
     "ollama":              ["llama3.2", "mistral", "codellama"],
     "github":              ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
@@ -143,30 +143,34 @@ def cmd_setup(args: list) -> None:
             gemini_cookie_1psid   = auto_1psid
             gemini_cookie_1psidts = auto_1psidts
         else:
-            # No session found — offer Playwright or manual paste
-            print(_C("  ⚠  No active Google session found in Chrome/Edge/Firefox.", "yellow"))
-            print(_C("  Make sure you are logged in to gemini.google.com, then try again.\n", "grey"))
+            # Chrome locks its cookie DB while running — browser_cookie3 can't read it.
+            # Guide the user to paste cookies manually from DevTools.
+            print(_C("  ⚠  Could not read cookies from your browser automatically.", "yellow"))
+            print(_C("  (Chrome locks its cookie database while it is running)\n", "grey"))
             try:
                 choice = _select_menu(
                     "How do you want to provide cookies?",
                     [
+                        "Paste cookie from DevTools (recommended)",
                         "Open a fresh browser window to log in",
-                        "Paste cookie manually (DevTools → Application → Cookies)",
                     ],
                     default_idx=0,
                 )
             except (KeyboardInterrupt, EOFError):
                 sys.exit(0)
 
-            if "Open a fresh browser" in choice:
+            if "fresh browser" in choice:
                 gemini_cookie_1psid, gemini_cookie_1psidts = _playwright_gemini_login()
 
             if not gemini_cookie_1psid:
-                print(_C("  ℹ  DevTools (F12) → Application → Cookies → copy __Secure-1PSID", "grey"))
-                gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID cookie value")
+                print(_C("\n  How to get your cookie from DevTools:", "cyan", "bold"))
+                print(_C("  1. Open Chrome and go to gemini.google.com", "white"))
+                print(_C("  2. Press F12 → Application tab → Cookies → https://gemini.google.com", "white"))
+                print(_C("  3. Find __Secure-1PSID and copy its Value\n", "white"))
+                gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID value")
                 while not gemini_cookie_1psid:
                     print(_C("  ⚠  Cookie value required.", "red"))
-                    gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID cookie value")
+                    gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID value")
                 gemini_cookie_1psidts = _prompt_secret("Paste __Secure-1PSIDTS (optional, Enter to skip)")
     elif provider_choice in NEEDS_KEY:
         api_key = _prompt_secret(f"API key for {provider_choice}")

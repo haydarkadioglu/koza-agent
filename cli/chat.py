@@ -171,6 +171,11 @@ def _plain_cli(agent, cfg: dict) -> None:
 
                 etype = event.get("type")
 
+                if etype == "interrupted":
+                    _spinner_stop()
+                    print(_C("\n  (interrupted)", "grey"))
+                    break
+
                 if etype == "thinking":
                     if not text_started:
                         _spinner_start("  Thinking…")
@@ -250,6 +255,7 @@ def _plain_cli(agent, cfg: dict) -> None:
 
         except KeyboardInterrupt:
             _spinner_stop()
+            agent.interrupt()
             print(_C("\n  (interrupted)", "grey"))
             continue
         except Exception as exc:

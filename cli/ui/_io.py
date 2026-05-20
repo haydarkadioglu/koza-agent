@@ -112,10 +112,17 @@ def _prompt(label: str, default: str = "", choices: list = None) -> str:
 
 
 def _extract_gemini_cookies() -> tuple:
+    """Try to read Gemini cookies from installed browsers.
+
+    Returns (psid, psidts, browser_name) or ("", "", "") on failure.
+    Chrome/Edge lock their SQLite file while running — in that case we
+    return a special sentinel so callers can prompt the user appropriately.
+    """
     try:
         import browser_cookie3
     except ImportError:
         return "", "", ""
+
     browsers = [
         ("Chrome",  browser_cookie3.chrome),
         ("Edge",    browser_cookie3.edge),

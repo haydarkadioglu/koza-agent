@@ -1,4 +1,5 @@
 """Core agent loop — tool-calling orchestration."""
+import threading
 from typing import Callable
 
 from providers.base import LLMProvider
@@ -159,6 +160,9 @@ class Agent:
         self.messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
+        # Interrupt/cancel support — set to cancel the current stream_chat loop
+        self._cancel: threading.Event = threading.Event()
+        self._busy: bool = False
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)
@@ -225,6 +229,13 @@ class Agent:
             normalized.append(m)
         return normalized
 
+    def interrupt(self) -> bool:
+        """Cancel the current in-progress stream_chat. Returns True if was busy."""
+        if self._busy:
+            self._cancel.set()
+            return True
+        return False
+
     def chat(self, user_input: str) -> str:
         """Send a user message, run tool loop, return final response."""
         self._refresh_memory_context(user_input)
@@ -271,29 +282,40 @@ class Agent:
         self.messages.append({"role": "user", "content": user_input})
         tools = _select_tools(user_input)
 
-        MAX_ROUNDS = 10  # safety cap
-        for _round in range(MAX_ROUNDS):
-            yield {"type": "thinking"}
+        self._cancel.clear()
+        self._busy = True
 
-            # ── Collect the streaming response ──────────────────────────────
-            full = ""
-            _tool_buf: dict[int, dict] = {}
+        try:
+            MAX_ROUNDS = 10  # safety cap
+            for _round in range(MAX_ROUNDS):
+                if self._cancel.is_set():
+                    yield {"type": "interrupted"}
+                    return
 
-            for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
-                if isinstance(item, dict) and item.get("__tool_chunk__"):
-                    idx = item["index"]
-                    if idx not in _tool_buf:
-                        _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
-                    if item.get("name"):
-                        _tool_buf[idx]["name"] = item["name"]
-                    if item.get("id"):
-                        _tool_buf[idx]["id"] = item["id"]
-                    _tool_buf[idx]["args"] += item.get("args_chunk", "")
-                else:
-                    token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
-                    if token:
-                        full += token
-                        yield {"type": "text", "token": token}
+                yield {"type": "thinking"}
+
+                # ── Collect the streaming response ──────────────────────────────
+                full = ""
+                _tool_buf: dict[int, dict] = {}
+
+                for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
+                    if self._cancel.is_set():
+                        yield {"type": "interrupted"}
+                        return
+                    if isinstance(item, dict) and item.get("__tool_chunk__"):
+                        idx = item["index"]
+                        if idx not in _tool_buf:
+                            _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
+                        if item.get("name"):
+                            _tool_buf[idx]["name"] = item["name"]
+                        if item.get("id"):
+                            _tool_buf[idx]["id"] = item["id"]
+                        _tool_buf[idx]["args"] += item.get("args_chunk", "")
+                    else:
+                        token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                        if token:
+                            full += token
+                            yield {"type": "text", "token": token}
 
             # ── No tool calls → pure text response, done ─────────────────────
             if not _tool_buf:
@@ -321,6 +343,9 @@ class Agent:
 
             # ── Execute each tool call ────────────────────────────────────────
             for call in calls:
+                if self._cancel.is_set():
+                    yield {"type": "interrupted"}
+                    return
                 name, args = call["name"], call["arguments"]
                 if self.permission_callback and not self.permission_callback(name, args):
                     yield {"type": "tool_denied", "name": name}
@@ -342,6 +367,10 @@ class Agent:
                     "content": str(result),
                 })
             # loop → ask model again with tool results
+
+        finally:
+            self._busy = False
+            self._cancel.clear()
 
     def _refresh_memory_context(self, user_input: str) -> None:
         """

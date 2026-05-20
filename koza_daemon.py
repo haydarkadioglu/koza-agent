@@ -192,14 +192,22 @@ class ClientSession:
                 if not isinstance(event, dict):
                     continue
                 self._send(event)
-                # Drain any pending permission_response that arrived mid-stream
+                if event.get("type") == "interrupted":
+                    break
+                # Drain any pending messages that arrived mid-stream
                 try:
                     resp = self._in.get_nowait()
-                    if resp.get("type") == "permission_response":
+                    rtype = resp.get("type", "")
+                    if rtype == "permission_response":
                         self._perm_result[0] = bool(resp.get("allowed", False))
                         self._perm_event.set()
+                    elif rtype == "chat":
+                        # New message while busy → interrupt current, process new
+                        agent.interrupt()
+                        self._in.put(resp)   # re-queue for main loop
+                        break
                     else:
-                        self._in.put(resp)   # put back
+                        self._in.put(resp)   # put back unknown messages
                 except queue.Empty:
                     pass
         except Exception as e:

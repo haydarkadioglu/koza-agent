@@ -359,6 +359,11 @@ def _daemon_cli(port: int, cfg: dict) -> None:
                     full_response += token
                     total_tokens  += max(1, len(token) // 4)
 
+                elif etype == "interrupted":
+                    _spinner_stop()
+                    print(_C("\n  (interrupted)", "grey"))
+                    break
+
                 elif etype == "tool_denied":
                     _spinner_stop()
                     print(_C(f"\n  ✗  {event.get('name','')} denied\n", "red"))
