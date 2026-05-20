@@ -21,6 +21,9 @@ ENV/
 *.db-shm
 *.db-wal
 
+# Koza workspace — generated apps, subagents, downloads, temp files
+workspace/
+
 # Environment / secrets
 .env
 .env.local

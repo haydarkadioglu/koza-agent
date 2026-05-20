@@ -42,8 +42,9 @@ def default_config() -> dict:
             "instagram_user_id": "",
             "instagram_token": "",
         },
-        "vault_path": str(Path.home() / "notes"),
-        "db_path":    str(Path.home() / ".Koza" / "koza.db"),
+        "vault_path":      str(Path.home() / "notes"),
+        "db_path":         str(Path.home() / ".Koza" / "koza.db"),
+        "workspace_path":  str(Path.home() / ".Koza" / "workspace"),
     }
 
 

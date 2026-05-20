@@ -174,6 +174,14 @@ class Agent:
             gh_token = cfg.get("providers", {}).get("github", {}).get("token", "")
             github_skill.init_github(gh_token)
             messaging.init_messaging(cfg)
+            # Set working directory to isolated workspace so agent-created files
+            # don't pollute the project source tree or end up on GitHub.
+            from pathlib import Path as _Path
+            from skills import shell as _shell
+            ws = _Path(cfg.get("workspace_path", str(_Path.home() / ".Koza" / "workspace")))
+            for sub in ("projects", "subagents", "tmp", "downloads"):
+                (ws / sub).mkdir(parents=True, exist_ok=True)
+            _shell.set_cwd(str(ws))
 
     def _trim_messages(self) -> list[dict]:
         """
