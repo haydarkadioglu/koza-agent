@@ -97,33 +97,32 @@ success "Koza installed."
 info "Installing optional dependencies (telegram bot) …"
 "${VENV_PIP}" install --quiet "python-telegram-bot>=20.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
 
-# ── Create koza wrapper script ───────────────────────────────────────────────
-WRAPPER="${INSTALL_DIR}/koza"
-cat > "${WRAPPER}" << WRAPPER_EOF
-#!/usr/bin/env bash
-exec "${VENV_PYTHON}" -m koza_run "\$@"
-WRAPPER_EOF
-chmod +x "${WRAPPER}"
+# ── koza entry point (created by pip install -e .) ───────────────────────────
+VENV_KOZA="${VENV_DIR}/bin/koza"
 
-# Try to symlink to /usr/local/bin (needs sudo), fall back to ~/.local/bin
+# Verify the entry point was created
+if [[ ! -f "${VENV_KOZA}" ]]; then
+    error "pip install did not create '${VENV_KOZA}'. Check pyproject.toml [project.scripts]."
+fi
+chmod +x "${VENV_KOZA}"
+
+# Helper: symlink koza to a bin directory
 install_bin() {
     local target="$1"
-    local dir
-    dir="$(dirname "$target")"
-    mkdir -p "$dir"
-    ln -sf "${WRAPPER}" "$target"
+    mkdir -p "$(dirname "$target")"
+    ln -sf "${VENV_KOZA}" "$target"
     success "Command linked: ${target}"
 }
 
 if [[ -w "/usr/local/bin" ]]; then
     install_bin "${BIN_LINK}"
 elif sudo -n true 2>/dev/null; then
-    sudo ln -sf "${WRAPPER}" "${BIN_LINK}"
+    sudo ln -sf "${VENV_KOZA}" "${BIN_LINK}"
     success "Command linked (sudo): ${BIN_LINK}"
 else
     LOCAL_BIN="${HOME}/.local/bin/koza"
     install_bin "${LOCAL_BIN}"
-    # Add to PATH if not already there
+    # Add ~/.local/bin to PATH if missing
     for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile"; do
         if [[ -f "$rc" ]] && ! grep -q '\.local/bin' "$rc" 2>/dev/null; then
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
