@@ -7,7 +7,7 @@ from skills import (
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
-    config_manager,
+    config_manager, image_gen,
 )
 
 
@@ -54,6 +54,7 @@ ALL_TOOLS: list[dict] = _normalize(
     + shared_memory.TOOL_DEFINITIONS
     + working_memory.TOOL_DEFINITIONS
     + config_manager.TOOL_DEFINITIONS
+    + image_gen.TOOL_DEFINITIONS
 )
 
 ALL_HANDLERS: dict[str, Callable] = {
@@ -86,4 +87,5 @@ ALL_HANDLERS: dict[str, Callable] = {
     **shared_memory.HANDLERS,
     **working_memory.HANDLERS,
     **config_manager.HANDLERS,
+    **image_gen.HANDLERS,
 }

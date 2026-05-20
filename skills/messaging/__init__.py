@@ -90,6 +90,19 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "telegram_send_photo",
+        "description": "Send a photo to Telegram. Accepts a local file path, HTTP/HTTPS URL, or Telegram file_id. Use generate_image first to create an image, then send it here.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "image":   {"type": "string", "description": "File path, HTTPS URL, or Telegram file_id of the image"},
+                "caption": {"type": "string", "description": "Optional caption text"},
+                "chat_id": {"type": "string", "description": "Override chat_id (optional)"},
+            },
+            "required": ["image"],
+        },
+    },
+    {
         "name": "telegram_set_webhook",
         "description": "Set or update the Telegram bot webhook URL.",
         "parameters": {
@@ -142,6 +155,7 @@ HANDLERS = {
                                 send_message(platform, text, recipient),
     "get_messages":         lambda platform, limit=10:
                                 get_messages(platform, int(limit)),
+    "telegram_send_photo": lambda image, caption="", chat_id="": _tg.send_photo(image, caption=caption, chat_id=chat_id),
     "telegram_send":        lambda text, chat_id="", parse_mode="Markdown":
                                 _tg.send(text, chat_id=chat_id, parse_mode=parse_mode),
     "telegram_get_updates": lambda limit=10, offset=0:

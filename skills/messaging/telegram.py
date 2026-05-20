@@ -57,6 +57,41 @@ def get_updates(limit: int = 10, offset: int = 0) -> str:
     return "\n".join(lines)
 
 
+def send_photo(image: str, caption: str = "", chat_id: str = "") -> str:
+    """Send a photo to Telegram. `image` can be a file path, HTTP URL, or file_id."""
+    try:
+        import requests
+    except ImportError:
+        return "requests not installed."
+    cid = chat_id or _chat_id
+    if not _token:
+        return "Telegram token not configured. Set TELEGRAM_TOKEN."
+    if not cid:
+        return "Telegram chat_id not configured. Set TELEGRAM_CHAT_ID."
+
+    url = f"https://api.telegram.org/bot{_token}/sendPhoto"
+
+    if image.startswith("http://") or image.startswith("https://"):
+        r = requests.post(
+            url,
+            json={"chat_id": cid, "photo": image, "caption": caption},
+            timeout=30,
+        )
+    else:
+        # Local file path
+        if not os.path.isfile(image):
+            return f"❌ File not found: {image}"
+        with open(image, "rb") as f:
+            r = requests.post(
+                url,
+                data={"chat_id": cid, "caption": caption},
+                files={"photo": f},
+                timeout=60,
+            )
+
+    return f"✅ Photo sent to {cid}" if r.ok else f"❌ Telegram error: {r.text}"
+
+
 def set_webhook(webhook_url: str) -> str:
     try:
         import requests

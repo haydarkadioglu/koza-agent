@@ -1,4 +1,4 @@
-"""Creative skill — architecture diagrams, ASCII art, image generation."""
+"""Creative skill — architecture diagrams, ASCII art."""
 
 TOOL_DEFINITIONS = [
     {
@@ -35,24 +35,7 @@ TOOL_DEFINITIONS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "generate_image",
-            "description": "Generate an image using OpenAI DALL-E and save to disk.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {"type": "string"},
-                    "output_path": {"type": "string", "default": "generated_image.png"},
-                    "size": {"type": "string", "default": "1024x1024", "enum": ["256x256", "512x512", "1024x1024"]},
-                },
-                "required": ["prompt"],
-            },
-        },
-    },
 ]
-
 
 def ascii_art(text: str, font: str = "slant") -> str:
     try:
@@ -76,19 +59,4 @@ def architecture_diagram(description: str, diagram_type: str = "flowchart") -> s
     return template.get(diagram_type, template["flowchart"])
 
 
-def generate_image(prompt: str, output_path: str = "generated_image.png", size: str = "1024x1024") -> str:
-    try:
-        from openai import OpenAI
-        import urllib.request
-        client = OpenAI()
-        response = client.images.generate(prompt=prompt, n=1, size=size)
-        url = response.data[0].url
-        urllib.request.urlretrieve(url, output_path)
-        return f"Image saved to: {output_path}\nURL: {url}"
-    except ImportError:
-        return "openai package not installed."
-    except Exception as e:
-        return f"ERROR: {e}"
-
-
-HANDLERS = {"ascii_art": ascii_art, "architecture_diagram": architecture_diagram, "generate_image": generate_image}
+HANDLERS = {"ascii_art": ascii_art, "architecture_diagram": architecture_diagram}
