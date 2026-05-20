@@ -17,6 +17,7 @@ def cmd_config(args: list) -> None:
     _hr()
     print(f"\n  {_C('Config file', 'grey')}  :  {_C(_config_path(), 'white')}")
     print(f"  {_C('DB path    ', 'grey')}  :  {_C(str(cfg.get('db_path', '?')), 'white')}")
+    print(f"  {_C('Workspace  ', 'grey')}  :  {_C(str(cfg.get('workspace_path', '~/.Koza/workspace')), 'white')}")
     print(f"  {_C('Provider   ', 'grey')}  :  {_C(str(cfg.get('provider', '?')), 'cyan')}")
     print(f"  {_C('Model      ', 'grey')}  :  {_C(str(cfg.get('model') or '(default)'), 'cyan')}")
     fallback = cfg.get("fallback_provider", "")
@@ -144,6 +145,32 @@ def cmd_telegram(args: list) -> None:
     _hr()
 
 
+def _clean_empty(root) -> tuple[int, int]:
+    """Recursively delete empty files and empty directories. Returns (files_removed, dirs_removed)."""
+    from pathlib import Path
+    root = Path(root)
+    files_removed = dirs_removed = 0
+    if not root.exists():
+        return 0, 0
+    # Remove empty files
+    for f in list(root.rglob("*")):
+        if f.is_file() and f.stat().st_size == 0:
+            try:
+                f.unlink()
+                files_removed += 1
+            except Exception:
+                pass
+    # Remove empty dirs (bottom-up)
+    for d in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if d.is_dir() and not any(d.iterdir()):
+            try:
+                d.rmdir()
+                dirs_removed += 1
+            except Exception:
+                pass
+    return files_removed, dirs_removed
+
+
 def cmd_clean(args: list) -> None:
     """Reset Koza to factory state — removes config, database, and daemon files."""
     import shutil
@@ -151,11 +178,12 @@ def cmd_clean(args: list) -> None:
     from koza_daemon import get_daemon_port, PID_FILE, PORT_FILE, _cleanup
 
     _hr()
-    print(_C("\n  ⚠   koza clean — Factory Reset\n", "red", "bold"))
+    print(_C("  ⚠   koza clean — Factory Reset\n", "red", "bold"))
     print(_C("  This will permanently delete:\n", "grey"))
-    print(_C("    • ~/.Koza/config.yaml  (all provider keys & settings)", "grey"))
-    print(_C("    • ~/.Koza/koza.db      (tasks, memory, cron jobs)", "grey"))
-    print(_C("    • ~/.Koza/daemon.*     (daemon PID / port files)\n", "grey"))
+    print(_C("    • ~/.Koza/config.yaml         (all provider keys & settings)", "grey"))
+    print(_C("    • ~/.Koza/koza.db             (tasks, memory, cron jobs)", "grey"))
+    print(_C("    • ~/.Koza/daemon.*            (daemon PID / port files)", "grey"))
+    print(_C("    • ~/.Koza/workspace/**        (empty files & empty folders)\n", "grey"))
     print(_C("  The daemon will be stopped if running.\n", "grey"))
 
     try:
@@ -209,6 +237,15 @@ def cmd_clean(args: list) -> None:
         print(_C("     Close any open terminals using Koza and delete them manually.", "grey"))
     if not removed and not skipped:
         print(_C("  ℹ  Nothing to remove.", "grey"))
+
+    # Clean empty files and folders in workspace
+    ws = koza_dir / "workspace"
+    if ws.exists():
+        f_count, d_count = _clean_empty(ws)
+        if f_count or d_count:
+            print(_C(f"  ✓  Workspace: removed {f_count} empty file(s), {d_count} empty folder(s)", "green"))
+        else:
+            print(_C("  ℹ  Workspace: no empty files or folders found.", "grey"))
 
     _hr()
     print(_C("\n  ✅  Koza reset to factory defaults.\n", "green"))

@@ -17,12 +17,21 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         from core import ALL_TOOLS, ALL_HANDLERS, SYSTEM_PROMPT
         from skills.shared_memory import init_db as sm_init, get_relevant_context
         from skills.working_memory import init_db as wm_init, wm_get_context
+        from skills import shell as _shell
+        from pathlib import Path
 
         cfg = load_config()
         if provider:
             cfg["provider"] = provider
         if model:
             cfg["model"] = model
+
+        # Each subagent gets its own isolated working directory
+        ws = Path(cfg.get("workspace_path", str(Path.home() / ".Koza" / "workspace")))
+        agent_dir = ws / "subagents" / agent_id
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        _shell.set_cwd(str(agent_dir))
+        _subagents[agent_id]["workdir"] = str(agent_dir)
 
         sm_init(cfg["db_path"])
         wm_init(cfg["db_path"])

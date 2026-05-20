@@ -46,11 +46,13 @@ def get_subagent_status(agent_id: str) -> str:
         lines = [f"#{a['id']}: {a['status']} — {a['goal']}" for a in _subagents.values()]
         return "Active sub-agents:\n" + "\n".join(lines)
     elapsed = round(time.time() - ag["started"], 1)
+    workdir = ag.get("workdir", "")
+    workdir_line = f"\n  Workdir: {workdir}" if workdir else ""
     return (
         f"Sub-agent {agent_id}\n"
         f"  Status : {ag['status']}\n"
         f"  Goal   : {ag['goal']}\n"
-        f"  Elapsed: {elapsed}s\n"
+        f"  Elapsed: {elapsed}s{workdir_line}\n"
         f"  Result : {ag.get('result', '')[:500]}"
     )
 
@@ -64,6 +66,101 @@ def list_subagents() -> str:
         elapsed = round(time.time() - ag["started"], 1)
         lines.append(f"  #{ag['id']} [{ag['status']}] {elapsed}s — {ag['goal']}")
     return "Sub-agents this session:\n" + "\n".join(lines)
+
+
+def create_project(name: str, description: str = "") -> str:
+    """Create a named project folder under workspace/projects/ and switch into it."""
+    import re
+    from pathlib import Path
+    from config import load_config
+    from skills import shell as _shell
+
+    cfg = load_config()
+    ws = Path(cfg.get("workspace_path", str(Path.home() / ".Koza" / "workspace")))
+    # Sanitize folder name
+    safe_name = re.sub(r"[^\w\-]", "_", name.strip()).strip("_") or "project"
+    project_dir = ws / "projects" / safe_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+    if description:
+        (project_dir / "README.md").write_text(f"# {name}\n\n{description}\n", encoding="utf-8")
+    _shell.set_cwd(str(project_dir))
+    return f"✅ Project '{safe_name}' ready at: {project_dir}\nWorking directory set to project folder."
+
+
+def list_projects() -> str:
+    """List all projects in the workspace projects folder."""
+    from pathlib import Path
+    from config import load_config
+
+    cfg = load_config()
+    ws = Path(cfg.get("workspace_path", str(Path.home() / ".Koza" / "workspace")))
+    projects_dir = ws / "projects"
+    if not projects_dir.exists():
+        return "No projects yet."
+    projects = [p for p in projects_dir.iterdir() if p.is_dir()]
+    if not projects:
+        return "No projects yet."
+    lines = []
+    for p in sorted(projects):
+        readme = p / "README.md"
+        desc = ""
+        if readme.exists():
+            first_line = readme.read_text(encoding="utf-8").splitlines()
+            desc = next((l for l in first_line if l and not l.startswith("#")), "")
+        size = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+        size_str = f"{size/1024:.1f}KB" if size < 1024*1024 else f"{size/1024/1024:.1f}MB"
+        lines.append(f"  📁 {p.name}  ({size_str}){('  — ' + desc) if desc else ''}")
+    return "Projects:\n" + "\n".join(lines)
+
+
+def clean_workspace(scope: str = "all") -> str:
+    """
+    Remove empty files and empty folders from the workspace.
+    scope: 'all' | 'tmp' | 'subagents' | 'projects' | 'downloads'
+    """
+    from pathlib import Path
+    from config import load_config
+
+    cfg = load_config()
+    ws = Path(cfg.get("workspace_path", str(Path.home() / ".Koza" / "workspace")))
+    if not ws.exists():
+        return "Workspace does not exist yet."
+
+    targets = {
+        "all":       [ws],
+        "tmp":       [ws / "tmp"],
+        "subagents": [ws / "subagents"],
+        "projects":  [ws / "projects"],
+        "downloads": [ws / "downloads"],
+    }
+    dirs_to_clean = targets.get(scope, [ws])
+
+    total_files = total_dirs = 0
+    for d in dirs_to_clean:
+        if not d.exists():
+            continue
+        # Empty files
+        for f in list(d.rglob("*")):
+            if f.is_file() and f.stat().st_size == 0:
+                try:
+                    f.unlink()
+                    total_files += 1
+                except Exception:
+                    pass
+        # Empty dirs bottom-up
+        for sub in sorted(d.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+            if sub.is_dir() and not any(sub.iterdir()):
+                try:
+                    sub.rmdir()
+                    total_dirs += 1
+                except Exception:
+                    pass
+
+    return (
+        f"✅ Workspace cleanup done.\n"
+        f"   Removed {total_files} empty file(s) and {total_dirs} empty folder(s) "
+        f"from '{scope}' scope."
+    )
 
 
 # ── Tool definitions ──────────────────────────────────────────────────────────
@@ -104,6 +201,43 @@ TOOL_DEFINITIONS = [
         "description": "List all sub-agents spawned this session with their status.",
         "parameters": {"type": "object", "properties": {}},
     },
+    {
+        "name": "create_project",
+        "description": (
+            "Create a new named project folder under workspace/projects/ and switch the working directory into it. "
+            "Use this whenever the user asks you to build an app, start a new project, or create a new codebase. "
+            "All subsequent files will be created inside this project folder."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name":        {"type": "string", "description": "Project name (used as folder name)"},
+                "description": {"type": "string", "default": "", "description": "Short description written to README.md"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "list_projects",
+        "description": "List all existing projects in the workspace.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "clean_workspace",
+        "description": (
+            "Remove empty files and empty folders from the workspace. "
+            "Use scope='all' for the whole workspace, or 'tmp'/'subagents'/'projects'/'downloads' for a specific area."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "scope": {"type": "string", "default": "all",
+                          "enum": ["all", "tmp", "subagents", "projects", "downloads"],
+                          "description": "Which part of the workspace to clean"},
+            },
+            "required": [],
+        },
+    },
 ]
 
 HANDLERS: dict = {
@@ -111,4 +245,7 @@ HANDLERS: dict = {
                                spawn_subagent(goal, provider, model, tools, wait),
     "get_subagent_status": lambda agent_id: get_subagent_status(agent_id),
     "list_subagents":      lambda **_: list_subagents(),
+    "create_project":      lambda name, description="": create_project(name, description),
+    "list_projects":       lambda **_: list_projects(),
+    "clean_workspace":     lambda scope="all": clean_workspace(scope),
 }
