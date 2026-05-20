@@ -7,11 +7,14 @@ from cli.ui import (
     _extract_gemini_cookies,
 )
 
-PROVIDERS = ["ollama", "openai", "anthropic", "deepseek", "gemini api", "gemini cookie", "antigravity manager", "github"]
+PROVIDERS = ["ollama", "openai", "anthropic", "deepseek", "kimi", "minimax", "zai", "gemini api", "gemini cookie", "antigravity manager", "github"]
 PROVIDER_MODELS = {
     "openai":              ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
     "anthropic":           ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
     "deepseek":            ["deepseek-chat", "deepseek-reasoner", "deepseek-coder-v2"],
+    "kimi":                ["kimi-k2-0711-preview", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-latest"],
+    "minimax":             ["MiniMax-M1", "MiniMax-Text-01", "abab6.5s-chat"],
+    "zai":                 ["glm-z1-air", "glm-z1-flash", "glm-4-plus", "glm-4-air", "glm-4-flash"],
     "gemini api":          ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
     "gemini cookie":       ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
     "gemini":              ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
@@ -19,7 +22,7 @@ PROVIDER_MODELS = {
     "ollama":              ["llama3.2", "mistral", "codellama"],
     "github":              ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
 }
-NEEDS_KEY = {"openai", "anthropic", "deepseek", "gemini api", "gemini", "github"}
+NEEDS_KEY = {"openai", "anthropic", "deepseek", "gemini api", "gemini", "github", "kimi", "minimax", "zai"}
 _OTHER = "other — enter manually"
 
 

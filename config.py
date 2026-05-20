@@ -23,6 +23,9 @@ def default_config() -> dict:
             "ollama":     {"base_url": "http://localhost:11434"},
             "antigravity manager": {"base_url": "http://localhost:5188"},
             "github":     {"token": ""},
+            "kimi":       {"api_key": "", "base_url": "https://api.moonshot.cn/v1"},
+            "minimax":    {"api_key": "", "base_url": "https://api.minimax.io/v1"},
+            "zai":        {"api_key": "", "base_url": "https://open.bigmodel.cn/api/paas/v4"},
         },
         "messaging": {
             "telegram":  {"token": "", "chat_id": ""},
