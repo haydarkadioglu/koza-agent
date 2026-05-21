@@ -53,6 +53,19 @@ _COOKIE_MODELS = {
     "gemini-2.5-flash-advanced":      "ADVANCED_FLASH",
 }
 
+# Image model names for cookie-mode Imagen (Pro account required)
+_IMAGEN_MODELS = {
+    "imagen-nano":    "IMAGEN_NANO",       # Imagen 3 Nano — fastest, free with Pro
+    "imagen-banana":  "IMAGEN_BANANA",     # Imagen Banana  — free with Pro
+    "imagen-3":       "IMAGEN_3",          # Imagen 3 standard
+}
+
+# Veo video model names for cookie-mode (Pro account required)
+_VEO_MODELS = {
+    "veo-2":   "VEO_2",     # Veo 2 — free with Pro
+    "veo":     "VEO_2",
+}
+
 
 class GeminiProvider(LLMProvider):
     def __init__(self, cfg: dict):
@@ -133,6 +146,86 @@ class GeminiProvider(LLMProvider):
             resp = await client.generate_content(prompt, model=model)
             return resp.text
         return _run_async(_run())
+
+    def generate_image_cookie(self, prompt: str, model_name: str = "imagen-nano", save_path: str = "") -> str:
+        """Generate an image using cookie auth (Pro account required)."""
+        import os, time, tempfile
+        client = self._get_cookie_client()
+        try:
+            from gemini_webapi.constants import ImageGenModel
+            enum_name = _IMAGEN_MODELS.get(model_name, "IMAGEN_NANO")
+            img_model = getattr(ImageGenModel, enum_name, None)
+        except ImportError:
+            img_model = None
+
+        async def _run():
+            # gemini-webapi >= 2.5 exposes generate_images()
+            if img_model is not None and hasattr(client, "generate_images"):
+                resp = await client.generate_images(prompt, model=img_model)
+            else:
+                # Fallback: send as regular prompt asking for image
+                resp = await client.generate_content(
+                    f"Generate an image: {prompt}\n\n[IMAGE_OUTPUT]"
+                )
+            return resp
+
+        resp = _run_async(_run())
+
+        # resp may be a list of image objects or a text response
+        path = save_path or os.path.join(tempfile.gettempdir(), f"koza_img_{int(time.time())}.png")
+        if hasattr(resp, "images") and resp.images:
+            img = resp.images[0]
+            if hasattr(img, "to_file"):
+                img.to_file(path)
+                return path
+            elif hasattr(img, "url"):
+                import requests
+                r = requests.get(img.url, timeout=60)
+                r.raise_for_status()
+                with open(path, "wb") as f:
+                    f.write(r.content)
+                return path
+        # Fallback: return text description
+        if hasattr(resp, "text"):
+            return f"⚠️ Image generation returned text (Pro account may be needed): {resp.text[:200]}"
+        return f"❌ Image generation failed: unexpected response type {type(resp)}"
+
+    def generate_video_cookie(self, prompt: str, model_name: str = "veo-2", save_path: str = "") -> str:
+        """Generate a video using Veo via cookie auth (Pro account required)."""
+        import os, time, tempfile
+        client = self._get_cookie_client()
+        try:
+            from gemini_webapi.constants import VideoGenModel
+            enum_name = _VEO_MODELS.get(model_name, "VEO_2")
+            veo_model = getattr(VideoGenModel, enum_name, None)
+        except ImportError:
+            veo_model = None
+
+        async def _run():
+            if veo_model is not None and hasattr(client, "generate_video"):
+                resp = await client.generate_video(prompt, model=veo_model)
+            else:
+                return None
+            return resp
+
+        resp = _run_async(_run())
+        if resp is None:
+            return "❌ Veo video generation requires gemini-webapi >= 2.5 with video support."
+
+        path = save_path or os.path.join(tempfile.gettempdir(), f"koza_vid_{int(time.time())}.mp4")
+        if hasattr(resp, "videos") and resp.videos:
+            vid = resp.videos[0]
+            if hasattr(vid, "to_file"):
+                vid.to_file(path)
+                return path
+            elif hasattr(vid, "url"):
+                import requests
+                r = requests.get(vid.url, timeout=300)
+                r.raise_for_status()
+                with open(path, "wb") as f:
+                    f.write(r.content)
+                return path
+        return f"❌ Video generation failed: unexpected response type {type(resp)}"
 
     @staticmethod
     def _build_react_tools_prompt(tools: list) -> str:

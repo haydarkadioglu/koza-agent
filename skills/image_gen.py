@@ -1,4 +1,4 @@
-"""Image generation skill — OpenAI DALL-E 3 and Google Imagen 3."""
+"""Image and video generation skill — OpenAI DALL-E 3, Google Imagen, and Veo."""
 from __future__ import annotations
 import os
 import tempfile
@@ -8,10 +8,12 @@ import time
 IMAGE_CAPABLE_PROVIDERS = {"openai", "gemini"}
 
 
-def generate_image(prompt: str, size: str = "1024x1024", save_path: str = "") -> str:
+def generate_image(prompt: str, size: str = "1024x1024", save_path: str = "",
+                   model: str = "") -> str:
     """Generate an image from a text prompt.
 
-    Uses DALL-E 3 for OpenAI providers, Imagen 3 for Gemini.
+    Uses DALL-E 3 for OpenAI providers.
+    For Gemini: cookie mode uses Imagen Nano (free with Pro), api_key mode uses Imagen 3.
     Returns the local file path of the saved image, or an error string.
     """
     from config import load_config
@@ -21,12 +23,37 @@ def generate_image(prompt: str, size: str = "1024x1024", save_path: str = "") ->
     if provider == "openai":
         return _openai_generate(prompt, size, save_path, cfg)
     elif provider == "gemini":
+        p_cfg = cfg.get("providers", {}).get("gemini", {})
+        auth = p_cfg.get("auth", "api_key").lower()
+        if auth == "cookie":
+            return _gemini_cookie_generate_image(prompt, save_path, model or "imagen-nano", cfg)
         return _gemini_generate(prompt, size, save_path, cfg)
     else:
         return (
             f"❌ Image generation not supported for provider '{provider}'. "
             f"Switch to 'openai' or 'gemini' to use this feature."
         )
+
+
+def generate_video(prompt: str, save_path: str = "", model: str = "veo-2") -> str:
+    """Generate a video from a text prompt using Veo (Gemini Pro account required).
+
+    Only works with Gemini cookie auth mode and a Pro account.
+    Returns the local file path of the saved video, or an error string.
+    """
+    from config import load_config
+    cfg = load_config()
+    provider = cfg.get("provider", "").lower()
+
+    if provider != "gemini":
+        return "❌ Video generation requires Gemini provider with cookie auth (Pro account)."
+
+    p_cfg = cfg.get("providers", {}).get("gemini", {})
+    auth = p_cfg.get("auth", "api_key").lower()
+    if auth != "cookie":
+        return "❌ Video generation requires Gemini cookie auth mode (Pro account)."
+
+    return _gemini_cookie_generate_video(prompt, save_path, model, cfg)
 
 
 def _tmp_path(ext: str = "png") -> str:
@@ -88,12 +115,32 @@ def _gemini_generate(prompt: str, size: str, save_path: str, cfg: dict) -> str:
         return f"❌ Image generation failed: {e}"
 
 
+def _gemini_cookie_generate_image(prompt: str, save_path: str, model: str, cfg: dict) -> str:
+    try:
+        from providers.gemini_provider import GeminiProvider
+        p_cfg = cfg.get("providers", {}).get("gemini", {})
+        provider = GeminiProvider(p_cfg)
+        return provider.generate_image_cookie(prompt, model_name=model, save_path=save_path)
+    except Exception as e:
+        return f"❌ Cookie image generation failed: {e}"
+
+
+def _gemini_cookie_generate_video(prompt: str, save_path: str, model: str, cfg: dict) -> str:
+    try:
+        from providers.gemini_provider import GeminiProvider
+        p_cfg = cfg.get("providers", {}).get("gemini", {})
+        provider = GeminiProvider(p_cfg)
+        return provider.generate_video_cookie(prompt, model_name=model, save_path=save_path)
+    except Exception as e:
+        return f"❌ Cookie video generation failed: {e}"
+
+
 TOOL_DEFINITIONS = [
     {
         "name": "generate_image",
         "description": (
             "Generate an image from a text prompt using the current AI provider. "
-            "Supported providers: openai (DALL-E 3), gemini (Imagen 3). "
+            "Supported: openai (DALL-E 3), gemini api_key (Imagen 3), gemini cookie (Imagen Nano — free with Pro). "
             "Returns the local file path of the saved image. "
             "Use telegram_send_photo afterwards to send it via Telegram."
         ),
@@ -113,6 +160,39 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Optional file path to save the image. If omitted, saves to a temp file.",
                 },
+                "model": {
+                    "type": "string",
+                    "description": "Image model for Gemini cookie mode: 'imagen-nano' (default, free), 'imagen-banana', 'imagen-3'.",
+                    "default": "imagen-nano",
+                },
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "generate_video",
+        "description": (
+            "Generate a video from a text prompt using Veo (Google). "
+            "Requires Gemini cookie auth with a Pro account. "
+            "Returns the local file path of the saved .mp4 video. "
+            "Use telegram_send_video afterwards to send it via Telegram."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed description of the video to generate",
+                },
+                "save_path": {
+                    "type": "string",
+                    "description": "Optional file path to save the video (.mp4). If omitted, saves to a temp file.",
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Video model: 'veo-2' (default)",
+                    "default": "veo-2",
+                },
             },
             "required": ["prompt"],
         },
@@ -120,5 +200,7 @@ TOOL_DEFINITIONS = [
 ]
 
 HANDLERS: dict = {
-    "generate_image": lambda prompt, size="1024x1024", save_path="": generate_image(prompt, size, save_path),
+    "generate_image": lambda prompt, size="1024x1024", save_path="", model="imagen-nano": generate_image(prompt, size, save_path, model),
+    "generate_video": lambda prompt, save_path="", model="veo-2": generate_video(prompt, save_path, model),
 }
+

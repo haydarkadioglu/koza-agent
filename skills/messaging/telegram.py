@@ -92,6 +92,40 @@ def send_photo(image: str, caption: str = "", chat_id: str = "") -> str:
     return f"✅ Photo sent to {cid}" if r.ok else f"❌ Telegram error: {r.text}"
 
 
+def send_video(video: str, caption: str = "", chat_id: str = "") -> str:
+    """Send a video to Telegram. `video` can be a local file path or HTTP URL."""
+    try:
+        import requests
+    except ImportError:
+        return "requests not installed."
+    cid = chat_id or _chat_id
+    if not _token:
+        return "Telegram token not configured. Set TELEGRAM_TOKEN."
+    if not cid:
+        return "Telegram chat_id not configured. Set TELEGRAM_CHAT_ID."
+
+    url = f"https://api.telegram.org/bot{_token}/sendVideo"
+
+    if video.startswith("http://") or video.startswith("https://"):
+        r = requests.post(
+            url,
+            json={"chat_id": cid, "video": video, "caption": caption},
+            timeout=60,
+        )
+    else:
+        if not os.path.isfile(video):
+            return f"❌ File not found: {video}"
+        with open(video, "rb") as f:
+            r = requests.post(
+                url,
+                data={"chat_id": cid, "caption": caption},
+                files={"video": f},
+                timeout=300,
+            )
+
+    return f"✅ Video sent to {cid}" if r.ok else f"❌ Telegram error: {r.text}"
+
+
 def set_webhook(webhook_url: str) -> str:
     try:
         import requests

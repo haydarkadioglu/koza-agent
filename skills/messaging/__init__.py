@@ -103,6 +103,19 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "telegram_send_video",
+        "description": "Send a video to Telegram. Accepts a local .mp4 file path or HTTP/HTTPS URL. Use generate_video first to create a video, then send it here.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "video":   {"type": "string", "description": "File path or HTTPS URL of the video (.mp4)"},
+                "caption": {"type": "string", "description": "Optional caption text"},
+                "chat_id": {"type": "string", "description": "Override chat_id (optional)"},
+            },
+            "required": ["video"],
+        },
+    },
+    {
         "name": "telegram_set_webhook",
         "description": "Set or update the Telegram bot webhook URL.",
         "parameters": {
@@ -156,6 +169,7 @@ HANDLERS = {
     "get_messages":         lambda platform, limit=10:
                                 get_messages(platform, int(limit)),
     "telegram_send_photo": lambda image, caption="", chat_id="": _tg.send_photo(image, caption=caption, chat_id=chat_id),
+    "telegram_send_video": lambda video, caption="", chat_id="": _tg.send_video(video, caption=caption, chat_id=chat_id),
     "telegram_send":        lambda text, chat_id="", parse_mode="Markdown":
                                 _tg.send(text, chat_id=chat_id, parse_mode=parse_mode),
     "telegram_get_updates": lambda limit=10, offset=0:
