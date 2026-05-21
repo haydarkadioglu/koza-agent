@@ -10,7 +10,7 @@ from cli.ui import _C, _hr, _print_error
 
 
 def _list_and_pick_devices() -> tuple[int | None, int | None]:
-    """Print sounddevice device list and let user pick input + output IDs."""
+    """Show only unique real devices + System Default, let user pick input/output."""
     import sounddevice as sd
     from cli.ui import _select_menu
 
@@ -18,47 +18,41 @@ def _list_and_pick_devices() -> tuple[int | None, int | None]:
     default_in  = sd.default.device[0]
     default_out = sd.default.device[1]
 
-    _hr("·", "grey")
-    print(_C("  Available Audio Devices\n", "cyan", "bold"))
-    print(f"  {'ID':<4} {'Type':<6} {'Name'}", )
-    print(_C("  " + "─" * 60, "grey"))
+    def _default_name(idx):
+        try:
+            return devices[idx]["name"]
+        except Exception:
+            return "?"
 
-    input_devices  = []   # (label, device_index)
-    output_devices = []
+    # Build de-duplicated lists: keep first occurrence of each name
+    seen_in, seen_out = set(), set()
+    input_opts  = [("System Default", None)]   # (label, device_idx)
+    output_opts = [("System Default", None)]
 
     for i, d in enumerate(devices):
-        ins  = d.get("max_input_channels",  0)
-        outs = d.get("max_output_channels", 0)
-        dtype = "in+out" if ins > 0 and outs > 0 else ("in" if ins > 0 else "out")
-        marker = ""
-        if i == default_in:  marker += " ◀in"
-        if i == default_out: marker += " ▶out"
-        color = "white" if ins > 0 or outs > 0 else "grey"
-        print(_C(f"  {i:<4} {dtype:<6} {d['name']}{marker}", color))
-        if ins > 0:
-            input_devices.append((f"{i}: {d['name']}", i))
-        if outs > 0:
-            output_devices.append((f"{i}: {d['name']}", i))
+        name = d.get("name", "")
+        if d.get("max_input_channels", 0) > 0 and name not in seen_in:
+            seen_in.add(name)
+            marker = " ★" if i == default_in else ""
+            input_opts.append((f"{name}{marker}", i))
+        if d.get("max_output_channels", 0) > 0 and name not in seen_out:
+            seen_out.add(name)
+            marker = " ★" if i == default_out else ""
+            output_opts.append((f"{name}{marker}", i))
 
-    print()
+    _hr("·", "grey")
+    print(_C(f"  System default input : {_default_name(default_in)}", "grey"))
+    print(_C(f"  System default output: {_default_name(default_out)}\n", "grey"))
 
-    # Input device
-    in_labels = [lbl for lbl, _ in input_devices]
     try:
-        chosen_in_lbl = _select_menu("Select INPUT device (microphone)", in_labels,
-                                     default_idx=next((n for n, (_, i) in enumerate(input_devices)
-                                                       if i == default_in), 0))
-        chosen_in = dict(input_devices)[chosen_in_lbl]
+        in_lbl  = _select_menu("Microphone (input)", [l for l, _ in input_opts], default_idx=0)
+        chosen_in  = dict(input_opts)[in_lbl]
     except (KeyboardInterrupt, EOFError):
         return None, None
 
-    # Output device
-    out_labels = [lbl for lbl, _ in output_devices]
     try:
-        chosen_out_lbl = _select_menu("Select OUTPUT device (speakers)", out_labels,
-                                      default_idx=next((n for n, (_, i) in enumerate(output_devices)
-                                                        if i == default_out), 0))
-        chosen_out = dict(output_devices)[chosen_out_lbl]
+        out_lbl = _select_menu("Speakers (output)", [l for l, _ in output_opts], default_idx=0)
+        chosen_out = dict(output_opts)[out_lbl]
     except (KeyboardInterrupt, EOFError):
         return None, None
 
