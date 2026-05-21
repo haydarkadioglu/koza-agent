@@ -246,6 +246,15 @@ def cmd_setup(args: list) -> None:
     print(_C(f"\n  ✅  Config saved → {_config_path()}\n", "green"))
     _hr()
 
+    # ── Multi-host setup ──────────────────────────────────────────────────────
+    try:
+        mh_choice = _prompt("Enable multi-host sync?", default="n", choices=["y", "n"])
+    except (KeyboardInterrupt, EOFError):
+        return
+    if mh_choice.lower() == "y":
+        from cli.commands import cmd_sync
+        cmd_sync(["setup"])
+
 
 def cmd_provider(args: list) -> None:
     """Show and switch the active provider/model.

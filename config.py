@@ -48,6 +48,16 @@ def default_config() -> dict:
         "vault_path":      str(Path.home() / "notes"),
         "db_path":         str(Path.home() / ".Koza" / "koza.db"),
         "workspace_path":  str(Path.home() / ".Koza" / "workspace"),
+        "multi_host": {
+            "mode":                   "single",   # single | master | client | demo
+            "sync_port":              7420,
+            "sync_token":             "",         # auto-generated on master setup
+            "master_url":             "",         # http://master-ip:7420  (client only)
+            "sync_on_startup":        True,
+            "sync_on_exit":           True,
+            "sync_interval_minutes":  5,          # periodic background sync (0 = disabled)
+            "host_name":              "",         # optional display name
+        },
     }
 
 
@@ -61,6 +71,8 @@ def load_config() -> dict:
             if key == "providers" and isinstance(val, dict):
                 for p, pval in val.items():
                     cfg["providers"].setdefault(p, {}).update(pval)
+            elif key == "multi_host" and isinstance(val, dict):
+                cfg["multi_host"].update(val)
             else:
                 cfg[key] = val
     # ENV overrides

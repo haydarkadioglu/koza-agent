@@ -5,7 +5,7 @@ import sys
 from cli.setup import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER  # noqa: F401
 from cli.daemon import cmd_start, cmd_status, cmd_quit
 from cli.setup import cmd_setup, cmd_provider
-from cli.commands import cmd_config, cmd_kanban, cmd_uninstall, cmd_telegram, cmd_version, cmd_help, cmd_clean
+from cli.commands import cmd_config, cmd_kanban, cmd_uninstall, cmd_telegram, cmd_version, cmd_help, cmd_clean, cmd_sync
 from cli.ui import _C, _hr, _print_error
 
 # ── Dispatch table ────────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ _COMMANDS = {
     "-v":        cmd_version,
     "uninstall": cmd_uninstall,
     "clean":     cmd_clean,
+    "sync":      cmd_sync,
     "help":      cmd_help,
     "--help":    cmd_help,
     "-h":        cmd_help,

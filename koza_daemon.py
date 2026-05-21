@@ -230,7 +230,7 @@ class DaemonServer:
         return Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
 
     def _start_services(self):
-        """Start Telegram bot (and any future always-on services)."""
+        """Start Telegram bot and multi-host sync services."""
         token = (
             self.cfg.get("telegram_token", "").strip()
             or self.cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
@@ -246,6 +246,100 @@ class DaemonServer:
                 _log(f"Telegram start failed: {e}")
         else:
             _log("Telegram: no token found in config, skipping.")
+
+        # Multi-host sync
+        mh   = self.cfg.get("multi_host", {})
+        mode = mh.get("mode", "single")
+        if mode == "master":
+            self._start_sync_server()
+        elif mode in ("client", "demo"):
+            self._sync_on_start()
+            self._start_periodic_sync()
+
+    def _start_sync_server(self):
+        """Start the HTTP sync server for master mode."""
+        mh        = self.cfg.get("multi_host", {})
+        port      = int(mh.get("sync_port", 7420))
+        token     = mh.get("sync_token", "")
+        host_name = mh.get("host_name", "")
+        db_path   = self.cfg.get("db_path", "")
+        if not token:
+            _log("Multi-host: sync_token not set, sync server not started.")
+            return
+        try:
+            from skills.sync.server import start_sync_server
+            ok = start_sync_server(db_path, token, port=port, host_name=host_name)
+            if ok:
+                _log(f"Multi-host: sync server started on 0.0.0.0:{port}")
+            else:
+                _log(f"Multi-host: sync server failed to bind on port {port} (in use?)")
+        except Exception as e:
+            _log(f"Multi-host: sync server error: {e}")
+
+    def _sync_on_start(self):
+        """Client mode: pull latest data from master on daemon startup."""
+        mh = self.cfg.get("multi_host", {})
+        if not mh.get("sync_on_startup", True):
+            return
+        master  = mh.get("master_url", "").strip()
+        token   = mh.get("sync_token", "").strip()
+        db_path = self.cfg.get("db_path", "")
+        if not master or not token:
+            _log("Multi-host: client mode but master_url/token not set, skipping startup sync.")
+            return
+        try:
+            from skills.sync.client import sync_bidirectional_safe
+            msg = sync_bidirectional_safe(master, token, db_path)
+            _log(f"Multi-host startup sync: {msg}")
+        except Exception as e:
+            _log(f"Multi-host startup sync error: {e}")
+
+    def _start_periodic_sync(self):
+        """Client mode: background thread that syncs every N minutes."""
+        mh       = self.cfg.get("multi_host", {})
+        interval = int(mh.get("sync_interval_minutes", 5))
+        if interval <= 0:
+            return
+        master  = mh.get("master_url", "").strip()
+        token   = mh.get("sync_token", "").strip()
+        db_path = self.cfg.get("db_path", "")
+        if not master or not token:
+            return
+
+        shutdown = self._shutdown
+
+        def _loop():
+            while not shutdown.wait(timeout=interval * 60):
+                try:
+                    from skills.sync.client import sync_bidirectional_safe
+                    msg = sync_bidirectional_safe(master, token, db_path)
+                    _log(f"Multi-host periodic sync: {msg}")
+                except Exception as e:
+                    _log(f"Multi-host periodic sync error: {e}")
+
+        t = threading.Thread(target=_loop, daemon=True, name="koza-sync-loop")
+        t.start()
+        _log(f"Multi-host: periodic sync every {interval} min started.")
+
+    def _sync_on_exit(self):
+        """Client mode: push local changes to master on daemon shutdown."""
+        mh = self.cfg.get("multi_host", {})
+        if mh.get("mode", "single") not in ("client", "demo"):
+            return
+        if not mh.get("sync_on_exit", True):
+            return
+        master  = mh.get("master_url", "").strip()
+        token   = mh.get("sync_token", "").strip()
+        db_path = self.cfg.get("db_path", "")
+        if not master or not token:
+            return
+        try:
+            from skills.sync.client import sync_push
+            counts = sync_push(master, token, db_path)
+            total  = sum(counts.values())
+            _log(f"Multi-host exit sync: pushed {total} rows to master")
+        except Exception as e:
+            _log(f"Multi-host exit sync error: {e}")
 
     def run(self):
         # Bind to a random free port
@@ -275,6 +369,7 @@ class DaemonServer:
                 threading.Thread(target=session.run, daemon=False).start()
         finally:
             srv.close()
+            self._sync_on_exit()
             _cleanup()
             _log("Daemon stopped.")
 
