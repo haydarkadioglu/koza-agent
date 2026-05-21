@@ -255,6 +255,15 @@ def cmd_setup(args: list) -> None:
         from cli.commands import cmd_sync
         cmd_sync(["setup"])
 
+    # ── Voice setup ───────────────────────────────────────────────────────────
+    try:
+        voice_choice = _prompt("Enable voice mode (STT + TTS)?", default="n", choices=["y", "n"])
+    except (KeyboardInterrupt, EOFError):
+        return
+    if voice_choice.lower() == "y":
+        from cli.voice_cmd import _do_setup
+        _do_setup([])
+
 
 def cmd_provider(args: list) -> None:
     """Show and switch the active provider/model.

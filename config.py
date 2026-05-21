@@ -58,6 +58,12 @@ def default_config() -> dict:
             "sync_interval_minutes":  5,          # periodic background sync (0 = disabled)
             "host_name":              "",         # optional display name
         },
+        "voice": {
+            "enabled":   False,
+            "stt_model": "base",    # whisper model size: tiny / base / small
+            "tts_voice": "af_sky",  # kokoro voice id
+            "language":  "",        # force STT language (empty = auto-detect)
+        },
     }
 
 
