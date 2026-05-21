@@ -92,14 +92,6 @@ Rules:
 - `docker_run` for container execution.
 - `webhook_listen` to expose a local endpoint.
 """,
-
-    "speedtest": """
-## Speedtest Strategy (multi-fallback example)
-1. Try `speedtest-cli` → if missing, `pip install speedtest-cli`
-2. If that fails, use `curl` to time a large file download
-3. If that fails, fetch fast.com via `fetch_url`
-4. Report result in Mbps.
-""",
 }
 
 # ── Keyword → section name mapping ───────────────────────────────────────────
@@ -112,7 +104,6 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "agent":      ["agent", "subagent", "parallel", "spawn", "sub-agent"],
     "security":   ["port", "ssl", "whois", "scan", "security", "pentest", "hack"],
     "devops":     ["docker", "container", "git", "webhook", "deploy", "ci"],
-    "speedtest":  ["speed", "bandwidth", "internet speed", "speedtest"],
 }
 
 
