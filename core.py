@@ -3,7 +3,7 @@ import threading
 from typing import Callable
 
 from providers.base import LLMProvider
-from prompt import SYSTEM_PROMPT
+from prompt import build_system_prompt
 from skills import (
     kanban, cron, session_memory, messaging, shared_memory, working_memory,
     email_skill, media, smarthome, social, productivity, notes, github_skill,
@@ -157,7 +157,7 @@ class Agent:
                  on_token: Callable[[str], None] | None = None):
         self.provider = provider
         self.on_token = on_token
-        self.messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt()}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop
@@ -381,9 +381,7 @@ class Agent:
         try:
             from skills.shell import get_cwd as _get_cwd
             wm_ctx = working_memory.wm_get_context()
-            new_system = SYSTEM_PROMPT
-            if wm_ctx:
-                new_system = f"{SYSTEM_PROMPT}\n\n{wm_ctx}"
+            new_system = build_system_prompt(user_input, wm_ctx or "")
             new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
             if self.messages and self.messages[0]["role"] == "system":
                 self.messages[0]["content"] = new_system
@@ -414,7 +412,7 @@ class Agent:
 
     def reset(self):
         self.auto_save()  # save session before clearing
-        self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.messages = [{"role": "system", "content": build_system_prompt()}]
         working_memory.wm_clear()  # wipe short-term memory on reset
 
     def auto_save(self, title: str = "", summary: str = "") -> str:
