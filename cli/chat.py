@@ -4,7 +4,6 @@ The prompt stays pinned at the bottom while the agent streams output above it.
 Pressing Enter during processing interrupts the running request.
 """
 import sys
-import re as _re
 import shutil
 import time
 import threading
@@ -13,7 +12,7 @@ import queue as _queue
 from cli.ui import (
     _C, _hr, _print_error, _print_inline_help, _print_banner,
     _spinner_start, _spinner_stop, _spinner_set, _spinner_active_check,
-    _render_md, _select_menu,
+    _select_menu,
 )
 
 # ── prompt_toolkit availability ───────────────────────────────────────────────
@@ -49,10 +48,13 @@ def _plain_cli(agent, cfg: dict) -> None:
     # ── Tool permission system ────────────────────────────────────────────────
     _SAFE_TOOLS = {
         "web_search", "fetch_url", "list_dir", "read_file", "wm_add", "wm_get",
-        "memory_recall", "memory_search", "memory_list", "recall_sessions",
-        "list_sessions", "list_tasks", "list_crons", "list_subagents",
+        "wm_list", "wm_clear", "wm_get_context",
+        "memory_recall", "memory_search", "memory_list", "memory_store",
+        "recall_sessions", "list_sessions", "list_tasks", "list_crons", "list_subagents",
         "get_subagent_status", "github_search_code", "github_list_prs",
         "github_repo_info", "pandas_query", "matplotlib_plot",
+        "list_projects", "list_capabilities", "get_weather", "get_time",
+        "calculator", "search_files", "get_cwd",
     }
     _session_allowed:  set = set()
     _permanent_allowed: set = set(cfg.get("allowed_tools", []))
@@ -169,6 +171,27 @@ def _plain_cli(agent, cfg: dict) -> None:
         t_start       = time.time()
         text_started  = False
         full_response = ""
+        tw = shutil.get_terminal_size((100, 24)).columns
+
+        def _open_box():
+            """Print the Koza box header on first text token."""
+            print()
+            print(_C("  ╭─ Koza ", "yellow", "bold") + _C("─" * (tw - 10), "gold"))
+            sys.stdout.write(_C("  │ ", "yellow"))
+            sys.stdout.flush()
+
+        def _write_token(token: str) -> None:
+            """Write a streaming token, handling newlines with proper box indent."""
+            if "\n" in token:
+                parts = token.split("\n")
+                for i, part in enumerate(parts):
+                    if part:
+                        sys.stdout.write(part)
+                    if i < len(parts) - 1:
+                        sys.stdout.write("\n" + _C("  │ ", "yellow"))
+            else:
+                sys.stdout.write(token)
+            sys.stdout.flush()
 
         try:
             for event in agent.stream_chat(user_input):
@@ -178,7 +201,11 @@ def _plain_cli(agent, cfg: dict) -> None:
 
                 if etype == "interrupted":
                     _spinner_stop()
-                    print(_C("\n  (interrupted)", "grey"))
+                    if text_started:
+                        print()
+                        print(_C("  ╰─", "yellow") + _C("  (interrupted)", "grey"))
+                    else:
+                        print(_C("\n  (interrupted)", "grey"))
                     break
 
                 elif etype == "thinking":
@@ -221,6 +248,8 @@ def _plain_cli(agent, cfg: dict) -> None:
                     if not text_started:
                         _spinner_stop()
                         text_started = True
+                        _open_box()
+                    _write_token(token)
                     full_response += token
                     total_tokens  += max(1, len(token) // 4)
 
@@ -234,16 +263,7 @@ def _plain_cli(agent, cfg: dict) -> None:
 
         if text_started and full_response.strip():
             elapsed = time.time() - t_start
-            tw = shutil.get_terminal_size((100, 24)).columns
-            rendered_lines = _render_md(full_response).splitlines()
             print()
-            print(_C("  ╭─ Koza ", "yellow", "bold") + _C("─" * (tw - 10), "gold"))
-            for rline in rendered_lines:
-                plain_len = len(_re.sub(r"\x1b\[[^m]*m", "", rline))
-                if plain_len == 0 and not rline.strip():
-                    print(_C("  │", "yellow"))
-                else:
-                    print(_C("  │ ", "yellow") + rline)
             print(_C("  ╰─", "yellow") + _C(f"  {elapsed:.1f}s", "grey"))
             print()
             _status_bar()

@@ -27,8 +27,10 @@ def _get_or_create_agent(chat_id: int, agent_factory: Callable):
 
 async def _process_message(update, context, agent_factory: Callable):
     """Process one Telegram message: stream agent response back in real time."""
+    import time as _time
     import queue as _queue
     from telegram.constants import ParseMode, ChatAction
+    from telegram.error import BadRequest as _BadRequest
 
     msg = update.message or update.edited_message
     if not msg:
@@ -64,7 +66,6 @@ async def _process_message(update, context, agent_factory: Callable):
     if image_path:
         user_text = f"[Fotoğraf: {image_path}]\n{user_text}"
 
-    # Use a queue so the agent thread can push events and we process them live
     ev_queue: _queue.Queue = _queue.Queue()
     _DONE = object()
 
@@ -77,18 +78,63 @@ async def _process_message(update, context, agent_factory: Callable):
         finally:
             ev_queue.put(_DONE)
 
-    worker = threading.Thread(target=_stream_worker, daemon=True)
-    worker.start()
+    threading.Thread(target=_stream_worker, daemon=True).start()
 
-    loop = asyncio.get_event_loop()
-    sent_msg = None
-    buffer = ""
+    # ── Single-message streaming with throttled edits ────────────────────────
+    # Strategy: maintain ONE message. Accumulate text + status lines.
+    # Edit at most once per 1.5s to stay within Telegram rate limits (~20 edits/min).
+    # Only create a new message when current exceeds 4000 chars.
+
+    text_buf  = ""          # accumulated response text
+    status    = ""          # ephemeral status line (tool activity)
+    sent_msg  = None        # current Telegram message object
+    last_edit = 0.0         # timestamp of last edit
+
+    async def _flush(force: bool = False):
+        nonlocal sent_msg, last_edit, status
+        now = _time.time()
+        if not force and (now - last_edit) < 1.5:
+            return
+        display = text_buf + (f"\n\n{status}" if status else "")
+        if not display.strip():
+            return
+        # Overflow: start new message
+        if len(display) > 4000:
+            overflow = display[4000:]
+            display  = display[:4000]
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=sent_msg.message_id,
+                    text=display,
+                )
+            except Exception:
+                pass
+            sent_msg = await context.bot.send_message(
+                chat_id=chat_id, text=overflow[:4000],
+            )
+            last_edit = now
+            return
+        if sent_msg is None:
+            sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
+        else:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=sent_msg.message_id,
+                    text=display,
+                )
+            except _BadRequest:
+                pass   # "message not modified" — ignore
+            except Exception:
+                sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
+        last_edit = now
 
     while True:
-        # Poll queue without blocking the event loop
         try:
             event = ev_queue.get_nowait()
         except _queue.Empty:
+            await _flush()
             await asyncio.sleep(0.05)
             continue
 
@@ -101,84 +147,32 @@ async def _process_message(update, context, agent_factory: Callable):
         etype = event.get("type")
 
         if etype == "text":
-            buffer += event.get("token", "")
-            # Flush on newlines or every 200 chars
-            if len(buffer) >= 200 or "\n" in event.get("token", ""):
-                chunk = buffer[:4096]
-                buffer = buffer[4096:]
-                if sent_msg is None:
-                    sent_msg = await context.bot.send_message(
-                        chat_id=chat_id, text=chunk, parse_mode=ParseMode.MARKDOWN
-                    )
-                else:
-                    try:
-                        await context.bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=sent_msg.message_id,
-                            text=(await context.bot.get_updates()) and chunk or chunk,
-                        )
-                    except Exception:
-                        sent_msg = await context.bot.send_message(
-                            chat_id=chat_id, text=chunk, parse_mode=ParseMode.MARKDOWN
-                        )
+            text_buf += event.get("token", "")
+            await _flush()
 
         elif etype == "tool_start":
-            # Flush current text buffer first
-            if buffer.strip():
-                if sent_msg is None:
-                    sent_msg = await context.bot.send_message(
-                        chat_id=chat_id, text=buffer[:4096], parse_mode=ParseMode.MARKDOWN
-                    )
-                else:
-                    try:
-                        await context.bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=sent_msg.message_id,
-                            text=buffer[-4096:],
-                            parse_mode=ParseMode.MARKDOWN,
-                        )
-                    except Exception:
-                        pass
-                buffer = ""
-                sent_msg = None
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⚙️ `{event.get('name', '')}` çalışıyor…",
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            status = f"⚙️ `{event.get('name', '')}` çalışıyor…"
+            await _flush(force=True)
 
         elif etype == "tool_done":
-            pass  # silent, result will appear in next text
+            status = f"✅ `{event.get('name', '')}` tamamlandı."
+            await _flush(force=True)
 
         elif etype == "interrupted":
-            await context.bot.send_message(chat_id=chat_id, text="⏹ Kesildi.")
+            status = ""
+            text_buf += "\n\n⏹ *Kesildi.*"
+            await _flush(force=True)
             return
 
         elif etype == "error":
-            await context.bot.send_message(
-                chat_id=chat_id, text=f"❌ `{event.get('message', 'Hata')}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
+            err = event.get('message', 'Hata')
+            text_buf += f"\n\n❌ `{err}`"
+            await _flush(force=True)
             return
 
-    # Flush remaining buffer
-    if buffer.strip():
-        if sent_msg is None:
-            await context.bot.send_message(
-                chat_id=chat_id, text=buffer[:4096], parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=sent_msg.message_id,
-                    text=buffer[-4096:],
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            except Exception:
-                await context.bot.send_message(
-                    chat_id=chat_id, text=buffer[:4096], parse_mode=ParseMode.MARKDOWN
-                )
+    # Final flush: clear status, show clean response
+    status = ""
+    await _flush(force=True)
 
 
 def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:

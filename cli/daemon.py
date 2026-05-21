@@ -5,7 +5,7 @@ import json
 
 from cli.ui import (
     _C, _hr, _print_banner, _print_inline_help, _print_error,
-    _spinner_start, _spinner_stop, _render_md, _select_menu,
+    _spinner_start, _spinner_stop, _select_menu,
 )
 from cli.chat import _plain_cli
 
@@ -103,7 +103,7 @@ def cmd_quit(args: list) -> None:
 
 def _daemon_cli(port: int, cfg: dict) -> None:
     """Interactive CLI loop connected to Koza daemon via localhost socket."""
-    import re as _re
+    import sys
     import shutil
     import socket as _sock
     import time
@@ -156,11 +156,13 @@ def _daemon_cli(port: int, cfg: dict) -> None:
     # ── Permission helpers (shared with _plain_cli) ──────────────────────────
     _SAFE_TOOLS = {
         "web_search", "fetch_url", "list_dir", "read_file", "wm_add", "wm_get",
-        "memory_recall", "memory_search", "memory_list", "recall_sessions",
+        "wm_list", "wm_clear", "wm_get_context",
+        "memory_recall", "memory_search", "memory_list", "memory_store", "recall_sessions",
         "list_sessions", "list_tasks", "list_crons", "list_subagents",
         "get_subagent_status", "github_search_code", "github_list_prs",
         "github_repo_info", "pandas_query", "matplotlib_plot",
-        "get_config",
+        "get_config", "list_projects", "list_capabilities",
+        "get_weather", "get_time", "calculator", "search_files", "get_cwd",
     }
     _session_allowed: set = set()
     _permanent_allowed: set = set(cfg.get("allowed_tools", []))
@@ -216,7 +218,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
     session_start = time.time()
     total_tokens  = 0
     _TOKEN_LIMITS = {
-        "deepseek": 64_000, "openai": 128_000, "anthropic": 200_000,
+        "deepseek": 1_000_000, "openai": 128_000, "anthropic": 200_000,
         "gemini": 1_000_000, "ollama": 32_000,
     }
     provider_name = cfg.get("provider", "")
@@ -225,8 +227,14 @@ def _daemon_cli(port: int, cfg: dict) -> None:
 
     def _status_bar():
         elapsed = int(time.time() - session_start)
-        h, m  = divmod(elapsed // 60, 60)
-        s_time = f"{h}h {m:02d}m" if h else f"{m}m"
+        if elapsed < 60:
+            s_time = f"{elapsed}s"
+        elif elapsed < 3600:
+            m, s = divmod(elapsed, 60)
+            s_time = f"{m}m {s:02d}s"
+        else:
+            h, rem = divmod(elapsed, 3600)
+            s_time = f"{h}h {rem // 60:02d}m"
         pct   = min(100, int(total_tokens / token_limit * 100))
         bar_w = 12
         filled = int(bar_w * pct / 100)
@@ -241,7 +249,6 @@ def _daemon_cli(port: int, cfg: dict) -> None:
             f"{_C(tok_str,'white')}  {_C('│','grey')}  "
             f"[{_C(bar, color)}]  {_C(f'{pct}%','grey')}  "
             f"{_C('│','grey')}  {_C(s_time,'grey')}"
-            f"  {_C('│','grey')}  {_C('daemon','teal')}"
         )
         print(_C("─" * tw, "grey"))
 
@@ -302,6 +309,25 @@ def _daemon_cli(port: int, cfg: dict) -> None:
         t_start      = time.time()
         text_started = False
         full_response = ""
+        tw = shutil.get_terminal_size((100, 24)).columns
+
+        def _open_box():
+            print()
+            print(_C("  ╭─ Koza ", "yellow", "bold") + _C("─" * (tw - 10), "gold"))
+            sys.stdout.write(_C("  │ ", "yellow"))
+            sys.stdout.flush()
+
+        def _write_token(token: str) -> None:
+            if "\n" in token:
+                parts = token.split("\n")
+                for i, part in enumerate(parts):
+                    if part:
+                        sys.stdout.write(part)
+                    if i < len(parts) - 1:
+                        sys.stdout.write("\n" + _C("  │ ", "yellow"))
+            else:
+                sys.stdout.write(token)
+            sys.stdout.flush()
 
         try:
             while True:
@@ -356,12 +382,18 @@ def _daemon_cli(port: int, cfg: dict) -> None:
                     if not text_started:
                         _spinner_stop()
                         text_started = True
+                        _open_box()
+                    _write_token(token)
                     full_response += token
                     total_tokens  += max(1, len(token) // 4)
 
                 elif etype == "interrupted":
                     _spinner_stop()
-                    print(_C("\n  (interrupted)", "grey"))
+                    if text_started:
+                        print()
+                        print(_C("  ╰─", "yellow") + _C("  (interrupted)", "grey"))
+                    else:
+                        print(_C("\n  (interrupted)", "grey"))
                     break
 
                 elif etype == "tool_denied":
@@ -385,16 +417,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
         _spinner_stop()
         if text_started and full_response.strip():
             elapsed = time.time() - t_start
-            tw = shutil.get_terminal_size((100, 24)).columns
-            rendered_lines = _render_md(full_response).splitlines()
             print()
-            print(_C("  ╭─ Koza ", "yellow", "bold") + _C("─" * (tw - 10), "gold"))
-            for rline in rendered_lines:
-                plain_len = len(_re.sub(r"\x1b\[[^m]*m", "", rline))
-                if plain_len == 0 and not rline.strip():
-                    print(_C("  │", "yellow"))
-                else:
-                    print(_C("  │ ", "yellow") + rline)
             print(_C("  ╰─", "yellow") + _C(f"  {elapsed:.1f}s", "grey"))
             print()
             _status_bar()

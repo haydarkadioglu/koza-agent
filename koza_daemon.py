@@ -84,6 +84,13 @@ def _is_pid_alive(pid: int) -> None:
 class ClientSession:
     """Manages one connected CLI client in its own thread."""
 
+    _SUMMARIZE_THRESHOLD = 100_000  # chars/4 ≈ tokens; trigger compress at ~100K
+    _SUMMARIZE_PROMPT = (
+        "Lütfen şimdiye kadarki tüm konuşmamızı kısa ve eksiksiz özetle. "
+        "Önemli kararlar, yazılan kodlar, değiştirilen dosyalar ve mevcut çalışma "
+        "durumunu dahil et. Sadece özet metnini yaz, başka hiçbir şey ekleme."
+    )
+
     def __init__(self, conn: socket.socket, addr,
                  agent_factory, global_shutdown: threading.Event):
         self.conn   = conn
@@ -134,10 +141,25 @@ class ClientSession:
 
     # ── permission callback (called by agent thread) ────────────────────────
 
+    _SAFE_TOOLS = {
+        "web_search", "fetch_url", "list_dir", "read_file", "wm_add", "wm_get",
+        "wm_list", "wm_clear", "wm_get_context",
+        "memory_recall", "memory_search", "memory_list", "memory_store",
+        "recall_sessions", "list_sessions", "list_tasks", "list_crons", "list_subagents",
+        "get_subagent_status", "github_search_code", "github_list_prs",
+        "github_repo_info", "pandas_query", "matplotlib_plot", "get_config",
+        "list_projects", "list_capabilities", "get_weather", "get_time",
+        "calculator", "search_files", "get_cwd",
+    }
+
     def _permission_callback(self, name: str, args: dict) -> bool:
-        self._send({"type": "permission_required", "name": name, "args": args})
-        granted = self._perm_event.wait(timeout=30)
+        # Safe read-only tools: auto-allow without client round-trip
+        if name in self._SAFE_TOOLS:
+            return True
         self._perm_event.clear()
+        self._perm_result[0] = False
+        self._send({"type": "permission_required", "name": name, "args": args})
+        granted = self._perm_event.wait(timeout=60)
         return self._perm_result[0] if granted else False
 
     # ── main session loop ───────────────────────────────────────────────────
@@ -212,7 +234,50 @@ class ClientSession:
                     pass
         except Exception as e:
             self._send({"type": "error", "message": str(e)})
+        # Auto-compress context if approaching token limit
+        self._maybe_compress(agent)
         self._send({"type": "done"})
+
+    def _estimate_tokens(self, agent) -> int:
+        total = 0
+        for m in agent.messages:
+            content = m.get("content") or ""
+            if isinstance(content, list):
+                content = " ".join(
+                    p.get("text", "") for p in content if isinstance(p, dict)
+                )
+            total += len(str(content))
+            if m.get("tool_calls"):
+                total += len(str(m["tool_calls"]))
+        return total // 4
+
+    def _maybe_compress(self, agent):
+        tokens = self._estimate_tokens(agent)
+        if tokens < self._SUMMARIZE_THRESHOLD:
+            return
+        self._send({
+            "type": "text",
+            "token": f"\n\n⚡ Bağlam sıkıştırılıyor ({tokens // 1000}K token)…\n",
+        })
+        try:
+            parts = []
+            for event in agent.stream_chat(self._SUMMARIZE_PROMPT):
+                if isinstance(event, dict) and event.get("type") == "text":
+                    parts.append(event.get("token", ""))
+            summary = "".join(parts).strip()
+        except Exception:
+            return
+        if not summary:
+            return
+        sys_msg = agent.messages[0]   # keep system prompt
+        agent.messages = [
+            sys_msg,
+            {
+                "role": "assistant",
+                "content": f"[Önceki konuşma özeti — {tokens // 1000}K token sıkıştırıldı]\n\n{summary}",
+            },
+        ]
+        self._send({"type": "text", "token": "✓ Bağlam sıkıştırıldı.\n"})
 
 
 # ── Daemon server ─────────────────────────────────────────────────────────────
