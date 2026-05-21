@@ -275,6 +275,18 @@ def _plain_cli(agent, cfg: dict) -> None:
         if user_input in ("/help", "/?"):
             _print_inline_help()
             return True
+        if user_input.startswith("/mode"):
+            parts = user_input.split(None, 1)
+            mode = parts[1].lower().strip() if len(parts) > 1 else ""
+            if mode == "coding":
+                print(_C("  Switching to Coding Mode…\n", "yellow"))
+                from cli.coding_cmd import cmd_coding
+                cmd_coding([])
+                print(_C("  Back to normal mode.\n", "grey"))
+                return True
+            else:
+                print(_C(f"  Unknown mode: {mode!r}. Try  /mode coding\n", "red"))
+                return True
         return False
 
     # ── Main loop — prompt_toolkit (sticky bottom) ────────────────────────────

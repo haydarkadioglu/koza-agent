@@ -64,6 +64,10 @@ def default_config() -> dict:
             "tts_voice": "af_sky",  # kokoro voice id
             "language":  "",        # force STT language (empty = auto-detect)
         },
+        "coding_mode": {
+            "max_retries": 3,       # max retry count when tests fail
+            "auto_test":   True,    # run Test Engineer after every coding task
+        },
     }
 
 

@@ -1,4 +1,4 @@
-# Koza Agent &nbsp;[![Version](https://img.shields.io/badge/version-v1.2.0-cyan)](https://github.com/haydarkadioglu/koza-agent/releases)
+# Koza Agent &nbsp;[![Version](https://img.shields.io/badge/version-v2.0.0-cyan)](https://github.com/haydarkadioglu/koza-agent/releases)
 
 ```
    ██╗  ██╗ ██████╗ ███████╗ █████╗
