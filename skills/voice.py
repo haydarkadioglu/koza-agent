@@ -92,25 +92,49 @@ def _get_tts_model():
 
 # ── STT ───────────────────────────────────────────────────────────────────────
 
-def stt_listen(max_seconds: int = 15, language: str | None = None) -> str:
+def stt_listen(
+    max_seconds: int = 15,
+    language: str | None = None,
+    on_status=None,          # callable(str) for live status updates
+) -> str:
     """Record from microphone until silence, return transcribed text.
 
-    Silence detection: stops after SILENCE_SECS of audio below SILENCE_THRESH.
+    Visual feedback states (sent to on_status):
+      'waiting'  — mic open, waiting for voice
+      'recording' — detecting voice input
+      'silence'  — voice stopped, counting down
+      'done'     — recording finished, transcribing
     """
+    import sys
     import numpy as np
     import sounddevice as sd
     import soundfile as sf
 
-    chunk_dur  = 0.1
-    chunk_size = int(SAMPLE_RATE * chunk_dur)
+    def _status(msg: str):
+        if on_status:
+            on_status(msg)
+        else:
+            # Inline overwrite on the same terminal line
+            sys.stdout.write(f"\r  {msg}                    ")
+            sys.stdout.flush()
+
+    chunk_dur     = 0.05                           # 50 ms chunks → snappier UI
+    chunk_size    = int(SAMPLE_RATE * chunk_dur)
     silent_needed = int(SILENCE_SECS / chunk_dur)
     max_chunks    = int(max_seconds / chunk_dur)
 
-    chunks: list = []
+    chunks: list  = []
     silent_count  = 0
     speaking      = False
 
-    print("  🎤  Listening… (speak now, silence stops recording)")
+    # Simple ASCII VU bar
+    def _vu(amp: float) -> str:
+        bars = min(20, int(amp / 0.005))
+        filled = "█" * bars
+        empty  = "░" * (20 - bars)
+        return f"[{filled}{empty}]"
+
+    _status("🎤  Waiting for voice…")
 
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32") as stream:
         for _ in range(max_chunks):
@@ -121,13 +145,46 @@ def stt_listen(max_seconds: int = 15, language: str | None = None) -> str:
             if amplitude > SILENCE_THRESH:
                 speaking = True
                 silent_count = 0
+                _status(f"🔴  Recording  {_vu(amplitude)}")
             elif speaking:
                 silent_count += 1
+                remaining_secs = (silent_needed - silent_count) * chunk_dur
+                _status(f"⏸   Silence…  stopping in {remaining_secs:.1f}s")
                 if silent_count >= silent_needed:
                     break
+            else:
+                _status(f"🎤  Waiting…  {_vu(amplitude)}")
+
+    sys.stdout.write("\r" + " " * 60 + "\r")  # clear the line
+    sys.stdout.flush()
 
     if not chunks or not speaking:
         return ""
+
+    _status("⚙   Transcribing…")
+    sys.stdout.flush()
+
+    import os
+    import tempfile
+    audio = np.concatenate(chunks, axis=0).squeeze()
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp.close()
+    sf.write(tmp.name, audio, SAMPLE_RATE)
+
+    try:
+        model  = _get_stt_model()
+        kwargs = {"beam_size": 5}
+        if language:
+            kwargs["language"] = language
+        segments, _ = model.transcribe(tmp.name, **kwargs)
+        text = " ".join(s.text.strip() for s in segments)
+    finally:
+        os.unlink(tmp.name)
+
+    sys.stdout.write("\r" + " " * 60 + "\r")
+    sys.stdout.flush()
+    return text.strip()
+
 
     audio = np.concatenate(chunks, axis=0).squeeze()
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)

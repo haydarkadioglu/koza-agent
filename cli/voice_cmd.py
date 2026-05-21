@@ -94,8 +94,12 @@ def cmd_voice(args: list) -> None:
 
     _hr()
     print(_C("\n  🎙  Koza Voice Mode\n", "bold", "cyan"))
-    print(_C("  Press Enter to speak — pause after speaking to send.", "grey"))
-    print(_C("  Press Ctrl+C to exit.\n", "grey"))
+    print(_C("  Press Enter → speak → pause to send  |  Ctrl+C to exit\n", "grey"))
+    print(_C("  VU meter legend:", "grey"))
+    print(_C("  🎤 Waiting…  →  mic open, not detecting voice", "grey"))
+    print(_C("  🔴 Recording →  voice detected, capturing", "grey"))
+    print(_C("  ⏸  Silence…  →  counting down, then transcribing", "grey"))
+    print(_C("  ⚙  Transcribing… →  Whisper processing\n", "grey"))
     _hr()
 
     while True:
@@ -104,23 +108,29 @@ def cmd_voice(args: list) -> None:
         except (EOFError, KeyboardInterrupt):
             break
 
+        print()  # blank line before VU meter
         try:
             text = stt_listen(max_seconds=15, language=language)
         except Exception as e:
-            print(_C(f"  ✗  Mic error: {e}", "red"))
+            print(_C(f"\n  ✗  Mic error: {e}", "red"))
             continue
 
         if not text:
             print(_C("  (nothing heard — try again)", "grey"))
             continue
 
-        print(_C("  You › ", "cyan", "bold") + _C(text, "white"))
+        print(_C("\n  You  › ", "cyan", "bold") + _C(text, "white"))
+        print(_C("  ⚙   Thinking…", "grey"), end="", flush=True)
 
         full_response = ""
         try:
             for event in agent.stream_chat(text):
                 if isinstance(event, dict) and event.get("type") == "text":
-                    full_response += event.get("token", "")
+                    tok = event.get("token", "")
+                    if not full_response:
+                        # Clear "Thinking…" line on first token
+                        import sys; sys.stdout.write("\r" + " " * 40 + "\r")
+                    full_response += tok
         except KeyboardInterrupt:
             agent.interrupt()
             continue
@@ -130,6 +140,7 @@ def cmd_voice(args: list) -> None:
 
         if full_response.strip():
             print(_C("  Koza › ", "yellow", "bold") + full_response.strip())
+            print(_C("  🔊  Speaking…", "grey"))
             try:
                 tts_speak(full_response.strip(), voice=tts_voice)
             except Exception:
