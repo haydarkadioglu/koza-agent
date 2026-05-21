@@ -96,6 +96,7 @@ def stt_listen(
     max_seconds: int = 15,
     language: str | None = None,
     on_status=None,          # callable(str) for live status updates
+    input_device=None,       # sounddevice device index or None = system default
 ) -> str:
     """Record from microphone until silence, return transcribed text.
 
@@ -136,7 +137,8 @@ def stt_listen(
 
     _status("🎤  Waiting for voice…")
 
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32") as stream:
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                        device=input_device) as stream:
         for _ in range(max_chunks):
             data, _ = stream.read(chunk_size)
             amplitude = float(np.abs(data).mean())
@@ -206,7 +208,7 @@ def stt_listen(
 
 # ── TTS ───────────────────────────────────────────────────────────────────────
 
-def tts_speak(text: str, voice: str = "af_sky") -> None:
+def tts_speak(text: str, voice: str = "af_sky", output_device=None) -> None:
     """Synthesize speech and play via sounddevice. Falls back to pyttsx3."""
     import sounddevice as sd
 
@@ -214,7 +216,7 @@ def tts_speak(text: str, voice: str = "af_sky") -> None:
     if kokoro is not None:
         try:
             samples, sample_rate = kokoro.create(text, voice=voice, speed=1.0, lang="en-us")
-            sd.play(samples, sample_rate)
+            sd.play(samples, sample_rate, device=output_device)
             sd.wait()
             return
         except Exception as e:
