@@ -38,3 +38,8 @@ class LLMProvider(ABC):
     @abstractmethod
     def name(self) -> str:
         """Provider identifier (e.g. 'openai')."""
+
+    @property
+    def supports_thinking(self) -> bool:
+        """True for models with native reasoning/thinking tokens (e.g. o1, Claude extended thinking, DeepSeek-R1)."""
+        return False

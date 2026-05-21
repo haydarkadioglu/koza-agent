@@ -5,7 +5,7 @@ import json
 
 from cli.ui import (
     _C, _hr, _print_banner, _print_inline_help, _print_error,
-    _spinner_start, _spinner_stop, _select_menu,
+    _spinner_start, _spinner_stop, _select_menu, _render_md,
 )
 from cli.chat import _plain_cli
 
@@ -309,6 +309,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
         t_start      = time.time()
         text_started = False
         full_response = ""
+        _line_buf = ""     # buffer for current incomplete line
         tw = shutil.get_terminal_size((100, 24)).columns
 
         def _open_box():
@@ -317,17 +318,27 @@ def _daemon_cli(port: int, cfg: dict) -> None:
             sys.stdout.write(_C("  │ ", "yellow"))
             sys.stdout.flush()
 
-        def _write_token(token: str) -> None:
-            if "\n" in token:
-                parts = token.split("\n")
-                for i, part in enumerate(parts):
-                    if part:
-                        sys.stdout.write(part)
-                    if i < len(parts) - 1:
-                        sys.stdout.write("\n" + _C("  │ ", "yellow"))
-            else:
-                sys.stdout.write(token)
+        def _flush_line(line: str) -> None:
+            """Render one complete line through markdown inline pass then write."""
+            rendered = _render_md(line) if line.strip() else ""
+            sys.stdout.write(rendered)
             sys.stdout.flush()
+
+        def _write_token(token: str) -> None:
+            nonlocal _line_buf
+            _line_buf += token
+            # Each time we have a complete line (newline received), render+print it
+            while "\n" in _line_buf:
+                complete, _line_buf = _line_buf.split("\n", 1)
+                _flush_line(complete)
+                sys.stdout.write("\n" + _C("  │ ", "yellow"))
+                sys.stdout.flush()
+
+        def _flush_remaining() -> None:
+            """Flush any partial line left in buffer."""
+            if _line_buf:
+                _flush_line(_line_buf)
+                sys.stdout.flush()
 
         try:
             while True:
@@ -416,6 +427,7 @@ def _daemon_cli(port: int, cfg: dict) -> None:
 
         _spinner_stop()
         if text_started and full_response.strip():
+            _flush_remaining()
             elapsed = time.time() - t_start
             print()
             print(_C("  ╰─", "yellow") + _C(f"  {elapsed:.1f}s", "grey"))

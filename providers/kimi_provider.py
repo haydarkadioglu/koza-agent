@@ -16,6 +16,11 @@ class KimiProvider(LLMProvider):
     def name(self) -> str:
         return "kimi"
 
+    @property
+    def supports_thinking(self) -> bool:
+        m = self._model.lower()
+        return "k1" in m or "thinking" in m
+
     def chat(self, messages, tools=None, stream=False):
         import json
         kwargs = {"model": self._model, "messages": messages}

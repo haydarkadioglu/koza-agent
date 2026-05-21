@@ -16,6 +16,11 @@ class OpenAIProvider(LLMProvider):
     def name(self) -> str:
         return "openai"
 
+    @property
+    def supports_thinking(self) -> bool:
+        # o1, o3, o4 series have reasoning/thinking
+        return bool(__import__("re").match(r"o[134]", self._model))
+
     def chat(self, messages, tools=None, stream=False):
         kwargs = {"model": self._model, "messages": messages}
         if tools:

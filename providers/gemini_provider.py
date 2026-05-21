@@ -37,29 +37,27 @@ def _run_async(coro):
 # gemini-webapi model name → Model enum mapping
 # Free/Basic tier
 _COOKIE_MODELS = {
-    "gemini-3.5-flash":               "BASIC_FLASH",      # latest flagship free model
-    "gemini-3-flash":                 "BASIC_FLASH",
-    "gemini-3.1-flash-lite":          "BASIC_FLASH",      # fastest, maps to base flash
-    "gemini-3-pro":                   "BASIC_PRO",
-    "gemini-3.1-pro":                 "BASIC_PRO",
-    "gemini-3-flash-thinking":        "BASIC_THINKING",
-    "gemini-3.1-flash-thinking":      "BASIC_THINKING",
-    # Plus tier
-    "gemini-3-pro-plus":              "PLUS_PRO",
-    "gemini-3-flash-plus":            "PLUS_FLASH",
-    "gemini-3.5-flash-plus":          "PLUS_FLASH",
-    "gemini-3-flash-thinking-plus":   "PLUS_THINKING",
-    # Advanced tier
-    "gemini-3-pro-advanced":          "ADVANCED_PRO",
-    "gemini-3-flash-advanced":        "ADVANCED_FLASH",
-    "gemini-3-flash-thinking-advanced": "ADVANCED_THINKING",
+    # ── Current production models (May 2025) ──────────────────────────────
+    "gemini-2.5-flash":               "BASIC_FLASH",      # 3.5 Flash — all-around (thinking capable)
+    "gemini-2.5-pro":                 "BASIC_PRO",        # 3.1 Pro — advanced maths & code (thinking capable)
+    "gemini-2.0-flash-lite":          "BASIC_FLASH",      # 3.1 Flash-Lite — fastest answers
+    "gemini-2.0-flash":               "BASIC_FLASH",
+    # ── Thinking-specific aliases ──────────────────────────────────────────
+    "gemini-2.5-flash-thinking":      "BASIC_THINKING",
+    "gemini-2.5-pro-thinking":        "BASIC_THINKING",
+    # ── Plus tier ─────────────────────────────────────────────────────────
+    "gemini-2.5-flash-plus":          "PLUS_FLASH",
+    "gemini-2.5-pro-plus":            "PLUS_PRO",
+    # ── Advanced tier ─────────────────────────────────────────────────────
+    "gemini-2.5-pro-advanced":        "ADVANCED_PRO",
+    "gemini-2.5-flash-advanced":      "ADVANCED_FLASH",
 }
 
 
 class GeminiProvider(LLMProvider):
     def __init__(self, cfg: dict):
         auth_mode = cfg.get("auth", "api_key").lower()
-        self._model      = cfg.get("model", "gemini-3-flash")
+        self._model      = cfg.get("model", "gemini-2.5-flash")
         self._auth_mode  = auth_mode
         self._cookie_client = None
 
@@ -178,6 +176,12 @@ class GeminiProvider(LLMProvider):
     def name(self) -> str:
         return "gemini"
 
+    @property
+    def supports_thinking(self) -> bool:
+        # gemini-2.5-flash and gemini-2.5-pro support thinking levels
+        m = self._model.lower()
+        return "2.5" in m or "thinking" in m
+
     def chat(self, messages, tools=None, stream=False):
         if self._auth_mode == "cookie":
             import re, json as _json
@@ -286,4 +290,4 @@ class GeminiProvider(LLMProvider):
         try:
             return [m.name for m in self._client.models.list()]
         except Exception:
-            return ["gemini-3-flash", "gemini-3-pro", "gemini-flash-latest", "gemini-pro-latest"]
+            return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-lite", "gemini-2.0-flash"]

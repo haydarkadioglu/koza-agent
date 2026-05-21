@@ -129,7 +129,14 @@ class ClientSession:
                     line = line.strip()
                     if line:
                         try:
-                            self._in.put(json.loads(line))
+                            msg = json.loads(line)
+                            # Handle permission responses immediately in recv thread
+                            # so _permission_callback (blocked in agent thread) unblocks
+                            if msg.get("type") == "permission_response":
+                                self._perm_result[0] = bool(msg.get("allowed", False))
+                                self._perm_event.set()
+                            else:
+                                self._in.put(msg)
                         except json.JSONDecodeError:
                             pass
             except socket.timeout:

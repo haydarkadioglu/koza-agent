@@ -14,6 +14,11 @@ class AnthropicProvider(LLMProvider):
     def name(self) -> str:
         return "anthropic"
 
+    @property
+    def supports_thinking(self) -> bool:
+        # claude-3-7+ has extended thinking
+        return "claude-3-7" in self._model or "claude-4" in self._model
+
     def chat(self, messages, tools=None, stream=False):
         system = next((m["content"] for m in messages if m["role"] == "system"), None)
         msgs = [m for m in messages if m["role"] != "system"]

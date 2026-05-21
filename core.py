@@ -292,7 +292,8 @@ class Agent:
                     yield {"type": "interrupted"}
                     return
 
-                yield {"type": "thinking"}
+                if self.provider.supports_thinking:
+                    yield {"type": "thinking"}
 
                 # ── Collect the streaming response ──────────────────────────────
                 full = ""

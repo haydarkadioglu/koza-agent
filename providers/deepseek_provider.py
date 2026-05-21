@@ -16,6 +16,10 @@ class DeepSeekProvider(LLMProvider):
     def name(self) -> str:
         return "deepseek"
 
+    @property
+    def supports_thinking(self) -> bool:
+        return "r1" in self._model.lower() or "reasoner" in self._model.lower()
+
     def chat(self, messages, tools=None, stream=False):
         import json
         kwargs = {"model": self._model, "messages": messages}

@@ -16,6 +16,10 @@ class ZAIProvider(LLMProvider):
     def name(self) -> str:
         return "zai"
 
+    @property
+    def supports_thinking(self) -> bool:
+        return "z1" in self._model.lower()
+
     def chat(self, messages, tools=None, stream=False):
         import json
         kwargs = {"model": self._model, "messages": messages}
