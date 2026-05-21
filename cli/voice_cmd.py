@@ -83,7 +83,7 @@ def cmd_voice(args: list) -> None:
         return
 
     from core import Agent
-    from providers.base import get_provider
+    from providers.factory import get_provider
 
     provider = get_provider(cfg)
     agent    = Agent(provider, cfg["db_path"], cfg)
