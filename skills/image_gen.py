@@ -8,6 +8,24 @@ import time
 IMAGE_CAPABLE_PROVIDERS = {"openai", "gemini"}
 
 
+def _get_media_cfg() -> tuple[str, dict]:
+    """Return (provider_name, provider_cfg) for media generation.
+    Falls back to main provider if no media_provider configured.
+    """
+    from config import load_config
+    cfg = load_config()
+    media_provider = cfg.get("media_provider", "").lower()
+    if media_provider:
+        # Use dedicated media provider config (stored under <provider>_media key)
+        p_cfg = cfg.get("providers", {}).get(f"{media_provider}_media", {})
+        if not p_cfg:
+            # Fallback: try the base provider config
+            p_cfg = cfg.get("providers", {}).get(media_provider, {})
+        return media_provider, p_cfg, cfg
+    # No dedicated media provider — use main provider
+    return cfg.get("provider", "").lower(), cfg.get("providers", {}).get(cfg.get("provider", ""), {}), cfg
+
+
 def generate_image(prompt: str, size: str = "1024x1024", save_path: str = "",
                    model: str = "") -> str:
     """Generate an image from a text prompt.
@@ -16,22 +34,19 @@ def generate_image(prompt: str, size: str = "1024x1024", save_path: str = "",
     For Gemini: cookie mode uses Imagen Nano (free with Pro), api_key mode uses Imagen 3.
     Returns the local file path of the saved image, or an error string.
     """
-    from config import load_config
-    cfg = load_config()
-    provider = cfg.get("provider", "").lower()
+    provider, p_cfg, full_cfg = _get_media_cfg()
+    auth = p_cfg.get("auth", "api_key").lower()
 
     if provider == "openai":
-        return _openai_generate(prompt, size, save_path, cfg)
+        return _openai_generate(prompt, size, save_path, full_cfg)
     elif provider == "gemini":
-        p_cfg = cfg.get("providers", {}).get("gemini", {})
-        auth = p_cfg.get("auth", "api_key").lower()
-        if auth == "cookie":
-            return _gemini_cookie_generate_image(prompt, save_path, model or "imagen-nano", cfg)
-        return _gemini_generate(prompt, size, save_path, cfg)
+        if auth in ("cookie", "playwright"):
+            return _gemini_cookie_generate_image(prompt, save_path, model or "imagen-nano", p_cfg)
+        return _gemini_generate(prompt, size, save_path, full_cfg)
     else:
         return (
             f"❌ Image generation not supported for provider '{provider}'. "
-            f"Switch to 'openai' or 'gemini' to use this feature."
+            f"Configure a media provider via 'koza setup' or switch to 'openai' / 'gemini'."
         )
 
 
@@ -41,19 +56,15 @@ def generate_video(prompt: str, save_path: str = "", model: str = "veo-2") -> st
     Only works with Gemini cookie auth mode and a Pro account.
     Returns the local file path of the saved video, or an error string.
     """
-    from config import load_config
-    cfg = load_config()
-    provider = cfg.get("provider", "").lower()
+    provider, p_cfg, _ = _get_media_cfg()
+    auth = p_cfg.get("auth", "api_key").lower()
 
     if provider != "gemini":
-        return "❌ Video generation requires Gemini provider with cookie auth (Pro account)."
+        return "❌ Video generation requires Gemini provider with cookie/browser auth (Pro account)."
+    if auth not in ("cookie", "playwright"):
+        return "❌ Video generation requires Gemini cookie/browser auth mode (Pro account)."
 
-    p_cfg = cfg.get("providers", {}).get("gemini", {})
-    auth = p_cfg.get("auth", "api_key").lower()
-    if auth != "cookie":
-        return "❌ Video generation requires Gemini cookie auth mode (Pro account)."
-
-    return _gemini_cookie_generate_video(prompt, save_path, model, cfg)
+    return _gemini_cookie_generate_video(prompt, save_path, model, p_cfg)
 
 
 def _tmp_path(ext: str = "png") -> str:
@@ -115,20 +126,18 @@ def _gemini_generate(prompt: str, size: str, save_path: str, cfg: dict) -> str:
         return f"❌ Image generation failed: {e}"
 
 
-def _gemini_cookie_generate_image(prompt: str, save_path: str, model: str, cfg: dict) -> str:
+def _gemini_cookie_generate_image(prompt: str, save_path: str, model: str, p_cfg: dict) -> str:
     try:
         from providers.gemini_provider import GeminiProvider
-        p_cfg = cfg.get("providers", {}).get("gemini", {})
         provider = GeminiProvider(p_cfg)
         return provider.generate_image_cookie(prompt, model_name=model, save_path=save_path)
     except Exception as e:
         return f"❌ Cookie image generation failed: {e}"
 
 
-def _gemini_cookie_generate_video(prompt: str, save_path: str, model: str, cfg: dict) -> str:
+def _gemini_cookie_generate_video(prompt: str, save_path: str, model: str, p_cfg: dict) -> str:
     try:
         from providers.gemini_provider import GeminiProvider
-        p_cfg = cfg.get("providers", {}).get("gemini", {})
         provider = GeminiProvider(p_cfg)
         return provider.generate_video_cookie(prompt, model_name=model, save_path=save_path)
     except Exception as e:
@@ -142,7 +151,8 @@ TOOL_DEFINITIONS = [
             "Generate an image from a text prompt using the current AI provider. "
             "Supported: openai (DALL-E 3), gemini api_key (Imagen 3), gemini cookie (Imagen Nano — free with Pro). "
             "Returns the local file path of the saved image. "
-            "Use telegram_send_photo afterwards to send it via Telegram."
+            "Use telegram_send_photo afterwards to send it via Telegram. "
+            "IMPORTANT: If the result starts with '❌ PERMANENT FAILURE', do NOT retry — report the error to the user."
         ),
         "parameters": {
             "type": "object",
@@ -175,7 +185,8 @@ TOOL_DEFINITIONS = [
             "Generate a video from a text prompt using Veo (Google). "
             "Requires Gemini cookie auth with a Pro account. "
             "Returns the local file path of the saved .mp4 video. "
-            "Use telegram_send_video afterwards to send it via Telegram."
+            "Use telegram_send_video afterwards to send it via Telegram. "
+            "IMPORTANT: If the result starts with '❌ PERMANENT FAILURE', do NOT retry — report the error to the user."
         ),
         "parameters": {
             "type": "object",

@@ -81,8 +81,9 @@ class GeminiProvider(LLMProvider):
                 self._cookie_1psid, self._cookie_1psidts = self._auto_extract_cookies()
             if not self._cookie_1psid:
                 raise ValueError(
-                    "Cookie auth: no cookie found.\n"
-                    "Run 'koza setup' to configure, or log in to gemini.google.com in your browser."
+                    "Cookie auth: no Google session found.\n"
+                    "Run 'koza setup' to configure a Gemini browser session, "
+                    "or sign in to gemini.google.com in your browser."
                 )
 
         else:  # api_key
@@ -101,26 +102,57 @@ class GeminiProvider(LLMProvider):
 
     @staticmethod
     def _auto_extract_cookies() -> tuple[str, str]:
+        # First try browser_cookie3 (reads from running browser)
         try:
             import browser_cookie3
+            for loader in [
+                browser_cookie3.chrome, browser_cookie3.edge,
+                browser_cookie3.firefox, browser_cookie3.brave, browser_cookie3.opera,
+            ]:
+                try:
+                    psid = psidts = ""
+                    for c in loader(domain_name=".google.com"):
+                        if c.name == "__Secure-1PSID":
+                            psid = c.value
+                        elif c.name == "__Secure-1PSIDTS":
+                            psidts = c.value
+                    if psid:
+                        return psid, psidts
+                except Exception:
+                    continue
         except ImportError:
+            pass
+
+        # Fallback: read from saved Playwright profile
+        return GeminiProvider._extract_playwright_cookies()
+
+    @staticmethod
+    def _extract_playwright_cookies() -> tuple[str, str]:
+        """Extract Google session cookies from the saved Playwright Chromium profile."""
+        import os
+        profile_dir = os.path.join(os.path.expanduser("~"), ".koza", "gemini_browser")
+        prefs = os.path.join(profile_dir, "Default", "Preferences")
+        if not os.path.isfile(prefs):
             return "", ""
-        for loader in [
-            browser_cookie3.chrome, browser_cookie3.edge,
-            browser_cookie3.firefox, browser_cookie3.brave, browser_cookie3.opera,
-        ]:
-            try:
-                psid = psidts = ""
-                for c in loader(domain_name=".google.com"):
-                    if c.name == "__Secure-1PSID":
-                        psid = c.value
-                    elif c.name == "__Secure-1PSIDTS":
-                        psidts = c.value
-                if psid:
-                    return psid, psidts
-            except Exception:
-                continue
-        return "", ""
+        try:
+            from playwright.sync_api import sync_playwright
+            psid = psidts = ""
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch_persistent_context(
+                    profile_dir,
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+                cookies = browser.cookies("https://gemini.google.com")
+                browser.close()
+            for c in cookies:
+                if c["name"] == "__Secure-1PSID":
+                    psid = c["value"]
+                elif c["name"] == "__Secure-1PSIDTS":
+                    psidts = c["value"]
+            return psid, psidts
+        except Exception:
+            return "", ""
 
     def _get_cookie_client(self):
         if self._cookie_client is not None:
@@ -147,85 +179,228 @@ class GeminiProvider(LLMProvider):
             return resp.text
         return _run_async(_run())
 
-    def generate_image_cookie(self, prompt: str, model_name: str = "imagen-nano", save_path: str = "") -> str:
-        """Generate an image using cookie auth (Pro account required)."""
+    # ── Playwright-based media generation ────────────────────────────────────
+
+    def _get_playwright_profile_dir(self) -> str:
+        """Return the persistent browser profile directory for Gemini login session."""
+        import os
+        base = os.path.join(os.path.expanduser("~"), ".koza", "gemini_browser")
+        os.makedirs(base, exist_ok=True)
+        return base
+
+    def _playwright_generate_image(self, prompt: str, save_path: str = "") -> str:
+        """Use a persistent Playwright browser session to generate an image on gemini.google.com."""
         import os, time, tempfile
-        client = self._get_cookie_client()
-        try:
-            from gemini_webapi.constants import ImageGenModel
-            enum_name = _IMAGEN_MODELS.get(model_name, "IMAGEN_NANO")
-            img_model = getattr(ImageGenModel, enum_name, None)
-        except ImportError:
-            img_model = None
+        from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
 
-        async def _run():
-            # gemini-webapi >= 2.5 exposes generate_images()
-            if img_model is not None and hasattr(client, "generate_images"):
-                resp = await client.generate_images(prompt, model=img_model)
-            else:
-                # Fallback: send as regular prompt asking for image
-                resp = await client.generate_content(
-                    f"Generate an image: {prompt}\n\n[IMAGE_OUTPUT]"
-                )
-            return resp
-
-        resp = _run_async(_run())
-
-        # resp may be a list of image objects or a text response
+        profile_dir = self._get_playwright_profile_dir()
         path = save_path or os.path.join(tempfile.gettempdir(), f"koza_img_{int(time.time())}.png")
-        if hasattr(resp, "images") and resp.images:
-            img = resp.images[0]
-            if hasattr(img, "to_file"):
-                img.to_file(path)
-                return path
-            elif hasattr(img, "url"):
-                import requests
-                r = requests.get(img.url, timeout=60)
-                r.raise_for_status()
-                with open(path, "wb") as f:
-                    f.write(r.content)
-                return path
-        # Fallback: return text description
-        if hasattr(resp, "text"):
-            return f"⚠️ Image generation returned text (Pro account may be needed): {resp.text[:200]}"
-        return f"❌ Image generation failed: unexpected response type {type(resp)}"
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch_persistent_context(
+                profile_dir,
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            page = browser.pages[0] if browser.pages else browser.new_page()
+
+            try:
+                page.goto("https://gemini.google.com/", timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=20000)
+
+                # Detect login wall
+                if "accounts.google.com" in page.url or page.locator("text=Sign in").count() > 0:
+                    browser.close()
+                    return (
+                        "❌ PERMANENT FAILURE — do not retry. "
+                        "Not logged in to Gemini in the browser profile. "
+                        "Run 'koza generate --login' to open the browser and log in first."
+                    )
+
+                # Type the image generation prompt into the chat input
+                chat_input = page.locator(
+                    "div[contenteditable='true'], textarea[placeholder*='Gemini'], "
+                    "rich-textarea div[contenteditable]"
+                ).first
+                chat_input.click()
+                chat_input.fill("")
+                chat_input.type(f"Generate an image of: {prompt}", delay=30)
+
+                # Intercept the generated image response
+                downloaded: list[bytes] = []
+
+                def handle_response(response):
+                    url = response.url
+                    if any(kw in url for kw in ["lh3.googleusercontent", "aisandbox-pa", "generativelanguage"]):
+                        ct = response.headers.get("content-type", "")
+                        if "image" in ct:
+                            try:
+                                downloaded.append(response.body())
+                            except Exception:
+                                pass
+
+                page.on("response", handle_response)
+
+                # Submit prompt
+                page.keyboard.press("Enter")
+
+                # Wait for an image to appear in the DOM (up to 90s for generation)
+                try:
+                    img_locator = page.locator(
+                        "img[src*='lh3.googleusercontent'], "
+                        "img[src*='aisandbox-pa'], "
+                        "div[data-test-id='generated-image'] img, "
+                        "message-content img[alt*='Generated']"
+                    ).first
+                    img_locator.wait_for(timeout=90000)
+                    img_url = img_locator.get_attribute("src")
+                except PwTimeout:
+                    img_url = None
+
+                browser.close()
+
+                # Save from intercepted response bytes first
+                if downloaded:
+                    with open(path, "wb") as f:
+                        f.write(downloaded[-1])
+                    return path
+
+                # Fallback: download via URL found in DOM
+                if img_url:
+                    import requests as _req
+                    r = _req.get(img_url, timeout=60)
+                    r.raise_for_status()
+                    with open(path, "wb") as f:
+                        f.write(r.content)
+                    return path
+
+                return (
+                    "❌ PERMANENT FAILURE — do not retry. "
+                    "No image appeared in Gemini after 90 seconds. "
+                    "Ensure your account has Pro access (Imagen requires a Pro plan)."
+                )
+
+            except PwTimeout:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                return (
+                    "❌ PERMANENT FAILURE — do not retry. "
+                    "Timed out waiting for Gemini to load. Check internet connection."
+                )
+            except Exception as e:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                return f"❌ PERMANENT FAILURE — do not retry. Playwright error: {e}"
+
+    def _playwright_generate_video(self, prompt: str, save_path: str = "") -> str:
+        """Use a persistent Playwright browser session to generate a video on gemini.google.com."""
+        import os, time, tempfile
+        from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
+
+        profile_dir = self._get_playwright_profile_dir()
+        path = save_path or os.path.join(tempfile.gettempdir(), f"koza_vid_{int(time.time())}.mp4")
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch_persistent_context(
+                profile_dir,
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            page = browser.pages[0] if browser.pages else browser.new_page()
+
+            try:
+                page.goto("https://gemini.google.com/", timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=20000)
+
+                if "accounts.google.com" in page.url or page.locator("text=Sign in").count() > 0:
+                    browser.close()
+                    return (
+                        "❌ PERMANENT FAILURE — do not retry. "
+                        "Not logged in to Gemini. Run 'koza generate --login' first."
+                    )
+
+                chat_input = page.locator(
+                    "div[contenteditable='true'], textarea[placeholder*='Gemini'], "
+                    "rich-textarea div[contenteditable]"
+                ).first
+                chat_input.click()
+                chat_input.fill("")
+                chat_input.type(f"Generate a video of: {prompt}", delay=30)
+
+                downloaded_video: list[tuple[str, bytes]] = []
+
+                def handle_video_response(response):
+                    url = response.url
+                    ct = response.headers.get("content-type", "")
+                    if "video" in ct or url.endswith(".mp4"):
+                        try:
+                            downloaded_video.append((url, response.body()))
+                        except Exception:
+                            pass
+
+                page.on("response", handle_video_response)
+                page.keyboard.press("Enter")
+
+                # Videos take longer — wait up to 3 minutes
+                try:
+                    vid_locator = page.locator(
+                        "video, "
+                        "div[data-test-id='generated-video'] video, "
+                        "message-content video"
+                    ).first
+                    vid_locator.wait_for(timeout=180000)
+                    vid_src = vid_locator.get_attribute("src")
+                except PwTimeout:
+                    vid_src = None
+
+                browser.close()
+
+                if downloaded_video:
+                    with open(path, "wb") as f:
+                        f.write(downloaded_video[-1][1])
+                    return path
+
+                if vid_src:
+                    import requests as _req
+                    r = _req.get(vid_src, timeout=300)
+                    r.raise_for_status()
+                    with open(path, "wb") as f:
+                        f.write(r.content)
+                    return path
+
+                return (
+                    "❌ PERMANENT FAILURE — do not retry. "
+                    "No video appeared in Gemini after 3 minutes. "
+                    "Ensure your account has Pro access (Veo requires a Pro plan)."
+                )
+
+            except PwTimeout:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                return (
+                    "❌ PERMANENT FAILURE — do not retry. "
+                    "Timed out waiting for Gemini. Check internet connection."
+                )
+            except Exception as e:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                return f"❌ PERMANENT FAILURE — do not retry. Playwright error: {e}"
+
+    def generate_image_cookie(self, prompt: str, model_name: str = "imagen-nano", save_path: str = "") -> str:
+        """Generate an image via Playwright browser session (Pro account required)."""
+        return self._playwright_generate_image(prompt, save_path)
 
     def generate_video_cookie(self, prompt: str, model_name: str = "veo-2", save_path: str = "") -> str:
-        """Generate a video using Veo via cookie auth (Pro account required)."""
-        import os, time, tempfile
-        client = self._get_cookie_client()
-        try:
-            from gemini_webapi.constants import VideoGenModel
-            enum_name = _VEO_MODELS.get(model_name, "VEO_2")
-            veo_model = getattr(VideoGenModel, enum_name, None)
-        except ImportError:
-            veo_model = None
-
-        async def _run():
-            if veo_model is not None and hasattr(client, "generate_video"):
-                resp = await client.generate_video(prompt, model=veo_model)
-            else:
-                return None
-            return resp
-
-        resp = _run_async(_run())
-        if resp is None:
-            return "❌ Veo video generation requires gemini-webapi >= 2.5 with video support."
-
-        path = save_path or os.path.join(tempfile.gettempdir(), f"koza_vid_{int(time.time())}.mp4")
-        if hasattr(resp, "videos") and resp.videos:
-            vid = resp.videos[0]
-            if hasattr(vid, "to_file"):
-                vid.to_file(path)
-                return path
-            elif hasattr(vid, "url"):
-                import requests
-                r = requests.get(vid.url, timeout=300)
-                r.raise_for_status()
-                with open(path, "wb") as f:
-                    f.write(r.content)
-                return path
-        return f"❌ Video generation failed: unexpected response type {type(resp)}"
+        """Generate a video via Playwright browser session (Pro account required)."""
+        return self._playwright_generate_video(prompt, save_path)
 
     @staticmethod
     def _build_react_tools_prompt(tools: list) -> str:

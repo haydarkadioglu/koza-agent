@@ -316,7 +316,7 @@ def _plain_cli(agent, cfg: dict) -> None:
         def _prompt_text():
             if _processing.is_set():
                 return HTML(
-                    "<ansiyellow><b>  ⏎  Enter to interrupt › </b></ansiyellow>"
+                    "<ansiyellow><b>  ⏎  interrupt  │  type to queue next › </b></ansiyellow>"
                 )
             return HTML(
                 "<ansigreen><b>  ● </b></ansigreen>"
@@ -347,12 +347,23 @@ def _plain_cli(agent, cfg: dict) -> None:
                     _hr()
                     break
 
-                # Enter pressed while processing → interrupt
-                if _processing.is_set():
-                    agent.interrupt()
-                    if _proc_thread[0]:
-                        _proc_thread[0].join(timeout=3)
-                    continue
+        # Enter pressed while processing
+        if _processing.is_set():
+            agent.interrupt()
+            if _proc_thread[0]:
+                _proc_thread[0].join(timeout=3)
+            # If user typed something while waiting → process it now
+            if user_input:
+                cmd = _handle_inline(user_input)
+                if cmd is None:
+                    break
+                if not cmd:
+                    total_tokens += max(1, len(user_input) // 4)
+                    _proc_thread[0] = threading.Thread(
+                        target=_process, args=(user_input,), daemon=True
+                    )
+                    _proc_thread[0].start()
+            continue
 
                 if not user_input:
                     continue
@@ -382,6 +393,11 @@ def _plain_cli(agent, cfg: dict) -> None:
                 _C("\n  ● ", "yellow", "bold") + _C("You  › ", "cyan", "bold")
             ).strip()
         except (EOFError, KeyboardInterrupt):
+            if _processing.is_set():
+                agent.interrupt()
+                if _proc_thread[0]:
+                    _proc_thread[0].join(timeout=3)
+                continue
             _hr()
             print(_C("\n  Goodbye! 👋\n", "yellow"))
             _hr()
@@ -395,10 +411,13 @@ def _plain_cli(agent, cfg: dict) -> None:
         if cmd:
             continue
 
+        # Wait for any previous processing to finish before starting new one
+        if _proc_thread[0] and _proc_thread[0].is_alive():
+            print(_C("  ⏳  Waiting for previous request to finish…", "grey"))
+            _proc_thread[0].join()
+
         total_tokens += max(1, len(user_input) // 4)
-        try:
-            _process(user_input)
-        except KeyboardInterrupt:
-            _spinner_stop()
-            agent.interrupt()
-            print(_C("\n  (interrupted)", "grey"))
+        _proc_thread[0] = threading.Thread(
+            target=_process, args=(user_input,), daemon=True
+        )
+        _proc_thread[0].start()

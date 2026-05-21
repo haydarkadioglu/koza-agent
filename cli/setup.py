@@ -4,7 +4,6 @@ import sys
 
 from cli.ui import (
     _C, _hr, _config_path, _select_menu, _prompt, _prompt_secret,
-    _extract_gemini_cookies,
 )
 
 PROVIDERS = ["ollama", "openai", "anthropic", "deepseek", "kimi", "minimax", "zai", "gemini api", "gemini cookie", "antigravity manager", "github"]
@@ -26,38 +25,34 @@ NEEDS_KEY = {"openai", "anthropic", "deepseek", "gemini api", "gemini", "github"
 _OTHER = "other — enter manually"
 
 
-def _playwright_gemini_login() -> tuple[str, str]:
-    """Extract Gemini cookies from the running browser session.
+def _playwright_gemini_login() -> bool:
+    """Open a persistent Playwright browser session for Gemini login.
 
-    Strategy:
-    1. Try browser_cookie3 (reads from running Chrome/Edge/Firefox directly)
-    2. If that fails (no session), open a fresh Playwright Chromium for manual login
+    Returns True if the user confirmed login, False otherwise.
     """
-    # ── Step 1: try reading from running browser ──────────────────────────────
-    print(_C("\n  Checking for existing Google session in your browser…\n", "grey"))
-    psid, psidts, found_browser = _extract_gemini_cookies()
+    import os
+    profile_dir = os.path.join(os.path.expanduser("~"), ".koza", "gemini_browser")
+    os.makedirs(profile_dir, exist_ok=True)
 
-    if psid:
-        print(_C(f"  ✓  Found active Google session in {found_browser}!\n", "green"))
-        return psid, psidts
-
-    # ── Step 2: no session found — open fresh Chromium for manual login ───────
-    print(_C("  ℹ  No active session found in any browser.", "grey"))
-    print(_C("  Opening a fresh browser window — please log in to your Google account.\n", "grey"))
+    print(_C("\n  Opening browser — log in to your Google account.\n", "grey"))
+    print(_C(f"  Session will be saved to: {profile_dir}\n", "grey"))
 
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print(_C("  ⚠  playwright not installed. Run: pip install playwright && playwright install chromium", "yellow"))
-        return "", ""
+        print(_C("  ⚠  playwright not installed.", "yellow"))
+        print(_C("  Run: pip install playwright && playwright install chromium\n", "yellow"))
+        return False
 
-    psid = psidts = ""
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=False, slow_mo=50)
-            ctx = browser.new_context()
-            page = ctx.new_page()
-            page.goto("https://gemini.google.com", wait_until="domcontentloaded", timeout=20000)
+            browser = pw.chromium.launch_persistent_context(
+                profile_dir,
+                headless=False,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            page = browser.pages[0] if browser.pages else browser.new_page()
+            page.goto("https://gemini.google.com/", timeout=30000)
 
             print(_C("  ● Log in to your Google account in the browser.", "cyan"))
             print(_C("  ● When you see the Gemini chat screen, press Enter here.\n", "grey"))
@@ -65,204 +60,350 @@ def _playwright_gemini_login() -> tuple[str, str]:
                 input(_C("  Press Enter when logged in › ", "yellow"))
             except (EOFError, KeyboardInterrupt):
                 browser.close()
-                return "", ""
+                return False
 
-            cookies = ctx.cookies("https://gemini.google.com")
             browser.close()
-
-            for c in cookies:
-                if c["name"] == "__Secure-1PSID":
-                    psid = c["value"]
-                elif c["name"] == "__Secure-1PSIDTS":
-                    psidts = c["value"]
-
+        print(_C("  ✓  Browser session saved!\n", "green"))
+        return True
     except Exception as e:
-        print(_C(f"  ⚠  Browser login failed: {e}", "yellow"))
-        return "", ""
+        print(_C(f"  ⚠  Browser error: {e}\n", "yellow"))
+        return False
 
-    if psid:
-        print(_C("  ✓  Cookies captured successfully!\n", "green"))
-    else:
-        print(_C("  ✗  Could not find __Secure-1PSID — make sure you logged in fully.\n", "red"))
 
-    return psid, psidts
+def _check_playwright_session() -> bool:
+    """Return True if a Gemini browser session profile already exists."""
+    import os
+    profile_dir = os.path.join(os.path.expanduser("~"), ".koza", "gemini_browser")
+    # Check if the profile directory has any data (Chromium creates Default/Preferences on first launch)
+    prefs = os.path.join(profile_dir, "Default", "Preferences")
+    return os.path.isfile(prefs)
+
+
+def _reload_and_patch_media(provider: str, auth: str, api_key: str = ""):
+    """Patch the saved config with media_provider settings and return updated cfg."""
+    from config import load_config, save_config
+    cfg = load_config()
+    cfg["media_provider"] = provider
+    mp = cfg.setdefault("providers", {}).setdefault(f"{provider}_media", {})
+    mp["auth"] = auth
+    if api_key:
+        mp["api_key"] = api_key
+    save_config(cfg)
+    return cfg
 
 
 def cmd_setup(args: list) -> None:
     """Interactive plain-terminal setup wizard."""
-    from config import save_config, default_config
+    from config import save_config, default_config, config_exists, load_config
 
     _hr()
     print(_C("\n  ✦  K O Z A   A G E N T  ·  Setup Wizard\n", "bold", "yellow"))
-    print(_C("  Configure your LLM provider. Press Enter to accept defaults.\n", "grey"))
 
-    # ── Provider ──────────────────────────────────────────────────────────────
-    _hr("·", "grey")
-    print(_C("  Primary Provider", "cyan", "bold"))
-    _hr("·", "grey")
-    try:
-        provider_choice = _select_menu("Select provider", PROVIDERS, default_idx=0)
-    except (KeyboardInterrupt, EOFError):
-        sys.exit(0)
-
-    # Normalise to internal provider name
-    if provider_choice == "gemini api":
-        provider = "gemini"
-        gemini_auth = "api_key"
-    elif provider_choice == "gemini cookie":
-        provider = "gemini"
-        gemini_auth = "cookie"
+    # ── Load or init config ───────────────────────────────────────────────────
+    if config_exists():
+        cfg = load_config()
+        cur_provider = cfg.get("provider", "?")
+        cur_model    = cfg.get("model", "?")
+        cur_media    = cfg.get("media_provider", "")
+        cur_fallback = cfg.get("fallback_provider", "")
+        def _status(val):
+            return _C(f"({val})", "teal") if val else _C("(not set)", "grey")
     else:
-        provider = provider_choice
-        gemini_auth = "api_key"
+        cfg = default_config()
+        cur_provider = cur_model = cur_media = cur_fallback = ""
+        def _status(val):
+            return _C("(not set)", "grey")
 
-    models = PROVIDER_MODELS.get(provider_choice, [""]) + [_OTHER]
-    try:
-        model_choice = _select_menu("Select model", models, default_idx=0)
-    except (KeyboardInterrupt, EOFError):
-        sys.exit(0)
-    if model_choice == _OTHER:
-        model = _prompt("Enter model name")
-        while not model:
-            model = _prompt("Enter model name")
-    else:
-        model = model_choice
+    # ── Section menu ──────────────────────────────────────────────────────────
+    sections = [
+        f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
+        f"Fallback Provider   {_status(cur_fallback)}",
+        f"Media (Image/Video) {_status(cur_media or cur_provider)}",
+        f"Multi-host Sync     {_status('enabled' if cfg.get('sync') else '')}",
+        f"Voice Mode          {_status('enabled' if cfg.get('voice') else '')}",
+        "Done — save & exit",
+    ]
 
-    api_key = ""
-    gemini_cookie_1psid   = ""
-    gemini_cookie_1psidts = ""
+    print(_C("  Select sections to configure. Choose 'Done' when finished.\n", "grey"))
 
-    if provider == "gemini" and gemini_auth == "cookie":
-        # Step 1: try browser_cookie3 — reads Chrome/Edge/Firefox SQLite directly,
-        #         works even when the browser is already open (no process launch needed)
-        print(_C("\n  Extracting Google session cookies from your browser…\n", "grey"))
-        auto_1psid, auto_1psidts, auto_browser = _extract_gemini_cookies()
+    # Track what changed so we can save once at the end
+    provider        = cfg.get("provider", "")
+    model           = cfg.get("model", "")
+    gemini_auth     = cfg.get("providers", {}).get("gemini", {}).get("auth", "api_key")
+    fallback_provider = cfg.get("fallback_provider", "")
+    fallback_model    = cfg.get("fallback_model", "")
 
-        if auto_1psid:
-            print(_C(f"  ✓  Active Google session found in {auto_browser}!\n", "green"))
-            gemini_cookie_1psid   = auto_1psid
-            gemini_cookie_1psidts = auto_1psidts
-        else:
-            # Chrome locks its cookie DB while running — browser_cookie3 can't read it.
-            # Guide the user to paste cookies manually from DevTools.
-            print(_C("  ⚠  Could not read cookies from your browser automatically.", "yellow"))
-            print(_C("  (Chrome locks its cookie database while it is running)\n", "grey"))
+    while True:
+        # Refresh status labels before each menu render
+        cur_provider = cfg.get("provider", "")
+        cur_model    = cfg.get("model", "")
+        cur_media    = cfg.get("media_provider", "")
+        cur_fallback = cfg.get("fallback_provider", "")
+        sections = [
+            f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
+            f"Fallback Provider   {_status(cur_fallback)}",
+            f"Media (Image/Video) {_status(cur_media or cur_provider)}",
+            f"Multi-host Sync     {_status('enabled' if cfg.get('sync') else '')}",
+            f"Voice Mode          {_status('enabled' if cfg.get('voice', {}).get('enabled') else 'disabled')}",
+            "Done — save & exit",
+        ]
+        try:
+            section = _select_menu("Configure section", sections, default_idx=5)
+        except (KeyboardInterrupt, EOFError):
+            print(_C("\n  Cancelled.\n", "grey"))
+            return
+
+        # ── Done ──────────────────────────────────────────────────────────────
+        if section.startswith("Done"):
+            break
+
+        # ── Primary Provider ──────────────────────────────────────────────────
+        elif section.startswith("Primary"):
+            _hr("·", "grey")
+            print(_C("  Primary Provider", "cyan", "bold"))
+            _hr("·", "grey")
+            default_idx = PROVIDERS.index(cur_provider) if cur_provider in PROVIDERS else 0
             try:
-                choice = _select_menu(
-                    "How do you want to provide cookies?",
-                    [
-                        "Paste cookie from DevTools (recommended)",
-                        "Open a fresh browser window to log in",
-                    ],
+                provider_choice = _select_menu("Select provider", PROVIDERS, default_idx=default_idx)
+            except (KeyboardInterrupt, EOFError):
+                continue
+
+            if provider_choice == "gemini api":
+                provider = "gemini"; gemini_auth = "api_key"
+            elif provider_choice == "gemini cookie":
+                provider = "gemini"; gemini_auth = "cookie"
+            else:
+                provider = provider_choice; gemini_auth = "api_key"
+
+            models = PROVIDER_MODELS.get(provider_choice, [""]) + [_OTHER]
+            try:
+                model_choice = _select_menu("Select model", models, default_idx=0)
+            except (KeyboardInterrupt, EOFError):
+                continue
+            model = _prompt("Enter model name") if model_choice == _OTHER else model_choice
+
+            api_key = ""
+
+            if provider == "gemini" and gemini_auth == "cookie":
+                # Playwright persistent session — no cookies to paste
+                session_ok = _check_playwright_session()
+                if session_ok:
+                    print(_C("  ✓  Gemini browser session found.\n", "green"))
+                else:
+                    print(_C("  ℹ  No Gemini browser session found.\n", "grey"))
+                    try:
+                        do_login = _select_menu(
+                            "Set up Gemini browser session now?",
+                            ["Yes — open browser to log in", "Skip — set up later via koza setup"],
+                            default_idx=0,
+                        )
+                    except (KeyboardInterrupt, EOFError):
+                        do_login = "Skip"
+                    if "Yes" in do_login:
+                        _playwright_gemini_login()
+            elif provider_choice in NEEDS_KEY:
+                existing = cfg.get("providers", {}).get(provider, {}).get("api_key", "")
+                if existing:
+                    print(_C(f"  ✓  Existing key found for {provider_choice}.", "green"))
+                    reuse = _prompt("Keep existing key?", default="y", choices=["y", "n"])
+                    if reuse.lower() == "n":
+                        api_key = _prompt_secret(f"New API key for {provider_choice}")
+                    else:
+                        api_key = existing
+                else:
+                    api_key = _prompt_secret(f"API key for {provider_choice}")
+
+            ollama_url = "http://localhost:11434"
+            if provider == "ollama":
+                ollama_url = _prompt("Ollama base URL", default="http://localhost:11434")
+            antigravity_url = "http://localhost:5188"
+            if provider == "antigravity manager":
+                antigravity_url = _prompt("Antigravity Tools LS URL", default="http://localhost:5188")
+
+            # Patch cfg
+            cfg["provider"] = provider
+            cfg["model"]    = model
+            if provider == "gemini":
+                cfg.setdefault("providers", {}).setdefault("gemini", {})["auth"] = gemini_auth
+                if gemini_auth == "api_key" and api_key:
+                    cfg["providers"]["gemini"]["api_key"] = api_key
+                # cookie auth: no credentials to store — Playwright session handles it
+            elif api_key:
+                cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = api_key
+            if provider == "ollama":
+                cfg.setdefault("providers", {}).setdefault("ollama", {})["base_url"] = ollama_url
+            if provider == "antigravity manager":
+                cfg.setdefault("providers", {}).setdefault("antigravity manager", {})["base_url"] = antigravity_url
+            print(_C(f"\n  ✓  Primary provider set to {provider} / {model}\n", "green"))
+
+        # ── Fallback Provider ─────────────────────────────────────────────────
+        elif section.startswith("Fallback"):
+            _hr("·", "grey")
+            print(_C("  Fallback Provider", "cyan", "bold"))
+            print(_C("  Used automatically if primary provider fails.\n", "grey"))
+            _hr("·", "grey")
+            enable = _prompt("Enable fallback provider?", default="n", choices=["y", "n"])
+            if enable.lower() == "y":
+                cur_p = cfg.get("provider", "")
+                remaining = [p for p in PROVIDERS if p != cur_p]
+                try:
+                    fb_choice = _select_menu("Select fallback provider", remaining, default_idx=0)
+                except (KeyboardInterrupt, EOFError):
+                    continue
+                fb_prov = "gemini" if fb_choice.startswith("gemini") else fb_choice
+                fb_models = PROVIDER_MODELS.get(fb_choice, [""]) + [_OTHER]
+                try:
+                    fb_model_choice = _select_menu("Select fallback model", fb_models, default_idx=0)
+                except (KeyboardInterrupt, EOFError):
+                    continue
+                fb_model = _prompt("Enter fallback model name") if fb_model_choice == _OTHER else fb_model_choice
+                fb_key = ""
+                if fb_choice in NEEDS_KEY:
+                    existing = cfg.get("providers", {}).get(fb_prov, {}).get("api_key", "")
+                    if existing:
+                        print(_C(f"  ✓  Existing key found for {fb_choice}.", "green"))
+                    else:
+                        fb_key = _prompt_secret(f"API key for {fb_choice} (optional if already set)")
+                cfg["fallback_provider"] = fb_prov
+                cfg["fallback_model"]    = fb_model
+                if fb_key:
+                    cfg.setdefault("providers", {}).setdefault(fb_prov, {})["api_key"] = fb_key
+                print(_C(f"\n  ✓  Fallback set to {fb_prov} / {fb_model}\n", "green"))
+            else:
+                cfg.pop("fallback_provider", None)
+                cfg.pop("fallback_model", None)
+                print(_C("  ✓  Fallback disabled.\n", "green"))
+
+        # ── Media Provider ────────────────────────────────────────────────────
+        elif section.startswith("Media"):
+            _hr("·", "grey")
+            print(_C("  Media Generation Provider", "cyan", "bold"))
+            print(_C("  Used for image (Imagen/DALL-E) and video (Veo) generation.", "grey"))
+            print(_C("  Gemini Pro account + browser session = Imagen Nano + Veo 2 (free).\n", "grey"))
+            _hr("·", "grey")
+            cur_p = cfg.get("provider", "")
+            cur_media_cfg = cfg.get("media_provider", "")
+            session_ok = _check_playwright_session()
+            status_txt = f"currently: {cur_media_cfg}" if cur_media_cfg else f"follows main ({cur_p})"
+            print(_C(f"  {status_txt}\n", "teal"))
+            try:
+                media_action = _select_menu(
+                    "Configure media provider",
+                    ["Use same as main chat provider",
+                     f"Gemini Browser Session  (Pro — Imagen Nano + Veo 2 free)  {('✓ ready' if session_ok else '⚠ no session')}",
+                     "Gemini API     (Imagen 3)",
+                     "OpenAI         (DALL-E 3)",
+                     "Skip — no changes"],
                     default_idx=0,
                 )
             except (KeyboardInterrupt, EOFError):
-                sys.exit(0)
+                continue
 
-            if "fresh browser" in choice:
-                gemini_cookie_1psid, gemini_cookie_1psidts = _playwright_gemini_login()
+            if "Skip" in media_action:
+                continue
+            elif "same as main" in media_action:
+                cfg.pop("media_provider", None)
+                cfg.get("providers", {}).pop("gemini_media", None)
+                print(_C("  ✓  Media will use main provider.\n", "green"))
+            else:
+                if "Browser Session" in media_action:
+                    media_prov = "gemini"; media_auth = "playwright"
+                elif "Gemini API" in media_action:
+                    media_prov = "gemini"; media_auth = "api_key"
+                else:
+                    media_prov = "openai"; media_auth = "api_key"
 
-            if not gemini_cookie_1psid:
-                print(_C("\n  How to get your cookie from DevTools:", "cyan", "bold"))
-                print(_C("  1. Open Chrome and go to gemini.google.com", "white"))
-                print(_C("  2. Press F12 → Application tab → Cookies → https://gemini.google.com", "white"))
-                print(_C("  3. Find __Secure-1PSID and copy its Value\n", "white"))
-                gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID value")
-                while not gemini_cookie_1psid:
-                    print(_C("  ⚠  Cookie value required.", "red"))
-                    gemini_cookie_1psid = _prompt_secret("Paste __Secure-1PSID value")
-                gemini_cookie_1psidts = _prompt_secret("Paste __Secure-1PSIDTS (optional, Enter to skip)")
-    elif provider_choice in NEEDS_KEY:
-        api_key = _prompt_secret(f"API key for {provider_choice}")
-        while not api_key:
-            print(_C(f"  ⚠  API key is required for {provider_choice}.", "red"))
-            api_key = _prompt_secret(f"API key for {provider_choice}")
+                m_key = ""
+                if media_auth == "playwright":
+                    if not session_ok:
+                        print(_C("\n  No browser session found. Opening browser for login…\n", "grey"))
+                        _playwright_gemini_login()
+                    else:
+                        print(_C("  ✓  Browser session already set up.\n", "green"))
+                        try:
+                            re_login = _select_menu(
+                                "Browser session exists",
+                                ["Keep existing session", "Re-login (open browser again)"],
+                                default_idx=0,
+                            )
+                        except (KeyboardInterrupt, EOFError):
+                            re_login = "Keep"
+                        if "Re-login" in re_login:
+                            _playwright_gemini_login()
+                else:
+                    existing = cfg.get("providers", {}).get(media_prov, {}).get("api_key", "")
+                    if existing:
+                        print(_C(f"  ✓  Using existing {media_prov} API key.\n", "green"))
+                        m_key = existing
+                    else:
+                        m_key = _prompt_secret(f"API key for {media_prov}")
 
-    ollama_url = "http://localhost:11434"
-    if provider == "ollama":
-        ollama_url = _prompt("Ollama base URL", default="http://localhost:11434")
+                cfg["media_provider"] = media_prov
+                mp = cfg.setdefault("providers", {}).setdefault(
+                    "gemini_media" if media_prov == "gemini" else f"{media_prov}_media", {}
+                )
+                mp["auth"] = media_auth
+                mp.pop("cookie_1psid", None)
+                mp.pop("cookie_1psidts", None)
+                if m_key:
+                    mp["api_key"] = m_key
+                save_config(cfg)
+                display = media_action.split("(")[0].strip()
+                print(_C(f"\n  ✓  Media provider set to {display}\n", "green"))
 
-    antigravity_url = "http://localhost:5188"
-    if provider == "antigravity manager":
-        print(_C("\n  Antigravity Tools LS — make sure it's running locally.", "grey"))
-        print(_C("  Install: https://github.com/lbjlaq/Antigravity-Tools-LS\n", "grey"))
-        antigravity_url = _prompt("Antigravity Tools LS URL", default="http://localhost:5188")
+        # ── Multi-host Sync ───────────────────────────────────────────────────
+        elif section.startswith("Multi"):
+            from cli.commands import cmd_sync
+            cmd_sync(["setup"])
 
-    # ── Fallback provider ─────────────────────────────────────────────────────
-    _hr("·", "grey")
-    print(_C("  Fallback Provider", "cyan", "bold"))
-    print(_C("  Used automatically if primary provider fails or is unavailable.", "grey"))
-    _hr("·", "grey")
-    enable_fallback = _prompt("Enable fallback provider?", default="n", choices=["y", "n"])
+        # ── Voice Mode ────────────────────────────────────────────────────────
+        elif section.startswith("Voice"):
+            _hr("·", "grey")
+            print(_C("  Voice Mode", "cyan", "bold"))
+            _hr("·", "grey")
+            voice_enabled = cfg.get("voice", {}).get("enabled", False)
+            if voice_enabled:
+                try:
+                    voice_action = _select_menu(
+                        "Voice mode is currently enabled",
+                        ["Keep enabled / Reconfigure devices",
+                         "Disable voice mode",
+                         "Skip — no changes"],
+                        default_idx=2,
+                    )
+                except (KeyboardInterrupt, EOFError):
+                    continue
+                if "Disable" in voice_action:
+                    cfg.setdefault("voice", {})["enabled"] = False
+                    save_config(cfg)
+                    print(_C("  ✓  Voice mode disabled.\n", "green"))
+                elif "Skip" in voice_action:
+                    continue
+                else:
+                    from cli.voice_cmd import _do_setup
+                    _do_setup([])
+                    cfg = load_config()  # reload after voice setup saves
+            else:
+                try:
+                    voice_action = _select_menu(
+                        "Voice mode is currently disabled",
+                        ["Enable & configure voice mode",
+                         "Skip — no changes"],
+                        default_idx=1,
+                    )
+                except (KeyboardInterrupt, EOFError):
+                    continue
+                if "Enable" in voice_action:
+                    from cli.voice_cmd import _do_setup
+                    _do_setup([])
+                    cfg = load_config()  # reload after voice setup saves
 
-    fallback_provider = ""
-    fallback_model = ""
-    fallback_key = ""
-    if enable_fallback.lower() == "y":
-        remaining = [p for p in PROVIDERS if p != provider_choice]
-        try:
-            fb_choice = _select_menu("Select fallback provider", remaining, default_idx=0)
-        except (KeyboardInterrupt, EOFError):
-            sys.exit(0)
-        fallback_provider = "gemini" if fb_choice.startswith("gemini") else fb_choice
-        fb_models = PROVIDER_MODELS.get(fb_choice, [""]) + [_OTHER]
-        try:
-            fb_model_choice = _select_menu("Select fallback model", fb_models, default_idx=0)
-        except (KeyboardInterrupt, EOFError):
-            sys.exit(0)
-        if fb_model_choice == _OTHER:
-            fallback_model = _prompt("Enter fallback model name")
-        else:
-            fallback_model = fb_model_choice
-        if fb_choice in NEEDS_KEY:
-            fallback_key = _prompt_secret(f"API key for {fb_choice} (optional if already set)")
 
-    # ── Build config ──────────────────────────────────────────────────────────
-    cfg = default_config()
-    cfg["provider"] = provider
-    cfg["model"] = model
-    if provider == "gemini":
-        cfg["providers"]["gemini"]["auth"] = gemini_auth
-        if gemini_auth == "api_key" and api_key:
-            cfg["providers"]["gemini"]["api_key"] = api_key
-        elif gemini_auth == "cookie":
-            cfg["providers"]["gemini"]["cookie_1psid"]   = gemini_cookie_1psid
-            if gemini_cookie_1psidts:
-                cfg["providers"]["gemini"]["cookie_1psidts"] = gemini_cookie_1psidts
-    elif api_key:
-        cfg["providers"][provider]["api_key"] = api_key
-    if provider == "ollama":
-        cfg["providers"]["ollama"]["base_url"] = ollama_url
-    if provider == "antigravity manager":
-        cfg["providers"].setdefault("antigravity manager", {})["base_url"] = antigravity_url
-    if fallback_provider:
-        cfg["fallback_provider"] = fallback_provider
-        cfg["fallback_model"] = fallback_model
-        if fallback_key:
-            cfg["providers"].setdefault(fallback_provider, {})["api_key"] = fallback_key
-
+    # ── Save & exit ───────────────────────────────────────────────────────────
     save_config(cfg)
     _hr()
     print(_C(f"\n  ✅  Config saved → {_config_path()}\n", "green"))
     _hr()
-
-    # ── Multi-host setup ──────────────────────────────────────────────────────
-    try:
-        mh_choice = _prompt("Enable multi-host sync?", default="n", choices=["y", "n"])
-    except (KeyboardInterrupt, EOFError):
-        return
-    if mh_choice.lower() == "y":
-        from cli.commands import cmd_sync
-        cmd_sync(["setup"])
-
-    # ── Voice setup ───────────────────────────────────────────────────────────
-    try:
-        voice_choice = _prompt("Enable voice mode (STT + TTS)?", default="n", choices=["y", "n"])
-    except (KeyboardInterrupt, EOFError):
-        return
-    if voice_choice.lower() == "y":
-        from cli.voice_cmd import _do_setup
-        _do_setup([])
 
 
 def cmd_provider(args: list) -> None:
@@ -290,9 +431,12 @@ def cmd_provider(args: list) -> None:
         providers_cfg = cfg.get("providers", {})
         for name, vals in providers_cfg.items():
             is_active = (name == active_provider)
-            key = vals.get("api_key") or vals.get("token") or vals.get("cookie_1psid", "")
+            key = vals.get("api_key") or vals.get("token", "")
             auth = vals.get("auth", "api_key")
-            if auth == "cookie":
+            if auth == "playwright":
+                import os; session_ok = os.path.isfile(os.path.join(os.path.expanduser("~"), ".koza", "gemini_browser", "Default", "Preferences"))
+                cred = _C("browser ✓", "green") if session_ok else _C("browser ✗", "red")
+            elif auth == "cookie":
                 cred = _C("cookie ✓", "green") if key else _C("cookie ✗", "red")
             else:
                 cred = _C("key ✓", "green") if key else _C("—", "grey")
@@ -351,8 +495,10 @@ def cmd_provider(args: list) -> None:
     for name in configured:
         vals = providers_cfg[name]
         auth = vals.get("auth", "api_key")
-        key  = vals.get("api_key") or vals.get("token") or vals.get("cookie_1psid", "")
-        if auth == "cookie":
+        key  = vals.get("api_key") or vals.get("token", "")
+        if auth == "playwright":
+            import os as _os; cred = "browser"
+        elif auth == "cookie":
             cred = "cookie"
         elif key:
             cred = "key ✓"

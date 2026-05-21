@@ -253,14 +253,26 @@ class Agent:
                 return content or ""
 
             self.messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+            permanent_failure = False
             for tc in tool_calls:
                 result = self._execute_tool(tc["name"], tc.get("arguments", {}))
+                result_str = str(result)
                 self.messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", tc["name"]),
                     "name": tc["name"],
-                    "content": str(result),
+                    "content": result_str,
                 })
+                if "PERMANENT FAILURE" in result_str:
+                    permanent_failure = True
+
+            if permanent_failure:
+                self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
+                response = self.provider.chat(self._trim_messages(), tools=[])
+                final = (response.get("content") or "").strip()
+                if final:
+                    self.messages.append({"role": "assistant", "content": final})
+                return final or ""
 
         return "Max tool iterations reached."
 
@@ -343,6 +355,7 @@ class Agent:
                 })
 
                 # ── Execute each tool call ────────────────────────────────────────
+                permanent_failure = False
                 for call in calls:
                     if self._cancel.is_set():
                         yield {"type": "interrupted"}
@@ -361,12 +374,26 @@ class Agent:
                     t0 = time.time()
                     result = self._execute_tool(name, args)
                     yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
+                    result_str = str(result)
                     self.messages.append({
                         "role": "tool",
                         "tool_call_id": call["id"],
                         "name": name,
-                        "content": str(result),
+                        "content": result_str,
                     })
+                    if "PERMANENT FAILURE" in result_str:
+                        permanent_failure = True
+
+                if permanent_failure:
+                    # Tell the model once, then stop — do not retry
+                    self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
+                    response = self.provider.chat(self._trim_messages(), tools=[])
+                    final = (response.get("content") or "").strip()
+                    if final:
+                        for tok in final:
+                            yield {"type": "text", "token": tok}
+                        self.messages.append({"role": "assistant", "content": final})
+                    return
                 # loop → ask model again with tool results
 
         finally:
