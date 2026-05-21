@@ -1,9 +1,9 @@
-"""CLI command: koza voice — voice interaction loop.
+"""CLI command: koza voice — always-on voice interaction loop.
 
 Commands:
-  koza voice           — start voice chat loop (mic in, TTS out)
-  koza voice setup     — install deps + download models + configure
-  koza voice devices   — list audio devices and set input/output
+  koza voice           — start always-on voice chat (no Enter needed)
+  koza voice setup     — install deps, pick devices, configure
+  koza voice devices   — update audio device selection
   koza voice off       — disable voice feature
 """
 from cli.ui import _C, _hr, _print_error
@@ -62,7 +62,7 @@ def _list_and_pick_devices() -> tuple[int | None, int | None]:
 def _do_setup(args: list) -> None:
     from config import load_config, save_config
     from cli.ui import _select_menu
-    from skills.voice import ensure_deps, _get_stt_model, _get_tts_model
+    from skills.voice import ensure_deps, _get_stt_model
 
     _hr()
     print(_C("\n  🎙  Voice Setup\n", "bold", "cyan"))
@@ -76,14 +76,23 @@ def _do_setup(args: list) -> None:
     except Exception as e:
         print(_C(f"  ✗  STT model error: {e}\n", "red"))
 
-    print(_C("\n  Step 3 — Pre-loading TTS model (Kokoro)…\n", "grey"))
-    try:
-        _get_tts_model()
-    except Exception as e:
-        print(_C(f"  ✗  TTS model error: {e}\n", "red"))
+    tts_choice = _select_menu(
+        "TTS engine",
+        ["pyttsx3 (system — works everywhere, no download)",
+         "Kokoro ONNX (higher quality, ~82 MB download)"],
+        default_idx=0,
+    )
+    use_kokoro = "Kokoro" in tts_choice
+    if use_kokoro:
+        print(_C("\n  Downloading Kokoro models…\n", "grey"))
+        from skills.voice import _try_kokoro_install
+        ok = _try_kokoro_install()
+        if not ok:
+            print(_C("  ✗  Kokoro download failed — using pyttsx3 instead.\n", "yellow"))
+            use_kokoro = False
 
     # Device selection
-    print(_C("\n  Step 4 — Audio device selection\n", "grey"))
+    print(_C("\n  Step 3 — Audio device selection\n", "grey"))
     input_device, output_device = _list_and_pick_devices()
 
     lang_choice = _select_menu(
@@ -98,8 +107,9 @@ def _do_setup(args: list) -> None:
         "enabled":       True,
         "stt_model":     "base",
         "tts_voice":     "af_sky",
+        "use_kokoro":    use_kokoro,
         "language":      language,
-        "input_device":  input_device,   # None = system default
+        "input_device":  input_device,
         "output_device": output_device,
     })
     save_config(cfg)
@@ -109,7 +119,7 @@ def _do_setup(args: list) -> None:
 
 
 def cmd_voice(args: list) -> None:
-    """koza voice — voice interaction loop."""
+    """koza voice — always-on voice interaction (no Enter needed)."""
     from config import load_config, save_config, config_exists
 
     if args and args[0] == "setup":
@@ -117,7 +127,6 @@ def cmd_voice(args: list) -> None:
         return
 
     if args and args[0] == "devices":
-        # Standalone device picker — saves to config without full setup
         if not config_exists():
             print(_C("  ✗  No config found. Run:  koza setup\n", "red"))
             return
@@ -158,26 +167,26 @@ def cmd_voice(args: list) -> None:
         return
 
     try:
-        from skills.voice import stt_listen, tts_speak
+        from skills.voice import vad_listen_loop, tts_speak
     except ImportError as e:
         print(_C(f"  ✗  Voice deps missing: {e}\n  Run:  koza voice setup\n", "red"))
         return
 
     from core import Agent
     from providers.factory import get_provider
+    import threading
 
-    provider = get_provider(cfg)
-    agent    = Agent(provider, cfg["db_path"], cfg)
-
-    voice_cfg    = cfg.get("voice", {})
+    provider  = get_provider(cfg)
+    agent     = Agent(provider, cfg["db_path"], cfg)
+    voice_cfg = cfg.get("voice", {})
     tts_voice    = voice_cfg.get("tts_voice", "af_sky")
     language     = voice_cfg.get("language") or None
-    input_device = voice_cfg.get("input_device")    # None = system default
+    input_device = voice_cfg.get("input_device")
     output_device= voice_cfg.get("output_device")
+    use_kokoro   = voice_cfg.get("use_kokoro", False)
 
     _hr()
-    print(_C("\n  🎙  Koza Voice Mode\n", "bold", "cyan"))
-    # Show active devices
+    print(_C("\n  🎙  Koza Voice Mode  — Always Listening\n", "bold", "cyan"))
     try:
         import sounddevice as sd
         devs = sd.query_devices()
@@ -185,57 +194,58 @@ def cmd_voice(args: list) -> None:
         out_name = devs[output_device]["name"] if output_device is not None else sd.query_devices(kind="output")["name"]
         print(_C(f"  🎤  Input:   {in_name}", "grey"))
         print(_C(f"  🔊  Output:  {out_name}", "grey"))
-        print(_C("  ─  koza voice devices  to change\n", "grey"))
     except Exception:
         pass
-    print(_C("  Press Enter → speak → pause to send  |  Ctrl+C to exit\n", "grey"))
+    print(_C("  Just speak — Koza listens automatically.", "grey"))
+    print(_C("  Ctrl+C to exit\n", "grey"))
     _hr()
 
-    while True:
-        try:
-            input(_C("\n  ●  Press Enter to speak › ", "yellow", "bold"))
-        except (EOFError, KeyboardInterrupt):
-            break
+    stop_event = threading.Event()
 
-        print()  # blank line before VU meter
-        try:
-            text = stt_listen(max_seconds=15, language=language, input_device=input_device)
-        except Exception as e:
-            print(_C(f"\n  ✗  Mic error: {e}", "red"))
-            continue
+    try:
+        for text in vad_listen_loop(
+            input_device=input_device,
+            language=language,
+            stop_event=stop_event,
+        ):
+            if not text:
+                continue
 
-        if not text:
-            print(_C("  (nothing heard — try again)", "grey"))
-            continue
+            import sys
+            sys.stdout.write("\r" + " " * 72 + "\r")
+            print(_C("  You  › ", "cyan", "bold") + _C(text, "white"))
+            sys.stdout.write(_C("  ⚙   Thinking…", "grey"))
+            sys.stdout.flush()
 
-        print(_C("\n  You  › ", "cyan", "bold") + _C(text, "white"))
-        print(_C("  ⚙   Thinking…", "grey"), end="", flush=True)
-
-        full_response = ""
-        try:
-            for event in agent.stream_chat(text):
-                if isinstance(event, dict) and event.get("type") == "text":
-                    tok = event.get("token", "")
-                    if not full_response:
-                        # Clear "Thinking…" line on first token
-                        import sys; sys.stdout.write("\r" + " " * 40 + "\r")
-                    full_response += tok
-        except KeyboardInterrupt:
-            agent.interrupt()
-            continue
-        except Exception as exc:
-            _print_error(exc)
-            continue
-
-        if full_response.strip():
-            print(_C("  Koza › ", "yellow", "bold") + full_response.strip())
-            print(_C("  🔊  Speaking…", "grey"))
+            full_response = ""
             try:
-                tts_speak(full_response.strip(), voice=tts_voice, output_device=output_device)
-            except Exception:
-                pass  # text already shown — TTS failure is non-fatal
+                for event in agent.stream_chat(text):
+                    if isinstance(event, dict) and event.get("type") == "text":
+                        tok = event.get("token", "")
+                        if not full_response:
+                            sys.stdout.write("\r" + " " * 40 + "\r")
+                        full_response += tok
+            except KeyboardInterrupt:
+                agent.interrupt()
+                continue
+            except Exception as exc:
+                _print_error(exc)
+                continue
 
-        _hr("·", "grey")
+            if full_response.strip():
+                print(_C("  Koza › ", "yellow", "bold") + full_response.strip())
+                sys.stdout.write(_C("  🔊  Speaking…\n", "grey"))
+                sys.stdout.flush()
+                try:
+                    tts_speak(full_response.strip(), voice=tts_voice,
+                              output_device=output_device, use_kokoro=use_kokoro)
+                except Exception:
+                    pass
+
+            _hr("·", "grey")
+
+    except KeyboardInterrupt:
+        stop_event.set()
 
     print(_C("\n  Voice session ended. 👋\n", "yellow"))
     _hr()
