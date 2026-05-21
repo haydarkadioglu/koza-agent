@@ -302,7 +302,7 @@ class DaemonServer:
         )
         if token:
             try:
-                from tg_bot import start_bot_thread
+                from bots.telegram import start_bot_thread
                 if start_bot_thread(self._make_agent, self.cfg):
                     _log("Telegram bot started.")
                 else:
