@@ -136,6 +136,28 @@ class GeminiProvider(LLMProvider):
             return resp.text
         return _run_async(_run())
 
+    @staticmethod
+    def _build_react_tools_prompt(tools: list) -> str:
+        """Inject tool definitions into the prompt for ReAct-style tool calling in cookie mode."""
+        if not tools:
+            return ""
+        lines = [
+            "## Available Tools",
+            "You can call tools by outputting EXACTLY this format on its own lines:",
+            '<tool_call>{"name": "TOOL_NAME", "arguments": {"param": "value"}}</tool_call>',
+            "You may call multiple tools. After tool results are provided, continue answering.",
+            "",
+            "Tools:",
+        ]
+        for t in tools[:40]:  # cap to keep prompt size reasonable
+            fn = t.get("function", t)
+            name = fn.get("name", "")
+            desc = fn.get("description", "")[:120]
+            props = fn.get("parameters", {}).get("properties", {})
+            params = ", ".join(f"{k}" for k in list(props.keys())[:6])
+            lines.append(f"- {name}({params}): {desc}")
+        return "\n".join(lines)
+
     def _convert_tools(self, tools):
         if not tools:
             return None
@@ -158,11 +180,42 @@ class GeminiProvider(LLMProvider):
 
     def chat(self, messages, tools=None, stream=False):
         if self._auth_mode == "cookie":
-            prompt = "\n".join(
-                f"{m['role'].upper()}: {m['content']}"
-                for m in messages if m.get("content")
-            )
-            return {"content": self._cookie_generate(prompt), "tool_calls": None}
+            import re, json as _json
+            parts = []
+            # Prepend tools prompt if tools provided
+            if tools:
+                parts.append(self._build_react_tools_prompt(tools))
+            for m in messages:
+                if not m.get("content"):
+                    continue
+                role = m["role"].upper()
+                if role == "TOOL":
+                    parts.append(f"TOOL_RESULT ({m.get('name', 'tool')}): {m['content']}")
+                else:
+                    parts.append(f"{role}: {m['content']}")
+            prompt = "\n\n".join(parts)
+            raw = self._cookie_generate(prompt)
+
+            # Parse <tool_call>...</tool_call> blocks
+            tool_calls = []
+            pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+            for i, match in enumerate(pattern.findall(raw)):
+                try:
+                    tc = _json.loads(match.strip())
+                    tool_calls.append({
+                        "id":        tc.get("name", f"call_{i}"),
+                        "name":      tc.get("name"),
+                        "arguments": tc.get("arguments", {}),
+                    })
+                except Exception:
+                    pass
+
+            # Strip tool_call blocks from visible text
+            clean = pattern.sub("", raw).strip()
+            return {
+                "content":    clean or None,
+                "tool_calls": tool_calls if tool_calls else None,
+            }
 
         # api_key mode
         from google.genai import types
@@ -199,7 +252,17 @@ class GeminiProvider(LLMProvider):
 
     def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
         if self._auth_mode == "cookie":
-            result = self.chat(messages)
+            import json as _json
+            result = self.chat(messages, tools=tools)
+            # Yield tool chunks first so core.py's _tool_buf is populated
+            for idx, tc in enumerate(result.get("tool_calls") or []):
+                yield {
+                    "__tool_chunk__": True,
+                    "index": idx,
+                    "id":   tc.get("id") or tc.get("name"),
+                    "name": tc.get("name"),
+                    "args_chunk": _json.dumps(tc.get("arguments", {})),
+                }
             if result.get("content"):
                 yield result["content"]
             return

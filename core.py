@@ -317,56 +317,56 @@ class Agent:
                             full += token
                             yield {"type": "text", "token": token}
 
-            # ── No tool calls → pure text response, done ─────────────────────
-            if not _tool_buf:
-                self.messages.append({"role": "assistant", "content": full})
-                return
+                # ── No tool calls → pure text response, done ─────────────────────
+                if not _tool_buf:
+                    self.messages.append({"role": "assistant", "content": full})
+                    return
 
-            # ── Build call list from buffered chunks ─────────────────────────
-            calls = []
-            for idx, stc in sorted(_tool_buf.items()):
-                try:
-                    args_parsed = _json.loads(stc["args"] or "{}")
-                except Exception:
-                    args_parsed = {}
-                calls.append({
-                    "id": stc["id"] or stc["name"],
-                    "name": stc["name"],
-                    "arguments": args_parsed,
+                # ── Build call list from buffered chunks ─────────────────────────
+                calls = []
+                for idx, stc in sorted(_tool_buf.items()):
+                    try:
+                        args_parsed = _json.loads(stc["args"] or "{}")
+                    except Exception:
+                        args_parsed = {}
+                    calls.append({
+                        "id": stc["id"] or stc["name"],
+                        "name": stc["name"],
+                        "arguments": args_parsed,
+                    })
+
+                self.messages.append({
+                    "role": "assistant",
+                    "content": full or None,
+                    "tool_calls": calls,
                 })
 
-            self.messages.append({
-                "role": "assistant",
-                "content": full or None,
-                "tool_calls": calls,
-            })
-
-            # ── Execute each tool call ────────────────────────────────────────
-            for call in calls:
-                if self._cancel.is_set():
-                    yield {"type": "interrupted"}
-                    return
-                name, args = call["name"], call["arguments"]
-                if self.permission_callback and not self.permission_callback(name, args):
-                    yield {"type": "tool_denied", "name": name}
+                # ── Execute each tool call ────────────────────────────────────────
+                for call in calls:
+                    if self._cancel.is_set():
+                        yield {"type": "interrupted"}
+                        return
+                    name, args = call["name"], call["arguments"]
+                    if self.permission_callback and not self.permission_callback(name, args):
+                        yield {"type": "tool_denied", "name": name}
+                        self.messages.append({
+                            "role": "tool",
+                            "tool_call_id": call["id"],
+                            "name": name,
+                            "content": "Permission denied by user.",
+                        })
+                        continue
+                    yield {"type": "tool_start", "name": name, "args": args}
+                    t0 = time.time()
+                    result = self._execute_tool(name, args)
+                    yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
                     self.messages.append({
                         "role": "tool",
                         "tool_call_id": call["id"],
                         "name": name,
-                        "content": "Permission denied by user.",
+                        "content": str(result),
                     })
-                    continue
-                yield {"type": "tool_start", "name": name, "args": args}
-                t0 = time.time()
-                result = self._execute_tool(name, args)
-                yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": call["id"],
-                    "name": name,
-                    "content": str(result),
-                })
-            # loop → ask model again with tool results
+                # loop → ask model again with tool results
 
         finally:
             self._busy = False

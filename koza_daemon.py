@@ -238,9 +238,7 @@ class DaemonServer:
         if token:
             try:
                 from tg_bot import start_bot_thread
-                agent = self._make_agent()
-                agent.permission_callback = None   # auto-allow in Telegram
-                if start_bot_thread(agent, self.cfg):
+                if start_bot_thread(self._make_agent, self.cfg):
                     _log("Telegram bot started.")
                 else:
                     _log("Telegram bot did not start (start_bot_thread returned False).")
