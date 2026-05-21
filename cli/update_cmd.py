@@ -6,17 +6,45 @@ from cli.ui import _C, _hr, _get_version
 
 
 def _check_latest_version() -> tuple[str, str]:
-    """Fetch latest version tag from GitHub. Returns (latest_tag, current_ver)."""
+    """Fetch latest version from GitHub.
+
+    Strategy:
+    1. Try GitHub Releases API (tag_name)
+    2. Fall back to reading pyproject.toml from main branch
+    Returns (latest_version_str, current_version_str).
+    """
     current = _get_version()
-    try:
-        url = "https://api.github.com/repos/haydarkadioglu/koza-agent/releases/latest"
+
+    def _fetch(url: str) -> str:
         req = urllib.request.Request(url, headers={"User-Agent": "koza-agent"})
-        with urllib.request.urlopen(req, timeout=4) as r:
-            data = json.loads(r.read())
-        latest = data.get("tag_name", "").lstrip("v")
-        return latest, current
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.read().decode()
+
+    # 1 — GitHub Releases API
+    try:
+        data = json.loads(_fetch(
+            "https://api.github.com/repos/haydarkadioglu/koza-agent/releases/latest"
+        ))
+        tag = data.get("tag_name", "").lstrip("v")
+        if tag:
+            return tag, current
     except Exception:
-        return "", current
+        pass
+
+    # 2 — Raw pyproject.toml on main branch
+    try:
+        import re
+        toml = _fetch(
+            "https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/pyproject.toml"
+        )
+        m = re.search(r'^version\s*=\s*"([^"]+)"', toml, re.MULTILINE)
+        if m:
+            return m.group(1), current
+    except Exception:
+        pass
+
+    return "", current
+
 
 
 def cmd_version(args: list) -> None:
