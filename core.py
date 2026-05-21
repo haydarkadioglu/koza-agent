@@ -191,23 +191,57 @@ class Agent:
         """
         Return a windowed view of messages: system prompt + last MAX_CONTEXT_MESSAGES.
         Also normalizes assistant tool_calls and tool result messages to API format.
+        Ensures no orphan tool messages (tool without preceding assistant+tool_calls).
+        Removes dangling assistant+tool_calls whose tool results are missing.
         """
         import json
         system = [m for m in self.messages if m.get("role") == "system"]
         rest = [m for m in self.messages if m.get("role") != "system"]
         window = system + rest[-MAX_CONTEXT_MESSAGES:]
 
-        normalized = []
+        # ── Pass 1: ensure every tool msg has a valid preceding assistant ─────
+        # Build set of all tool_call ids that appear in assistant messages in window
+        valid_call_ids: set[str] = set()
         for m in window:
             if m.get("role") == "assistant" and m.get("tool_calls"):
-                # Ensure tool_calls use the full API format
+                for tc in m["tool_calls"]:
+                    valid_call_ids.add(tc.get("id", tc.get("name", "")))
+
+        # Remove tool messages whose call_id has no matching assistant in window
+        window = [m for m in window
+                  if not (m.get("role") == "tool"
+                          and m.get("tool_call_id", "") not in valid_call_ids)]
+
+        # ── Pass 2: remove dangling assistant+tool_calls pairs ────────────────
+        # (assistant says "I'll call X" but no tool result was ever recorded)
+        result_ids: set[str] = set()
+        for m in window:
+            if m.get("role") == "tool":
+                result_ids.add(m.get("tool_call_id", ""))
+
+        skip_ids: set[str] = set()
+        clean: list[dict] = []
+        for m in window:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                missing = [tc for tc in m["tool_calls"]
+                           if tc.get("id", tc.get("name", "")) not in result_ids]
+                if missing:
+                    for tc in m["tool_calls"]:
+                        skip_ids.add(tc.get("id", tc.get("name", "")))
+                    continue
+            if m.get("role") == "tool" and m.get("tool_call_id", "") in skip_ids:
+                continue
+            clean.append(m)
+
+        # ── Pass 3: normalize to API format ──────────────────────────────────
+        normalized = []
+        for m in clean:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
                 api_tool_calls = []
                 for tc in m["tool_calls"]:
                     if "function" in tc:
-                        # Already in API format — ensure type is present
                         api_tool_calls.append({"type": "function", **tc} if "type" not in tc else tc)
                     else:
-                        # Internal flat format → convert to API format
                         args = tc.get("arguments", {})
                         api_tool_calls.append({
                             "id": tc.get("id", tc.get("name", "")),
@@ -218,11 +252,9 @@ class Agent:
                             },
                         })
                 m = {**m, "tool_calls": api_tool_calls}
-                # content must be string or None, not missing
                 if "content" not in m:
                     m = {**m, "content": None}
             elif m.get("role") == "tool":
-                # Ensure tool result has content as string
                 m = {**m, "content": str(m.get("content", ""))}
             elif m.get("role") == "assistant" and "content" not in m:
                 m = {**m, "content": ""}

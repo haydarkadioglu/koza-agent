@@ -42,8 +42,9 @@ def _plain_cli(agent, cfg: dict) -> None:
     token_limit   = _TOKEN_LIMITS.get(provider_name, 32_000)
 
     # ── Shared processing state ───────────────────────────────────────────────
-    _processing  = threading.Event()   # set while agent is running
-    _proc_thread = [None]              # current background thread
+    _processing     = threading.Event()   # set while agent is running
+    _proc_thread    = [None]              # current background thread
+    _coding_mode_on = [False]             # True while coding mode session is active
 
     # ── Tool permission system ────────────────────────────────────────────────
     _SAFE_TOOLS = {
@@ -173,10 +174,11 @@ def _plain_cli(agent, cfg: dict) -> None:
         full_response = ""
         tw = shutil.get_terminal_size((100, 24)).columns
 
-        def _open_box():
-            """Print the Koza box header on first text token."""
+        def _open_box(label: str = "Koza"):
+            """Print the agent box header on first text token."""
             print()
-            print(_C("  ╭─ Koza ", "yellow", "bold") + _C("─" * (tw - 10), "gold"))
+            llen = len(label) + 6
+            print(_C(f"  ╭─ {label} ", "yellow", "bold") + _C("─" * max(tw - llen, 2), "gold"))
             sys.stdout.write(_C("  │ ", "yellow"))
             sys.stdout.flush()
 
@@ -215,7 +217,10 @@ def _plain_cli(agent, cfg: dict) -> None:
                 elif etype == "tool_start":
                     name    = event["name"]
                     args    = event.get("args", {})
-                    arg_str = ", ".join(f"{k}={repr(v)}" for k, v in list(args.items())[:2])
+                    # Hide bulky code/script args — show only lightweight args
+                    _HIDDEN_ARGS = {"code", "script", "content", "text", "body"}
+                    visible_args = {k: v for k, v in args.items() if k not in _HIDDEN_ARGS}
+                    arg_str = ", ".join(f"{k}={repr(v)}" for k, v in list(visible_args.items())[:2])
                     label   = _TOOL_STATUS.get(name, f"Running {name}")
                     _spinner_set(f"  {label}…")
                     if not _spinner_active_check():
@@ -300,8 +305,10 @@ def _plain_cli(agent, cfg: dict) -> None:
             mode = parts[1].lower().strip() if len(parts) > 1 else ""
             if mode == "coding":
                 print(_C("  Switching to Coding Mode…\n", "yellow"))
+                _coding_mode_on[0] = True
                 from cli.coding_cmd import cmd_coding
                 cmd_coding([])
+                _coding_mode_on[0] = False
                 print(_C("  Back to normal mode.\n", "grey"))
                 return True
             else:
@@ -317,6 +324,11 @@ def _plain_cli(agent, cfg: dict) -> None:
             if _processing.is_set():
                 return HTML(
                     "<ansiyellow><b>  ⏎  interrupt  │  type to queue next › </b></ansiyellow>"
+                )
+            if _coding_mode_on[0]:
+                return HTML(
+                    "<ansiyellow><b>  🧑‍💻 Coding Mode  │ </b></ansiyellow>"
+                    "<ansicyan><b>You  › </b></ansicyan>"
                 )
             return HTML(
                 "<ansigreen><b>  ● </b></ansigreen>"
@@ -347,30 +359,29 @@ def _plain_cli(agent, cfg: dict) -> None:
                     _hr()
                     break
 
-        # Enter pressed while processing
-        if _processing.is_set():
-            agent.interrupt()
-            if _proc_thread[0]:
-                _proc_thread[0].join(timeout=3)
-            # If user typed something while waiting → process it now
-            if user_input:
-                cmd = _handle_inline(user_input)
-                if cmd is None:
-                    break
-                if not cmd:
-                    total_tokens += max(1, len(user_input) // 4)
-                    _proc_thread[0] = threading.Thread(
-                        target=_process, args=(user_input,), daemon=True
-                    )
-                    _proc_thread[0].start()
-            continue
+                # Enter pressed while processing → interrupt + queue typed input
+                if _processing.is_set():
+                    agent.interrupt()
+                    if _proc_thread[0]:
+                        _proc_thread[0].join(timeout=3)
+                    if user_input:
+                        cmd = _handle_inline(user_input)
+                        if cmd is None:
+                            break
+                        if not cmd:
+                            total_tokens += max(1, len(user_input) // 4)
+                            _proc_thread[0] = threading.Thread(
+                                target=_process, args=(user_input,), daemon=True
+                            )
+                            _proc_thread[0].start()
+                    continue
 
                 if not user_input:
                     continue
 
                 cmd = _handle_inline(user_input)
                 if cmd is None:
-                    break   # exit/quit
+                    break
                 if cmd:
                     continue
 
@@ -379,12 +390,6 @@ def _plain_cli(agent, cfg: dict) -> None:
                     target=_process, args=(user_input,), daemon=True
                 )
                 _proc_thread[0].start()
-
-        # Wait for any running thread before returning
-        if _proc_thread[0] and _proc_thread[0].is_alive():
-            agent.interrupt()
-            _proc_thread[0].join(timeout=3)
-        return
 
     # ── Fallback: simple blocking loop (no prompt_toolkit) ────────────────────
     while True:
