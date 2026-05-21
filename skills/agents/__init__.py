@@ -11,14 +11,29 @@ from .runner import _run_subagent_thread
 
 
 def spawn_subagent(goal: str, provider: str = "", model: str = "",
-                   tools: str = "", wait: bool = True) -> str:
+                   tools: str = "", capabilities: str = "",
+                   wait: bool = True) -> str:
     """Spawn a sub-agent with a specific goal. Runs in-process in a thread."""
-    agent_id     = str(uuid.uuid4())[:8]
-    tools_filter = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
+    from tools.capabilities import resolve_capabilities
 
+    # Resolve named capability groups into individual tool names
+    cap_names    = [c.strip() for c in capabilities.split(",") if c.strip()] if capabilities else []
+    cap_tools    = resolve_capabilities(cap_names)
+
+    # Merge individual tool names with capability-derived ones (deduplicated)
+    explicit     = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
+    seen: set    = set()
+    tools_filter = []
+    for t in cap_tools + explicit:
+        if t not in seen:
+            seen.add(t)
+            tools_filter.append(t)
+
+    agent_id = str(uuid.uuid4())[:8]
     _subagents[agent_id] = {
         "id": agent_id, "goal": goal[:80], "status": "pending",
         "result": "", "messages": [], "started": time.time(),
+        "capabilities": cap_names,
     }
 
     t = threading.Thread(
@@ -66,6 +81,15 @@ def list_subagents() -> str:
         elapsed = round(time.time() - ag["started"], 1)
         lines.append(f"  #{ag['id']} [{ag['status']}] {elapsed}s — {ag['goal']}")
     return "Sub-agents this session:\n" + "\n".join(lines)
+
+
+def list_capabilities() -> str:
+    """List all available capability groups and the tools they include."""
+    from tools.capabilities import CAPABILITY_GROUPS
+    lines = ["Available capability groups:\n"]
+    for name, tool_list in sorted(CAPABILITY_GROUPS.items()):
+        lines.append(f"  {name:12s} → {', '.join(tool_list)}")
+    return "\n".join(lines)
 
 
 def create_project(name: str, description: str = "") -> str:
@@ -171,19 +195,26 @@ TOOL_DEFINITIONS = [
         "description": (
             "Spawn an autonomous sub-agent with its own tool-calling loop to handle a sub-task. "
             "Runs in the background and returns its result. "
-            "Use for parallel work, research tasks, or delegating complex sub-problems."
+            "Use for parallel work, research tasks, or delegating complex sub-problems. "
+            "Use 'capabilities' to give named skill bundles (e.g. 'browser,files') instead of listing individual tools."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "goal":     {"type": "string",  "description": "The task or goal for the sub-agent"},
-                "provider": {"type": "string",  "default": "", "description": "LLM provider override"},
-                "model":    {"type": "string",  "default": "", "description": "Model override"},
-                "tools":    {"type": "string",  "default": "", "description": "Comma-separated tool names (empty = all)"},
-                "wait":     {"type": "boolean", "default": True, "description": "Wait for completion or launch in background"},
+                "goal":         {"type": "string",  "description": "The task or goal for the sub-agent"},
+                "provider":     {"type": "string",  "default": "", "description": "LLM provider override"},
+                "model":        {"type": "string",  "default": "", "description": "Model override"},
+                "tools":        {"type": "string",  "default": "", "description": "Comma-separated individual tool names (empty = all)"},
+                "capabilities": {"type": "string",  "default": "", "description": "Comma-separated capability group names (e.g. 'browser,files,code'). Use list_capabilities() to see available groups."},
+                "wait":         {"type": "boolean", "default": True, "description": "Wait for completion or launch in background"},
             },
             "required": ["goal"],
         },
+    },
+    {
+        "name": "list_capabilities",
+        "description": "List all available capability groups and the tools they include. Use this to discover what to pass in spawn_subagent's 'capabilities' parameter.",
+        "parameters": {"type": "object", "properties": {}},
     },
     {
         "name": "get_subagent_status",
@@ -241,10 +272,11 @@ TOOL_DEFINITIONS = [
 ]
 
 HANDLERS: dict = {
-    "spawn_subagent":      lambda goal, provider="", model="", tools="", wait=True:
-                               spawn_subagent(goal, provider, model, tools, wait),
+    "spawn_subagent":      lambda goal, provider="", model="", tools="", capabilities="", wait=True:
+                               spawn_subagent(goal, provider, model, tools, capabilities, wait),
     "get_subagent_status": lambda agent_id: get_subagent_status(agent_id),
     "list_subagents":      lambda **_: list_subagents(),
+    "list_capabilities":   lambda **_: list_capabilities(),
     "create_project":      lambda name, description="": create_project(name, description),
     "list_projects":       lambda **_: list_projects(),
     "clean_workspace":     lambda scope="all": clean_workspace(scope),
