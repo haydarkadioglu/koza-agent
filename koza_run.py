@@ -15,7 +15,7 @@ try:
 except ImportError:
     pass
 
-from cli.setup import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER  # noqa: F401
+from cli.setup_constants import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER  # noqa: F401
 from cli.daemon import cmd_start, cmd_status, cmd_quit
 from cli.setup import cmd_setup, cmd_provider
 from cli.commands import cmd_config, cmd_kanban, cmd_uninstall, cmd_telegram, cmd_version, cmd_update, cmd_help, cmd_clean, cmd_sync
