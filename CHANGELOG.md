@@ -5,6 +5,7 @@ Each version has its own file in the [`changelog/`](changelog/) folder.
 
 | Version | Summary |
 |---------|---------|
+| [v1.3.4](changelog/v1.3.4.md) | Non-blocking prompt UI polish, status bar spinner, coding mode entegrasyonu |
 | [v2.0.3](changelog/v2.0.3.md) | CLI interrupt while typing, PERMANENT FAILURE guard |
 | [v2.0.2](changelog/v2.0.2.md) | Advanced media setup, generate command removed, voice disable fix |
 | [v2.0.1](changelog/v2.0.1.md) | Gemini Playwright browser session, cookie auth removed |

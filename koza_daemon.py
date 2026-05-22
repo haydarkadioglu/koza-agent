@@ -450,14 +450,42 @@ class DaemonServer:
 
 def start_as_background(python_exe: str = None) -> bool:
     """
-    Launch this script as a fully detached background process.
-    Returns True when the daemon is confirmed running (PID file written).
+    Launch this script as a fully detached background process (services only).
+    Returns True when the process is confirmed running (PID file written).
     """
     import subprocess
     if python_exe is None:
         python_exe = sys.executable
 
     this_file = str(Path(__file__).resolve())
+    devnull = open(os.devnull, "wb")
+    kwargs = {"stdout": devnull, "stderr": devnull, "stdin": devnull}
+
+    if os.name == "nt":
+        DETACHED    = 0x00000008
+        NEW_GROUP   = 0x00000200
+        kwargs["creationflags"] = DETACHED | NEW_GROUP
+    else:
+        kwargs["start_new_session"] = True
+
+    try:
+        subprocess.Popen([python_exe, this_file, "--services-only"], **kwargs)
+        for _ in range(30):      # wait up to 6 s
+            time.sleep(0.2)
+            if get_daemon_port() is not None:
+                return True
+        return False
+    except Exception as e:
+        _log(f"start_as_background failed: {e}")
+        return False
+
+
+def start_services_background(cfg: dict = None) -> bool:
+    """
+    Spawn a detached background process that runs only services
+    (Telegram bot, cron, sync). Called when CLI exits but services should persist.
+    """
+    return start_as_background()
     devnull = open(os.devnull, "wb")
     kwargs = {"stdout": devnull, "stderr": devnull, "stdin": devnull}
 
@@ -483,8 +511,10 @@ def start_as_background(python_exe: str = None) -> bool:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    if "--daemon" in sys.argv:
-        KOZA_DIR.mkdir(parents=True, exist_ok=True)
+    KOZA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Redirect stdout/stderr to log file for background mode
+    if "--services-only" in sys.argv or "--daemon" in sys.argv:
         log_fh = open(LOG_FILE, "a", buffering=1, encoding="utf-8")
         sys.stdout = log_fh
         sys.stderr = log_fh
@@ -501,7 +531,21 @@ def main():
     except (OSError, ValueError):
         pass
 
-    server.run()
+    if "--services-only" in sys.argv:
+        # Services-only mode: no socket server, just run services and wait
+        _write_info(os.getpid(), 0)  # port=0 means services-only
+        _log(f"Services-only started — PID {os.getpid()}")
+        server._start_services()
+        try:
+            while not server._shutdown.is_set():
+                server._shutdown.wait(timeout=1.0)
+        finally:
+            server._sync_on_exit()
+            _cleanup()
+            _log("Services-only stopped.")
+    else:
+        # Full daemon mode (legacy, kept for compatibility)
+        server.run()
 
 
 if __name__ == "__main__":

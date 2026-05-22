@@ -17,10 +17,6 @@ from cli.ui import (
 
 # ── prompt_toolkit availability ───────────────────────────────────────────────
 try:
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.formatted_text import HTML
-    from prompt_toolkit.patch_stdout import patch_stdout as _pt_patch_stdout
-    from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.application import get_app_or_none
     _HAS_PT = True
 except ImportError:
@@ -40,6 +36,40 @@ def _plain_cli(agent, cfg: dict) -> None:
     provider_name = cfg.get("provider", "")
     model_name    = cfg.get("model") or provider_name
     token_limit   = _TOKEN_LIMITS.get(provider_name, 32_000)
+
+    # ── Start background services (Telegram, cron, sync) ──────────────────────
+    _active_services = []
+
+    def _start_background_services():
+        """Start Telegram bot, cron scheduler, and sync in background threads."""
+        # Telegram bot
+        token = (
+            cfg.get("telegram_token", "").strip()
+            or cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
+        )
+        if token:
+            try:
+                from bots.telegram import start_bot_thread
+
+                def _agent_factory():
+                    from providers.factory import get_provider
+                    from core import Agent
+                    return Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
+
+                if start_bot_thread(_agent_factory, cfg):
+                    _active_services.append("telegram")
+            except Exception:
+                pass
+
+        # Cron scheduler (APScheduler)
+        try:
+            from skills.cron_scheduler import get_scheduler
+            get_scheduler()  # starts if not already running
+            _active_services.append("cron")
+        except Exception:
+            pass
+
+    _start_background_services()
 
     # ── Shared processing state ───────────────────────────────────────────────
     _processing     = threading.Event()   # set while agent is running
@@ -107,15 +137,9 @@ def _plain_cli(agent, cfg: dict) -> None:
             return True
         if name in _SAFE_TOOLS or name in _session_allowed or name in _permanent_allowed:
             return True
-        # When called from a background thread, use run_in_terminal so the
-        # prompt_toolkit input bar is temporarily paused while we show the UI.
-        app = get_app_or_none() if _HAS_PT else None
-        if app is not None:
-            result = [False]
-            def _ui():
-                result[0] = _show_permission_ui(name, args)
-            app.run_in_terminal(_ui)
-            return result[0]
+        # Permission UI runs directly — since we're in a background thread
+        # and the prompt_toolkit Application handles input separately,
+        # we can safely call the permission UI from the agent thread.
         return _show_permission_ui(name, args)
 
     agent.permission_callback = _ask_permission
@@ -273,123 +297,215 @@ def _plain_cli(agent, cfg: dict) -> None:
             print()
             _status_bar()
 
+    # ── UI references (set when prompt_toolkit UI is initialized) ────────────
+    _ui_layout = [None]      # ChatLayout instance (or None in fallback mode)
+    _ui_renderer = [None]    # StreamRenderer instance (or None in fallback mode)
+    _ui_dispatcher = [None]  # InputDispatcher instance (or None in fallback mode)
+
     # ── Inline command handler ────────────────────────────────────────────────
     def _handle_inline(user_input: str) -> bool:
         """Returns True if input was a slash command (consumed)."""
         nonlocal total_tokens
         if user_input.lower() in ("exit", "quit"):
-            _hr()
-            print(_C("\n  Goodbye! 👋\n", "yellow"))
-            _hr()
+            # If background services are active, spawn mini-daemon to keep them alive
+            if _active_services:
+                try:
+                    from koza_daemon import start_services_background
+                    start_services_background(cfg)
+                    _hr()
+                    print(_C("\n  Goodbye! 👋", "yellow"))
+                    print(_C(f"  Background services running: {', '.join(_active_services)}", "grey"))
+                    print(_C("  Stop with: koza quit\n", "grey"))
+                    _hr()
+                except Exception:
+                    _hr()
+                    print(_C("\n  Goodbye! 👋\n", "yellow"))
+                    _hr()
+            else:
+                _hr()
+                print(_C("\n  Goodbye! 👋\n", "yellow"))
+                _hr()
             return None  # signal exit
         if user_input == "/reset":
-            agent.reset(); total_tokens = 0
-            print(_C("  ✓  Chat reset.\n", "green"))
+            agent.reset()
+            total_tokens = 0
+            layout = _ui_layout[0]
+            renderer = _ui_renderer[0]
+            if layout is not None:
+                # prompt_toolkit mode: clear output pane and show confirmation there
+                layout.clear_output()
+                if renderer is not None:
+                    renderer._reset()
+                    renderer._total_tokens = 0
+                layout.append_output(_C("  ✓  Chat reset.\n", "green"))
+                layout.set_status(renderer._format_status(_C("● Idle", "green")) if renderer else "")
+            else:
+                # Fallback mode: use print
+                print(_C("  ✓  Chat reset.\n", "green"))
             return True
         if user_input == "/kanban":
-            from cli.commands import cmd_kanban
-            cmd_kanban([])
+            layout = _ui_layout[0]
+            if layout is not None:
+                from config import load_config as _lc
+                _cfg = _lc()
+                from skills.kanban import init_db, list_tasks
+                from skills.cron_db import init_db as cron_init
+                from skills.cron import list_crons
+                init_db(_cfg["db_path"])
+                cron_init(_cfg["db_path"])
+                lines = []
+                lines.append(_C("  KANBAN  ·  Tasks", "bold", "yellow"))
+                lines.append(_C("─" * 60, "gold"))
+                lines.append(list_tasks())
+                lines.append(_C("─" * 60, "gold"))
+                lines.append(_C("  CRON JOBS", "bold", "cyan"))
+                lines.append(_C("─" * 60, "gold"))
+                lines.append(list_crons())
+                layout.append_output("\n".join(lines) + "\n")
+            else:
+                from cli.commands import cmd_kanban
+                cmd_kanban([])
             return True
         if user_input == "/memory":
             from skills.working_memory import wm_get_context
             ctx = wm_get_context()
-            _hr("·", "grey")
-            print(ctx or _C("  (working memory is empty)", "dim"))
-            _hr("·", "grey")
+            layout = _ui_layout[0]
+            if layout is not None:
+                lines = []
+                lines.append(_C("·" * 60, "grey"))
+                lines.append(ctx or _C("  (working memory is empty)", "dim"))
+                lines.append(_C("·" * 60, "grey"))
+                layout.append_output("\n".join(lines) + "\n")
+            else:
+                _hr("·", "grey")
+                print(ctx or _C("  (working memory is empty)", "dim"))
+                _hr("·", "grey")
             return True
         if user_input in ("/help", "/?"):
-            _print_inline_help()
+            layout = _ui_layout[0]
+            if layout is not None:
+                lines = []
+                lines.append(_C("\n  Commands", "bold"))
+                cmds = [
+                    ("/help",   "Show this help"),
+                    ("/kanban", "Show Kanban board & cron jobs"),
+                    ("/memory", "Show working memory"),
+                    ("/reset",  "Clear conversation history"),
+                    ("exit",    "Quit Koza"),
+                ]
+                for cmd, desc in cmds:
+                    lines.append(f"  {_C(cmd, 'cyan'):<28}  {desc}")
+                lines.append("")
+                layout.append_output("\n".join(lines) + "\n")
+            else:
+                _print_inline_help()
             return True
         if user_input.startswith("/mode"):
             parts = user_input.split(None, 1)
             mode = parts[1].lower().strip() if len(parts) > 1 else ""
             if mode == "coding":
-                print(_C("  Switching to Coding Mode…\n", "yellow"))
                 _coding_mode_on[0] = True
-                from cli.coding_cmd import cmd_coding
-                cmd_coding([])
+                # Enable coding mode on dispatcher if available
+                if _ui_dispatcher[0] is not None:
+                    _ui_dispatcher[0].enable_coding_mode()
+                    layout = _ui_layout[0]
+                    if layout is not None:
+                        layout.append_output(
+                            _C("  ✓  Coding mode activated. Multi-persona orchestration enabled.\n", "green")
+                        )
+                        layout.append_output(
+                            _C("  ℹ  Use /mode off to return to normal chat.\n", "grey")
+                        )
+                else:
+                    print(_C("  ✓  Coding mode activated. Multi-persona orchestration enabled.\n", "green"))
+                    print(_C("  ℹ  Use /mode off to return to normal chat.\n", "grey"))
+                return True
+            elif mode == "off":
                 _coding_mode_on[0] = False
-                print(_C("  Back to normal mode.\n", "grey"))
+                # Disable coding mode on dispatcher if available
+                if _ui_dispatcher[0] is not None:
+                    _ui_dispatcher[0].disable_coding_mode()
+                    layout = _ui_layout[0]
+                    if layout is not None:
+                        layout.append_output(
+                            _C("  ✓  Coding mode deactivated. Back to normal chat.\n", "green")
+                        )
+                else:
+                    print(_C("  ✓  Coding mode deactivated. Back to normal chat.\n", "green"))
                 return True
             else:
-                print(_C(f"  Unknown mode: {mode!r}. Try  /mode coding\n", "red"))
+                if _ui_layout[0] is not None:
+                    _ui_layout[0].append_output(
+                        _C(f"  Unknown mode: {mode!r}. Available: coding, off\n", "red")
+                    )
+                else:
+                    print(_C(f"  Unknown mode: {mode!r}. Available: coding, off\n", "red"))
                 return True
         return False
 
-    # ── Main loop — prompt_toolkit (sticky bottom) ────────────────────────────
+    # ── Main loop — prompt_toolkit Application (split-pane UI) ──────────────────
     if _HAS_PT:
-        _pt_session = PromptSession(history=InMemoryHistory())
+        from prompt_toolkit import Application
+        from prompt_toolkit.key_binding import KeyBindings
+        from cli.ui import ChatLayout, StreamRenderer
+        from cli.input_dispatcher import InputDispatcher
 
-        def _prompt_text():
-            if _processing.is_set():
-                return HTML(
-                    "<ansiyellow><b>  ⏎  interrupt  │  type to queue next › </b></ansiyellow>"
-                )
-            if _coding_mode_on[0]:
-                return HTML(
-                    "<ansiyellow><b>  🧑‍💻 Coding Mode  │ </b></ansiyellow>"
-                    "<ansicyan><b>You  › </b></ansicyan>"
-                )
-            return HTML(
-                "<ansigreen><b>  ● </b></ansigreen>"
-                "<ansicyan><b>You  › </b></ansicyan>"
-            )
+        layout = ChatLayout(on_submit=lambda t: None)  # placeholder
+        renderer = StreamRenderer(
+            layout,
+            model_name=model_name,
+            token_limit=token_limit,
+            session_start=session_start,
+        )
+        dispatcher = InputDispatcher(agent, layout, renderer)
 
-        with _pt_patch_stdout():
-            while True:
-                try:
-                    user_input = _pt_session.prompt(
-                        _prompt_text,
-                        refresh_interval=0.25,
-                    ).strip()
-                except KeyboardInterrupt:
-                    if _processing.is_set():
-                        agent.interrupt()
-                        if _proc_thread[0]:
-                            _proc_thread[0].join(timeout=3)
-                    else:
-                        _hr()
-                        print(_C("\n  Goodbye! 👋\n", "yellow"))
-                        _hr()
-                        break
-                    continue
-                except EOFError:
-                    _hr()
-                    print(_C("\n  Goodbye! 👋\n", "yellow"))
-                    _hr()
-                    break
+        # Expose layout/renderer/dispatcher to _handle_inline for slash commands
+        _ui_layout[0] = layout
+        _ui_renderer[0] = renderer
+        _ui_dispatcher[0] = dispatcher
 
-                # Enter pressed while processing → interrupt + queue typed input
-                if _processing.is_set():
+        def on_submit(text: str) -> None:
+            text = text.strip()
+            if not text:
+                dispatcher.submit(text)  # empty-Enter interrupt
+                return
+            # Check slash commands first
+            cmd = _handle_inline(text)
+            if cmd is None:
+                # exit/quit — close the application
+                app.exit()
+                return
+            if cmd:
+                # Command was handled, don't send to agent
+                return
+            # Normal message — render and dispatch
+            renderer.render_user_message(text)
+            dispatcher.submit(text)
+
+        layout.on_submit = on_submit
+
+        kb = KeyBindings()
+
+        @kb.add('c-c')
+        def _handle_ctrl_c(event):
+            """Ctrl+C: interrupt agent if busy, exit if idle."""
+            if dispatcher.is_busy():
+                if dispatcher._coding_mode and dispatcher._coding_session:
+                    dispatcher._coding_session.interrupt()
+                else:
                     agent.interrupt()
-                    if _proc_thread[0]:
-                        _proc_thread[0].join(timeout=3)
-                    if user_input:
-                        cmd = _handle_inline(user_input)
-                        if cmd is None:
-                            break
-                        if not cmd:
-                            total_tokens += max(1, len(user_input) // 4)
-                            _proc_thread[0] = threading.Thread(
-                                target=_process, args=(user_input,), daemon=True
-                            )
-                            _proc_thread[0].start()
-                    continue
+            else:
+                event.app.exit()
 
-                if not user_input:
-                    continue
-
-                cmd = _handle_inline(user_input)
-                if cmd is None:
-                    break
-                if cmd:
-                    continue
-
-                total_tokens += max(1, len(user_input) // 4)
-                _proc_thread[0] = threading.Thread(
-                    target=_process, args=(user_input,), daemon=True
-                )
-                _proc_thread[0].start()
+        app = Application(
+            layout=layout.create_layout(),
+            full_screen=False,
+            key_bindings=kb,
+        )
+        layout._app = app
+        layout.set_status(renderer._format_status(_C("● Idle", "green")))
+        app.run()
+        return
 
     # ── Fallback: simple blocking loop (no prompt_toolkit) ────────────────────
     while True:

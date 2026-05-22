@@ -58,3 +58,6 @@ logs/
 # Temp
 tmp/
 temp/
+
+.kiro/
+tests/
