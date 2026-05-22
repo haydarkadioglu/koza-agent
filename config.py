@@ -11,7 +11,7 @@ CONFIG_PATH = Path.home() / ".Koza" / "config.yaml"
 
 def default_config() -> dict:
     return {
-        "provider": "ollama",
+        "provider": "",
         "model": "",
         "fallback_provider": "",
         "fallback_model": "",

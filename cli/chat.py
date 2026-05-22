@@ -34,7 +34,7 @@ def _plain_cli(agent, cfg: dict) -> None:
     _TOKEN_LIMITS = {
         "deepseek": 64_000, "openai": 128_000, "anthropic": 200_000,
         "gemini": 1_000_000, "ollama": 32_000, "groq": 128_000,
-        "openrouter": 128_000, "kiro": 128_000,
+        "openrouter": 128_000,
     }
     provider_name = cfg.get("provider", "")
     model_name    = cfg.get("model") or provider_name

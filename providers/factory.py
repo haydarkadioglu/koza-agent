@@ -43,15 +43,14 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "openrouter":
         from .openrouter_provider import OpenRouterProvider
         return OpenRouterProvider(pcfg)
-    elif name == "kiro":
-        from .kiro_provider import KiroProvider
-        return KiroProvider(pcfg)
     else:
         raise ValueError(f"Unknown provider: {name}")
 
 
 def get_provider(cfg: dict) -> LLMProvider:
-    primary_name = cfg.get("provider", "ollama")
+    primary_name = cfg.get("provider", "")
+    if not primary_name:
+        raise ValueError("No provider configured. Run: koza setup")
     model = cfg.get("model", "")
     primary = _build_provider(primary_name, cfg, model)
 
