@@ -105,19 +105,17 @@ def cmd_setup(args: list) -> None:
     # ── Load or init config ───────────────────────────────────────────────────
     if config_exists():
         cfg = load_config()
-        cur_provider = cfg.get("provider", "?")
-        cur_model    = cfg.get("model", "?")
-        cur_media    = cfg.get("media_provider", "")
-        cur_fallback = cfg.get("fallback_provider", "")
-        def _status(val):
-            return _C(f"({val})", "teal") if val else _C("(not set)", "grey")
     else:
         cfg = default_config()
-        cur_provider = cur_model = cur_media = cur_fallback = ""
-        def _status(val):
-            return _C("(not set)", "grey")
+
+    def _status(val):
+        return _C(f"({val})", "teal") if val else _C("(not set)", "grey")
 
     # ── Section menu ──────────────────────────────────────────────────────────
+    cur_provider = cfg.get("provider", "")
+    cur_model    = cfg.get("model", "")
+    cur_media    = cfg.get("media_provider", "")
+    cur_fallback = cfg.get("fallback_provider", "")
     sections = [
         f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
         f"Fallback Provider   {_status(cur_fallback)}",

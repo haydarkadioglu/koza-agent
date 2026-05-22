@@ -50,7 +50,7 @@ async def _process_message(update, context, agent_factory: Callable):
         await file.download_to_drive(tmp.name)
         image_path = tmp.name
         if not user_text:
-            user_text = "Bu fotoğrafı incele."
+            user_text = "Analyze this photo."
 
     if not user_text:
         return
@@ -59,12 +59,12 @@ async def _process_message(update, context, agent_factory: Callable):
 
     if agent._busy:
         agent.interrupt()
-        await context.bot.send_message(chat_id=chat_id, text="⏸ Önceki görev kesildi.")
+        await context.bot.send_message(chat_id=chat_id, text="⏸ Previous task interrupted.")
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     if image_path:
-        user_text = f"[Fotoğraf: {image_path}]\n{user_text}"
+        user_text = f"[Photo: {image_path}]\n{user_text}"
 
     ev_queue: _queue.Queue = _queue.Queue()
     _DONE = object()
@@ -151,11 +151,11 @@ async def _process_message(update, context, agent_factory: Callable):
             await _flush()
 
         elif etype == "tool_start":
-            status = f"⚙️ `{event.get('name', '')}` çalışıyor…"
+            status = f"⚙️ `{event.get('name', '')}` running…"
             await _flush(force=True)
 
         elif etype == "tool_done":
-            status = f"✅ `{event.get('name', '')}` tamamlandı."
+            status = f"✅ `{event.get('name', '')}` done."
             await _flush(force=True)
 
         elif etype == "interrupted":
@@ -194,6 +194,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
         asyncio.set_event_loop(loop)
 
         from telegram.ext import Application, MessageHandler, filters
+        from telegram.error import Conflict as _Conflict
 
         app = Application.builder().token(token).build()
 
@@ -208,10 +209,19 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 except Exception:
                     pass
 
+        async def on_error(update, context):
+            """Handle errors silently — especially Conflict errors."""
+            if isinstance(context.error, _Conflict):
+                logger.warning("Telegram Conflict: another bot instance is running. Stopping this one.")
+                # Don't crash — just log and let polling retry handle it
+                return
+            logger.error(f"Telegram error: {context.error}", exc_info=context.error)
+
         app.add_handler(MessageHandler(
             (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND,
             on_message,
         ))
+        app.add_error_handler(on_error)
 
         try:
             app.run_polling(
@@ -219,6 +229,8 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 drop_pending_updates=True,
                 close_loop=False,
             )
+        except _Conflict:
+            logger.warning("Telegram bot stopped: another instance is already running.")
         except Exception as e:
             logger.error(f"Telegram bot crashed: {e}", exc_info=True)
         finally:

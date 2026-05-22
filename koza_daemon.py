@@ -86,9 +86,9 @@ class ClientSession:
 
     _SUMMARIZE_THRESHOLD = 100_000  # chars/4 ≈ tokens; trigger compress at ~100K
     _SUMMARIZE_PROMPT = (
-        "Lütfen şimdiye kadarki tüm konuşmamızı kısa ve eksiksiz özetle. "
-        "Önemli kararlar, yazılan kodlar, değiştirilen dosyalar ve mevcut çalışma "
-        "durumunu dahil et. Sadece özet metnini yaz, başka hiçbir şey ekleme."
+        "Please summarize our entire conversation so far, concisely and completely. "
+        "Include important decisions, code written, files modified, and current working "
+        "state. Write only the summary text, nothing else."
     )
 
     def __init__(self, conn: socket.socket, addr,
@@ -264,7 +264,7 @@ class ClientSession:
             return
         self._send({
             "type": "text",
-            "token": f"\n\n⚡ Bağlam sıkıştırılıyor ({tokens // 1000}K token)…\n",
+            "token": f"\n\n⚡ Compressing context ({tokens // 1000}K tokens)…\n",
         })
         try:
             parts = []
@@ -281,10 +281,10 @@ class ClientSession:
             sys_msg,
             {
                 "role": "assistant",
-                "content": f"[Önceki konuşma özeti — {tokens // 1000}K token sıkıştırıldı]\n\n{summary}",
+                "content": f"[Previous conversation summary — {tokens // 1000}K tokens compressed]\n\n{summary}",
             },
         ]
-        self._send({"type": "text", "token": "✓ Bağlam sıkıştırıldı.\n"})
+        self._send({"type": "text", "token": "✓ Context compressed.\n"})
 
 
 # ── Daemon server ─────────────────────────────────────────────────────────────
@@ -518,6 +518,19 @@ def start_services_background(cfg: dict = None) -> bool:
 
 def main():
     KOZA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Set process title for Task Manager visibility
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleTitleW("Koza - Services")
+        except Exception:
+            pass
+    try:
+        import setproctitle
+        setproctitle.setproctitle("koza-services")
+    except ImportError:
+        pass
 
     # Redirect stdout/stderr to log file for background mode
     if "--services-only" in sys.argv or "--daemon" in sys.argv:

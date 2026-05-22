@@ -2,6 +2,19 @@
 """Koza Agent — Entry point."""
 import sys
 
+# Set process title so Task Manager shows "Koza" instead of "python"
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW("Koza Agent")
+    except Exception:
+        pass
+try:
+    import setproctitle
+    setproctitle.setproctitle("koza")
+except ImportError:
+    pass
+
 from cli.setup import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER  # noqa: F401
 from cli.daemon import cmd_start, cmd_status, cmd_quit
 from cli.setup import cmd_setup, cmd_provider
@@ -27,7 +40,7 @@ _COMMANDS = {
     "-v":        cmd_version,
     "update":    cmd_update,
     "uninstall": cmd_uninstall,
-    "clean":     cmd_clean,
+    "reset":     cmd_clean,
     "sync":      cmd_sync,
     "voice":     cmd_voice,
     "coding":    cmd_coding,

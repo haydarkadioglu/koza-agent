@@ -150,6 +150,8 @@ def _clean_empty(root) -> tuple[int, int]:
 def cmd_clean(args: list) -> None:
     """Reset Koza to factory state — removes config, database, and daemon files."""
     import shutil
+    import time
+    import os
     from pathlib import Path
     from koza_daemon import get_daemon_port, PID_FILE, PORT_FILE, _cleanup
 
@@ -160,7 +162,7 @@ def cmd_clean(args: list) -> None:
     print(_C("    • ~/.Koza/koza.db             (tasks, memory, cron jobs)", "grey"))
     print(_C("    • ~/.Koza/daemon.*            (daemon PID / port files)", "grey"))
     print(_C("    • ~/.Koza/workspace/**        (empty files & empty folders)\n", "grey"))
-    print(_C("  The daemon will be stopped if running.\n", "grey"))
+    print(_C("  All Koza services will be stopped.\n", "grey"))
 
     try:
         answer = input(_C("  Type 'reset' to confirm: ", "red")).strip().lower()
@@ -172,26 +174,52 @@ def cmd_clean(args: list) -> None:
         print(_C("  Cancelled.\n", "grey"))
         return
 
-    # Stop daemon and wait a moment for it to release file handles
+    # Stop ALL koza services (same logic as cmd_quit)
+    current_pid = os.getpid()
+
+    # Kill registered daemon
     port = get_daemon_port()
     if port is not None:
         try:
             pid = int(PID_FILE.read_text().strip())
-            if sys.platform == "win32":
-                import ctypes
-                ctypes.windll.kernel32.TerminateProcess(
-                    ctypes.windll.kernel32.OpenProcess(1, False, pid), 1
-                )
-            else:
-                import signal as _sig
-                import os as _os
-                _os.kill(pid, _sig.SIGTERM)
-            print(_C("  ✓  Daemon stopped.", "green"))
+            if pid != current_pid:
+                if sys.platform == "win32":
+                    os.system(f"taskkill /F /PID {pid} >nul 2>&1")
+                else:
+                    import signal as _sig
+                    os.kill(pid, _sig.SIGTERM)
+                print(_C("  ✓  Daemon stopped.", "green"))
         except Exception:
             pass
         _cleanup()
-        import time
-        time.sleep(1)  # allow OS to release file handles before deletion
+
+    # Kill all remaining koza processes
+    try:
+        import psutil
+        koza_keywords = ["koza_daemon", "koza_run", "services-only",
+                         "telegram", ".koza-agent"]
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                pid = proc.info["pid"]
+                if pid == current_pid:
+                    continue
+                name = (proc.info["name"] or "").lower()
+                cmdline = " ".join(proc.info["cmdline"] or []).lower()
+                if "python" not in name and "koza" not in name:
+                    continue
+                if not any(kw in cmdline for kw in koza_keywords):
+                    continue
+                proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        print(_C("  ✓  All Koza services stopped.", "green"))
+    except ImportError:
+        # Fallback without psutil
+        if sys.platform == "win32":
+            os.system('taskkill /F /FI "WINDOWTITLE eq Koza*" >nul 2>&1')
+        pass
+
+    time.sleep(1)  # allow OS to release file handles
 
     # Remove files
     koza_dir = Path.home() / ".Koza"

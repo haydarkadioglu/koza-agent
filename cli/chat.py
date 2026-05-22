@@ -45,12 +45,16 @@ def _plain_cli(agent, cfg: dict) -> None:
 
     def _start_background_services():
         """Start Telegram bot, cron scheduler, and sync in background threads."""
-        # Telegram bot
+        # Telegram bot — only start if no daemon is already running
+        # (prevents "Conflict: terminated by other getUpdates request" error)
+        from koza_daemon import get_daemon_port
+        daemon_running = get_daemon_port() is not None
+
         token = (
             cfg.get("telegram_token", "").strip()
             or cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
         )
-        if token:
+        if token and not daemon_running:
             try:
                 from bots.telegram import start_bot_thread
 
@@ -63,6 +67,9 @@ def _plain_cli(agent, cfg: dict) -> None:
                     _active_services.append("telegram")
             except Exception:
                 pass
+        elif token and daemon_running:
+            # Daemon already handles Telegram — don't start a second instance
+            _active_services.append("telegram (daemon)")
 
         # Cron scheduler (APScheduler)
         try:
