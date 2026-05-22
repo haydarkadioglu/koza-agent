@@ -34,9 +34,10 @@ def cmd_status(args: list) -> None:
     """Show whether background services are running."""
     from koza_daemon import get_daemon_port, PID_FILE
     port = get_daemon_port()
-    if port:
+    if port is not None:
         pid = PID_FILE.read_text().strip()
-        print(_C(f"\n  ✓  Koza background services running  (PID {pid})\n", "green"))
+        mode = "services-only" if port == 0 else f"port {port}"
+        print(_C(f"\n  ✓  Koza background services running  (PID {pid}, {mode})\n", "green"))
     else:
         print(_C("\n  ✗  No background services running.\n", "grey"))
 
@@ -45,7 +46,7 @@ def cmd_quit(args: list) -> None:
     """Stop background services (mini-daemon)."""
     from koza_daemon import get_daemon_port
     port = get_daemon_port()
-    if not port:
+    if port is None:
         print(_C("\n  No background services running.\n", "grey"))
         return
     try:

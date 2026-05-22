@@ -58,7 +58,7 @@ def cmd_uninstall(args: list) -> None:
     # Stop daemon before deleting files
     try:
         from koza_daemon import get_daemon_port, PID_FILE, _cleanup
-        if get_daemon_port():
+        if get_daemon_port() is not None:
             pid = int(PID_FILE.read_text().strip())
             if IS_WIN:
                 import ctypes

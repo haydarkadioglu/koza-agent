@@ -174,7 +174,7 @@ def cmd_clean(args: list) -> None:
 
     # Stop daemon and wait a moment for it to release file handles
     port = get_daemon_port()
-    if port:
+    if port is not None:
         try:
             pid = int(PID_FILE.read_text().strip())
             if sys.platform == "win32":

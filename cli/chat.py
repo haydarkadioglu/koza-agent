@@ -26,6 +26,8 @@ except ImportError:
 def _plain_cli(agent, cfg: dict) -> None:
     _print_banner(cfg)
 
+    import atexit
+
     session_start = time.time()
     total_tokens  = 0
 
@@ -70,6 +72,28 @@ def _plain_cli(agent, cfg: dict) -> None:
             pass
 
     _start_background_services()
+
+    # Register atexit hook — ensures background services survive terminal close
+    def _atexit_spawn_services():
+        if _active_services:
+            try:
+                from koza_daemon import start_services_background
+                start_services_background(cfg)
+            except Exception:
+                pass
+
+    atexit.register(_atexit_spawn_services)
+
+    # Windows: catch console close event (X button, logoff, shutdown)
+    if sys.platform == "win32":
+        try:
+            import signal as _sig
+            def _win_break_handler(signum, frame):
+                _atexit_spawn_services()
+                sys.exit(0)
+            _sig.signal(_sig.SIGBREAK, _win_break_handler)
+        except (OSError, ValueError, AttributeError):
+            pass
 
     # ── Shared processing state ───────────────────────────────────────────────
     _processing     = threading.Event()   # set while agent is running
@@ -504,7 +528,17 @@ def _plain_cli(agent, cfg: dict) -> None:
         )
         layout._app = app
         layout.set_status(renderer._format_status(_C("● Idle", "green")))
-        app.run()
+        try:
+            app.run()
+        finally:
+            # Ensure background services persist after ANY exit
+            # (terminal close, Ctrl+C while idle, app crash, etc.)
+            if _active_services:
+                try:
+                    from koza_daemon import start_services_background
+                    start_services_background(cfg)
+                except Exception:
+                    pass
         return
 
     # ── Fallback: simple blocking loop (no prompt_toolkit) ────────────────────
@@ -522,6 +556,15 @@ def _plain_cli(agent, cfg: dict) -> None:
             _hr()
             print(_C("\n  Goodbye! 👋\n", "yellow"))
             _hr()
+            # Spawn background services before exiting
+            if _active_services:
+                try:
+                    from koza_daemon import start_services_background
+                    start_services_background(cfg)
+                    print(_C(f"  Background services running: {', '.join(_active_services)}", "grey"))
+                    print(_C("  Stop with: koza quit\n", "grey"))
+                except Exception:
+                    pass
             break
 
         if not user_input:

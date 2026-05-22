@@ -454,6 +454,12 @@ def start_as_background(python_exe: str = None) -> bool:
     Returns True when the process is confirmed running (PID file written).
     """
     import subprocess
+
+    # If daemon is already running, no need to start another
+    if get_daemon_port() is not None:
+        _log("start_as_background: daemon already running, skipping.")
+        return True
+
     if python_exe is None:
         python_exe = sys.executable
 
