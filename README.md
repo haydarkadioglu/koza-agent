@@ -15,37 +15,30 @@
 
 ## Quick Install
 
+### Windows — one-liner (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex
+```
+
 ### Linux / macOS — one-liner
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.sh | bash
 ```
 
-The script will:
-- Clone the repo to `~/.koza-agent/`
-- Create a virtual environment automatically
-- Install all dependencies
-- Add the `koza` command to your PATH (`/usr/local/bin` or `~/.local/bin`)
-- On re-run: updates the existing install (`git pull`)
+Her iki script de:
+- Repo'yu `~/.koza-agent/` altına klonlar
+- Otomatik virtualenv oluşturur
+- Tüm bağımlılıkları kurar
+- `koza` komutunu PATH'e ekler
+- Tekrar çalıştırılırsa mevcut kurulumu günceller (`git pull`)
 
-> **Requirements:** Python 3.11+, git  
+> **Gereksinimler:** Python 3.11+, git  
+> Windows: [python.org](https://python.org/downloads) + [git-scm.com](https://git-scm.com/downloads)  
 > macOS: `brew install python@3.12 git` · Debian/Ubuntu: `sudo apt install python3.12 git`
 
-### Manual (all platforms)
 
-```bash
-# Clone and install (creates the `koza` command globally)
-git clone https://github.com/haydarkadioglu/koza-agent.git
-cd koza-agent
-pip install -e .
-
-# Launch — setup wizard runs on first start
-koza
-```
-
-> **Note:** Python 3.11+ required. Using a `venv` is recommended.
-
----
 
 ## Features
 
