@@ -19,7 +19,7 @@ _agents_lock = threading.Lock()
 def _get_or_create_agent(chat_id: int, agent_factory: Callable):
     with _agents_lock:
         if chat_id not in _agents:
-            agent = agent_factory()
+            agent = agent_factory(channel="telegram")
             agent.permission_callback = None  # auto-allow in Telegram
             _agents[chat_id] = agent
         return _agents[chat_id]

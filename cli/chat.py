@@ -53,10 +53,10 @@ def _plain_cli(agent, cfg: dict) -> None:
             try:
                 from bots.telegram import start_bot_thread
 
-                def _agent_factory():
+                def _agent_factory(channel: str = ""):
                     from providers.factory import get_provider
                     from core import Agent
-                    return Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
+                    return Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg, channel=channel)
 
                 if start_bot_thread(_agent_factory, cfg):
                     _active_services.append("telegram")

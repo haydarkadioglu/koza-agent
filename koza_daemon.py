@@ -294,12 +294,12 @@ class DaemonServer:
         self.cfg = cfg
         self._shutdown = threading.Event()
 
-    def _make_agent(self):
+    def _make_agent(self, channel: str = ""):
         from config import load_config
         from providers.factory import get_provider
         from core import Agent
         cfg = load_config()
-        return Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
+        return Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg, channel=channel)
 
     def _start_services(self):
         """Start Telegram bot and multi-host sync services."""

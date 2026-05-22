@@ -154,10 +154,14 @@ def _select_tools(user_input: str) -> list[dict]:
 
 class Agent:
     def __init__(self, provider: LLMProvider, db_path: str, cfg: dict = None,
-                 on_token: Callable[[str], None] | None = None):
+                 on_token: Callable[[str], None] | None = None,
+                 channel: str = ""):
         self.provider = provider
         self.on_token = on_token
-        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt()}]
+        self.channel = channel
+        self.cfg = cfg or {}
+        self.db_path = db_path
+        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt(channel=channel)}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop

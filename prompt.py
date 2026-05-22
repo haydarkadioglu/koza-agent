@@ -112,7 +112,7 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
 }
 
 
-def build_system_prompt(user_input: str = "", extra_context: str = "") -> str:
+def build_system_prompt(user_input: str = "", extra_context: str = "", channel: str = "") -> str:
     """
     Build the system prompt by combining CORE_PROMPT with only the sections
     relevant to the user's message. Falls back to all sections if input is empty.
@@ -120,6 +120,7 @@ def build_system_prompt(user_input: str = "", extra_context: str = "") -> str:
     Args:
         user_input:     The user's latest message (used for keyword matching).
         extra_context:  Working memory / cwd context injected by the agent.
+        channel:        Channel identifier ("telegram", "discord", "whatsapp", "cli").
     """
     lower = user_input.lower()
     matched: set[str] = set()
@@ -135,6 +136,10 @@ def build_system_prompt(user_input: str = "", extra_context: str = "") -> str:
     sections = "".join(PROMPT_SECTIONS[s] for s in matched if s in PROMPT_SECTIONS)
     base = CORE_PROMPT + sections
 
+    # Inject channel-specific context
+    if channel and channel in CHANNEL_PROMPTS:
+        base += CHANNEL_PROMPTS[channel]
+
     if extra_context:
         base = base + "\n\n" + extra_context
 
@@ -143,4 +148,47 @@ def build_system_prompt(user_input: str = "", extra_context: str = "") -> str:
 
 # Legacy alias — kept so anything importing SYSTEM_PROMPT still works
 SYSTEM_PROMPT = CORE_PROMPT
+
+
+# ── Channel-specific context prompts ─────────────────────────────────────────
+# Injected into the system prompt when the agent is created for a specific channel.
+
+CHANNEL_PROMPTS: dict[str, str] = {
+    "telegram": """
+## Channel: Telegram
+- Bu konuşma **Telegram** üzerinden gerçekleşiyor.
+- Kullanıcı mobil cihazdan yazıyor olabilir — kısa ve öz yanıtlar ver.
+- Markdown formatı sınırlı: sadece *bold*, _italic_, `code`, ```code block``` destekleniyor.
+- Uzun kod blokları yerine özet ver, gerekirse dosyaya yaz ve linkini paylaş.
+- Fotoğraf gönderilirse analiz et.
+- Yanıtlar 4096 karakter limitine dikkat et — gerekirse böl.
+- Emoji kullanımı doğal ve uygun.
+""",
+
+    "discord": """
+## Channel: Discord
+- Bu konuşma **Discord** üzerinden gerçekleşiyor.
+- Discord markdown destekliyor: **bold**, *italic*, `code`, ```code block```, > quote.
+- Mesaj limiti 2000 karakter — uzun yanıtları böl.
+- Embed formatı kullanılabilir.
+- Kullanıcı sunucu ortamında olabilir — bağlama uygun yanıt ver.
+""",
+
+    "whatsapp": """
+## Channel: WhatsApp
+- Bu konuşma **WhatsApp** üzerinden gerçekleşiyor.
+- Çok sınırlı formatlama: *bold*, _italic_, ~strikethrough~, ```monospace```.
+- Mesajlar kısa ve mobil-dostu olmalı.
+- Kod blokları yerine açıklama tercih et.
+- Emoji doğal kullanılabilir.
+""",
+
+    "cli": """
+## Channel: Terminal CLI
+- Kullanıcı doğrudan terminal üzerinden konuşuyor.
+- Tam ANSI renk ve unicode desteği var.
+- Kod blokları, uzun çıktılar, dosya işlemleri serbestçe yapılabilir.
+- Kullanıcı geliştirici — teknik detay verilebilir.
+""",
+}
 
