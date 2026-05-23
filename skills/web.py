@@ -65,16 +65,54 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 
 def fetch_url(url: str, max_chars: int = 4000) -> str:
+    """Fetch URL content. Falls back to headless browser for JS-rendered pages."""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        })
         with urllib.request.urlopen(req, timeout=15) as resp:
             content_type = resp.headers.get("Content-Type", "")
             raw = resp.read().decode("utf-8", errors="replace")
+
         if "html" in content_type:
-            raw = _strip_html(raw)
-        return raw[:max_chars] + ("..." if len(raw) > max_chars else "")
+            text = _strip_html(raw)
+            # If content is too short, likely a JS-rendered page (Next.js, React, etc.)
+            if len(text.strip()) < 200 and ("__next" in raw or "__NEXT_DATA__" in raw
+                                            or "react-root" in raw or "app-root" in raw
+                                            or "_nuxt" in raw):
+                rendered = _fetch_with_browser(url, max_chars)
+                if rendered:
+                    return rendered
+            return text[:max_chars] + ("..." if len(text) > max_chars else "")
+        else:
+            return raw[:max_chars] + ("..." if len(raw) > max_chars else "")
     except Exception as e:
         return f"ERROR: {e}"
+
+
+def _fetch_with_browser(url: str, max_chars: int = 4000) -> str:
+    """Use Playwright headless browser to render JS and extract text content."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return ""  # Playwright not installed — fall back silently
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, timeout=20000, wait_until="networkidle")
+            # Wait a bit for dynamic content to load
+            page.wait_for_timeout(1500)
+            # Extract visible text content
+            text = page.inner_text("body")
+            browser.close()
+
+        # Clean up whitespace
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text[:max_chars] + ("..." if len(text) > max_chars else "")
+    except Exception as e:
+        return f"(browser render failed: {e})"
 
 
 HANDLERS = {"web_search": web_search, "fetch_url": fetch_url}

@@ -59,6 +59,11 @@ async def _process_message(update, context, agent_factory: Callable):
 
     if agent._busy:
         agent.interrupt()
+        # Wait for the previous stream to finish (max 5s)
+        for _ in range(50):
+            if not agent._busy:
+                break
+            await asyncio.sleep(0.1)
         await context.bot.send_message(chat_id=chat_id, text="⏸ Previous task interrupted.")
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
@@ -196,7 +201,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
         from telegram.ext import Application, MessageHandler, filters
         from telegram.error import Conflict as _Conflict
 
-        app = Application.builder().token(token).build()
+        app = Application.builder().token(token).concurrent_updates(True).build()
 
         async def on_message(update, context):
             try:
