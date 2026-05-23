@@ -19,14 +19,46 @@ def get_scheduler() -> BackgroundScheduler:
 
 
 def run_job(command: str, job_name: str) -> None:
+    """Execute a cron job. If command starts with '@agent:', run it through an Agent instance."""
     print(f"\n[CRON] Running job '{job_name}': {command}")
     try:
-        if platform.system() == "Windows":
-            subprocess.run(["pwsh", "-NoProfile", "-Command", command], timeout=300)
+        if command.startswith("@agent:"):
+            # Agent instruction — create a temporary agent and run the task
+            _run_agent_job(command[7:].strip(), job_name)
         else:
-            subprocess.run(["bash", "-c", command], timeout=300)
+            # Shell command
+            if platform.system() == "Windows":
+                subprocess.run(["pwsh", "-NoProfile", "-Command", command], timeout=300)
+            else:
+                subprocess.run(["bash", "-c", command], timeout=300)
     except Exception as e:
         print(f"[CRON] Job '{job_name}' failed: {e}")
+
+
+def _run_agent_job(instruction: str, job_name: str) -> None:
+    """Run an agent instruction as a cron job — executes tools and sends results."""
+    try:
+        from config import load_config
+        from providers.factory import get_provider
+        from core import Agent
+
+        cfg = load_config()
+        agent = Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
+        agent.permission_callback = lambda name, args: True  # auto-allow in cron
+
+        # Run the agent and collect the response
+        response_parts = []
+        for event in agent.stream_chat(instruction):
+            if isinstance(event, dict) and event.get("type") == "text":
+                response_parts.append(event.get("token", ""))
+
+        response = "".join(response_parts).strip()
+        if response:
+            print(f"[CRON] Job '{job_name}' completed: {response[:200]}")
+        else:
+            print(f"[CRON] Job '{job_name}' completed (no text output)")
+    except Exception as e:
+        print(f"[CRON] Agent job '{job_name}' failed: {e}")
 
 
 # ── OS sync helpers ───────────────────────────────────────────────────────────

@@ -67,6 +67,7 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "task": ["kanban"], "kanban": ["kanban"], "todo": ["kanban"], "doing": ["kanban"],
     # cron / schedule
     "schedule": ["cron"], "cron": ["cron"], "every day": ["cron"], "recurring": ["cron"],
+    "remind": ["cron"], "alarm": ["cron"],
     # memory
     "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
     "session": ["memory"],
