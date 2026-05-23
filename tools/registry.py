@@ -7,7 +7,7 @@ from skills import (
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
-    config_manager, image_gen, sync,
+    config_manager, image_gen, sync, reminder,
 )
 from skills.agents.background_tools import BACKGROUND_TOOLS, BACKGROUND_HANDLERS
 
@@ -57,6 +57,7 @@ ALL_TOOLS: list[dict] = _normalize(
     + config_manager.TOOL_DEFINITIONS
     + image_gen.TOOL_DEFINITIONS
     + sync.TOOL_DEFINITIONS
+    + reminder.TOOL_DEFINITIONS
     + BACKGROUND_TOOLS
 )
 
@@ -92,5 +93,6 @@ ALL_HANDLERS: dict[str, Callable] = {
     **config_manager.HANDLERS,
     **image_gen.HANDLERS,
     **sync.HANDLERS,
+    **reminder.HANDLERS,
     **BACKGROUND_HANDLERS,
 }

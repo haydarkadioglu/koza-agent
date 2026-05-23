@@ -69,16 +69,66 @@ _agents: Dict[int, object] = {}
 _agents_lock = threading.Lock()
 
 
-def _get_or_create_agent(chat_id: int, agent_factory: Callable):
+def _make_permission_callback(chat_id: int, bot, loop, kb_manager):
+    """Create a permission callback that uses inline buttons for tool confirmation.
+
+    The returned closure sends an inline keyboard message and blocks the agent
+    thread until the user approves/rejects or a 5-minute timeout fires.
+    """
+
+    def permission_callback(tool_name: str, tool_args: dict) -> bool:
+        """Block until user approves/rejects via inline button (or timeout)."""
+        conf_id, text, keyboard, future = kb_manager.build_tool_confirmation_kb(
+            tool_name, tool_args, loop
+        )
+
+        # Send confirmation message from the agent's worker thread
+        send_coro = bot.send_message(
+            chat_id=chat_id, text=text, reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        msg_future = asyncio.run_coroutine_threadsafe(send_coro, loop)
+        try:
+            sent_msg = msg_future.result(timeout=10)
+        except Exception:
+            # If we can't send the message, default to reject
+            return False
+
+        # Store message_id for later editing
+        with kb_manager._lock:
+            if conf_id in kb_manager._pending:
+                kb_manager._pending[conf_id].message_id = sent_msg.message_id
+                kb_manager._pending[conf_id].chat_id = chat_id
+
+        # Schedule 5-minute async timeout that resolves as rejected
+        async def _timeout():
+            await asyncio.sleep(300)  # 5 minutes
+            kb_manager.timeout_confirmation(conf_id)
+
+        asyncio.run_coroutine_threadsafe(_timeout(), loop)
+
+        # Wait for resolution (blocks the agent thread)
+        try:
+            result = future.result(timeout=310)  # slightly longer than async timeout
+        except Exception:
+            result = False
+
+        return result
+
+    return permission_callback
+
+
+def _get_or_create_agent(chat_id: int, agent_factory: Callable, permission_cb=None):
     with _agents_lock:
         if chat_id not in _agents:
             agent = agent_factory(channel="telegram")
-            agent.permission_callback = None  # auto-allow in Telegram
+            agent.permission_callback = permission_cb
             _agents[chat_id] = agent
         return _agents[chat_id]
 
 
-async def _process_message(update, context, agent_factory: Callable):
+async def _process_message(update, context, agent_factory: Callable,
+                           kb_manager=None, bot_loop=None):
     """Process one Telegram message: stream agent response back in real time."""
     import time as _time
     import queue as _queue
@@ -114,11 +164,23 @@ async def _process_message(update, context, agent_factory: Callable):
         db_path = cfg.get("db_path", "")
         task_id = BackgroundTaskManager.create_task(user_text, cfg, db_path)
         confirmation = f"🚀 Background task started: `{task_id}`\nGoal: {user_text}"
-        await context.bot.send_message(chat_id=chat_id, text=confirmation)
+        # Attach inline keyboard with Status/Cancel buttons
+        reply_markup = None
+        if kb_manager:
+            reply_markup = kb_manager.build_task_control_kb(task_id)
+        await context.bot.send_message(
+            chat_id=chat_id, text=confirmation, reply_markup=reply_markup
+        )
         _register_completion_watcher(task_id, chat_id, context.bot)
         return
 
-    agent = _get_or_create_agent(chat_id, agent_factory)
+    # ── Create agent with permission callback wired to inline buttons ────────
+    permission_cb = None
+    if kb_manager and bot_loop:
+        permission_cb = _make_permission_callback(
+            chat_id, context.bot, bot_loop, kb_manager
+        )
+    agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
 
     if agent._busy:
         agent.interrupt()
@@ -264,14 +326,119 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        from telegram.ext import Application, MessageHandler, filters
+        from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters
         from telegram.error import Conflict as _Conflict
+        from bots.telegram_keyboards import InlineKeyboardManager
+        from bots.telegram_notifier import ProactiveNotifier
 
         app = Application.builder().token(token).concurrent_updates(True).build()
 
+        # ── Inline keyboard manager instance ─────────────────────────────────
+        _kb_manager = InlineKeyboardManager()
+
+        # ── ProactiveNotifier initialization via post_init hook ───────────────
+        chat_id = cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
+        notifier = ProactiveNotifier.get_instance()
+
+        async def _post_init(application):
+            """Initialize ProactiveNotifier once the bot and loop are ready."""
+            notifier.initialize(application.bot, loop, chat_id)
+            notifier.schedule_daily_summary()
+
+        app.post_init = _post_init
+
+        # ── Callback query handler for inline buttons ────────────────────────
+        async def on_callback_query(update, context):
+            """Route inline button presses to the appropriate handler."""
+            query = update.callback_query
+            await query.answer()  # Acknowledge the callback
+
+            data = query.data  # e.g. "tool:a1b2c3d4:approve"
+            if not data:
+                return
+
+            parts = data.split(":", 2)
+            if len(parts) != 3:
+                return
+
+            action_type, identifier, payload = parts
+
+            if action_type == "tool":
+                await _handle_tool_callback(query, identifier, payload, _kb_manager)
+            elif action_type == "task":
+                await _handle_task_callback(query, identifier, payload)
+
+        async def _handle_tool_callback(query, conf_id: str, action: str, kb_manager):
+            """Handle tool approve/reject button press."""
+            approved = action == "approve"
+            pending = kb_manager.resolve_confirmation(conf_id, approved)
+
+            if pending is None:
+                await query.edit_message_text("⏰ This confirmation has expired.")
+                return
+
+            if approved:
+                await query.edit_message_text(
+                    f"✅ Approved: `{pending.tool_name}`", parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text(
+                    f"❌ Rejected: `{pending.tool_name}`", parse_mode="Markdown"
+                )
+
+        async def _handle_task_callback(query, task_id: str, action: str):
+            """Handle background task status/cancel button press."""
+            status = BackgroundTaskManager.get_status(task_id)
+
+            # Task not found — handle for both actions
+            if not status:
+                await query.edit_message_reply_markup(reply_markup=None)
+                await query.message.reply_text(
+                    f"⚠️ Task `{task_id}` not found.", parse_mode="Markdown"
+                )
+                return
+
+            # If task is in terminal state, remove keyboard and inform user
+            if status["status"] in ("done", "error", "cancelled"):
+                await query.edit_message_reply_markup(reply_markup=None)
+                await query.message.reply_text(
+                    f"Task `{task_id}` is already {status['status']}.",
+                    parse_mode="Markdown",
+                )
+                return
+
+            if action == "status":
+                elapsed = status.get("elapsed_seconds", 0)
+                persona = status.get("current_persona") or "initializing"
+                completed = status.get("completed_subtasks", 0)
+                total = status.get("total_subtasks", 0)
+                text = (
+                    f"📊 **Task {task_id}**\n"
+                    f"⏱ Elapsed: {elapsed:.0f}s\n"
+                    f"🎭 Current: {persona}\n"
+                    f"📋 Progress: {completed}/{total} subtasks"
+                )
+                await query.message.reply_text(text, parse_mode="Markdown")
+
+            elif action == "cancel":
+                success = BackgroundTaskManager.cancel_task(task_id)
+                if success:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                    await query.edit_message_text(
+                        f"🛑 Task `{task_id}` cancelled.", parse_mode="Markdown"
+                    )
+                else:
+                    await query.message.reply_text(
+                        f"⚠️ Cannot cancel task `{task_id}` — not in a running state.",
+                        parse_mode="Markdown",
+                    )
+
         async def on_message(update, context):
             try:
-                await _process_message(update, context, agent_factory)
+                await _process_message(
+                    update, context, agent_factory,
+                    kb_manager=_kb_manager, bot_loop=loop,
+                )
             except Exception as e:
                 logger.error(f"Telegram handler error: {e}", exc_info=True)
                 try:
@@ -292,11 +459,12 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND,
             on_message,
         ))
+        app.add_handler(CallbackQueryHandler(on_callback_query))
         app.add_error_handler(on_error)
 
         try:
             app.run_polling(
-                allowed_updates=["message", "edited_message"],
+                allowed_updates=["message", "edited_message", "callback_query"],
                 drop_pending_updates=True,
                 close_loop=False,
             )

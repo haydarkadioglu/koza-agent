@@ -5,6 +5,7 @@ Each version has its own file in the [`changelog/`](changelog/) folder.
 
 | Version | Summary |
 |---------|---------|
+| [v1.4.1](changelog/v1.4.1.md) | Telegram Inline Keyboard & Proactive Notifications — inline butonlar, günlük özet, cron bildirimleri, hatırlatıcılar |
 | [v1.4.0](changelog/v1.4.0.md) | Background Agent Delegation — arka plan coding görevleri, Telegram otomatik delegasyon |
 | [v1.3.42](changelog/v1.3.42.md) | Groq/OpenRouter providers, API key validation, Windows installer, channel prompts |
 | [v1.3.4](changelog/v1.3.4.md) | Non-blocking prompt UI polish, status bar spinner, coding mode integration |

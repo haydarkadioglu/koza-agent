@@ -1,4 +1,5 @@
 """Cron scheduler — APScheduler + OS native sync (crontab / schtasks)."""
+import logging
 import os
 import platform
 import subprocess
@@ -6,6 +7,8 @@ import tempfile
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+logger = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -19,7 +22,7 @@ def get_scheduler() -> BackgroundScheduler:
 
 
 def run_job(command: str, job_name: str) -> None:
-    """Execute a cron job. If command starts with '@agent:', run it through an Agent instance."""
+    """Execute a cron job and notify on completion."""
     print(f"\n[CRON] Running job '{job_name}': {command}")
     try:
         if command.startswith("@agent:"):
@@ -31,8 +34,23 @@ def run_job(command: str, job_name: str) -> None:
                 subprocess.run(["pwsh", "-NoProfile", "-Command", command], timeout=300)
             else:
                 subprocess.run(["bash", "-c", command], timeout=300)
+
+        # Notify success
+        _notify_completion(job_name, success=True)
+
     except Exception as e:
         print(f"[CRON] Job '{job_name}' failed: {e}")
+        _notify_completion(job_name, success=False, error=str(e))
+
+
+def _notify_completion(job_name: str, success: bool, error: str = None) -> None:
+    """Send cron completion notification via ProactiveNotifier."""
+    try:
+        from bots.telegram_notifier import ProactiveNotifier
+        notifier = ProactiveNotifier.get_instance()
+        notifier.notify_cron_completion(job_name, success, error)
+    except Exception as e:
+        logger.warning(f"Cron notification failed: {e}")
 
 
 def _run_agent_job(instruction: str, job_name: str) -> None:
