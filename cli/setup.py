@@ -124,18 +124,56 @@ def _setup_primary_provider(cfg: dict) -> None:
         session_ok = _check_playwright_session()
         if session_ok:
             print(_C("  ✓  Gemini browser session found.\n", "green"))
+            try:
+                cookie_action = _select_menu(
+                    "Browser session exists",
+                    ["Keep current session",
+                     "Re-login (open browser again)",
+                     "Enter cookies manually (paste __Secure-1PSID)"],
+                    default_idx=0,
+                )
+            except (KeyboardInterrupt, EOFError):
+                cookie_action = "Keep"
+            if "Re-login" in cookie_action:
+                _playwright_gemini_login()
+            elif "manually" in cookie_action:
+                print(_C("\n  Get cookies from browser DevTools → Application → Cookies → .google.com\n", "grey"))
+                psid = _prompt_secret("__Secure-1PSID")
+                psidts = _prompt("__Secure-1PSIDTS (optional, Enter to skip)", default="")
+                if psid:
+                    cfg.setdefault("providers", {}).setdefault("gemini", {})["cookie_1psid"] = psid
+                    if psidts:
+                        cfg["providers"]["gemini"]["cookie_1psidts"] = psidts
+                    cfg["providers"]["gemini"]["auth"] = "cookie"
+                    print(_C("  ✓  Gemini cookies updated.\n", "green"))
+                else:
+                    print(_C("  ⚠  No cookie entered.\n", "yellow"))
         else:
             print(_C("  ℹ  No Gemini browser session found.\n", "grey"))
             try:
                 do_login = _select_menu(
-                    "Set up Gemini browser session now?",
-                    ["Yes — open browser to log in", "Skip — set up later via koza setup"],
+                    "Set up Gemini cookie auth",
+                    ["Browser login (Playwright — automatic)",
+                     "Enter cookies manually (paste __Secure-1PSID)",
+                     "Skip — set up later"],
                     default_idx=0,
                 )
             except (KeyboardInterrupt, EOFError):
                 do_login = "Skip"
-            if "Yes" in do_login:
+            if "Browser" in do_login:
                 _playwright_gemini_login()
+            elif "manually" in do_login:
+                print(_C("\n  Get cookies from browser DevTools → Application → Cookies → .google.com\n", "grey"))
+                psid = _prompt_secret("__Secure-1PSID")
+                psidts = _prompt("__Secure-1PSIDTS (optional, Enter to skip)", default="")
+                if psid:
+                    cfg.setdefault("providers", {}).setdefault("gemini", {})["cookie_1psid"] = psid
+                    if psidts:
+                        cfg["providers"]["gemini"]["cookie_1psidts"] = psidts
+                    cfg["providers"]["gemini"]["auth"] = "cookie"
+                    print(_C("  ✓  Gemini cookies saved.\n", "green"))
+                else:
+                    print(_C("  ⚠  No cookie entered.\n", "yellow"))
     elif provider_choice in NEEDS_KEY:
         existing = cfg.get("providers", {}).get(provider, {}).get("api_key", "")
         if existing:

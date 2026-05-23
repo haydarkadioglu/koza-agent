@@ -419,11 +419,13 @@ def _plain_cli(agent, cfg: dict) -> None:
                 lines = []
                 lines.append(_C("\n  Commands", "bold"))
                 cmds = [
-                    ("/help",   "Show this help"),
-                    ("/kanban", "Show Kanban board & cron jobs"),
-                    ("/memory", "Show working memory"),
-                    ("/reset",  "Clear conversation history"),
-                    ("exit",    "Quit Koza"),
+                    ("/help",     "Show this help"),
+                    ("/provider", "Switch LLM provider"),
+                    ("/kanban",   "Show Kanban board & cron jobs"),
+                    ("/memory",   "Show working memory"),
+                    ("/reset",    "Clear conversation history"),
+                    ("/mode coding", "Activate coding mode"),
+                    ("exit",      "Quit Koza"),
                 ]
                 for cmd, desc in cmds:
                     lines.append(f"  {_C(cmd, 'cyan'):<28}  {desc}")
@@ -473,6 +475,35 @@ def _plain_cli(agent, cfg: dict) -> None:
                 else:
                     print(_C(f"  Unknown mode: {mode!r}. Available: coding, off\n", "red"))
                 return True
+        if user_input == "/provider":
+            from cli.setup import cmd_provider
+            cmd_provider([])
+            # Reload config and recreate agent with new provider
+            from config import load_config as _reload_cfg
+            new_cfg = _reload_cfg()
+            if new_cfg.get("provider"):
+                try:
+                    from providers.factory import get_provider
+                    new_provider = get_provider(new_cfg)
+                    agent.provider = new_provider
+                    agent.messages = [agent.messages[0]]  # keep system prompt, clear history
+                    nonlocal model_name, token_limit
+                    model_name = new_cfg.get("model") or new_cfg.get("provider", "")
+                    token_limit = _TOKEN_LIMITS.get(new_cfg.get("provider", ""), 32_000)
+                    if _ui_renderer[0]:
+                        _ui_renderer[0]._model_name = model_name
+                        _ui_renderer[0]._token_limit = token_limit
+                    layout = _ui_layout[0]
+                    if layout:
+                        layout.append_output(_C(f"  ✓  Provider switched to {model_name}\n", "green"))
+                    else:
+                        print(_C(f"  ✓  Provider switched to {model_name}\n", "green"))
+                except Exception as e:
+                    if _ui_layout[0]:
+                        _ui_layout[0].append_output(_C(f"  ✗  Failed: {e}\n", "red"))
+                    else:
+                        print(_C(f"  ✗  Failed: {e}\n", "red"))
+            return True
         return False
 
     # ── Main loop — prompt_toolkit Application (split-pane UI) ──────────────────

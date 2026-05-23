@@ -19,6 +19,16 @@ def cmd_start(args: list) -> None:
 
     cfg = load_config()
 
+    # If no provider configured, run setup
+    if not cfg.get("provider"):
+        print(_C("  No provider configured. Running setup…\n", "grey"))
+        from cli.setup import cmd_setup
+        cmd_setup([])
+        cfg = load_config()
+        if not cfg.get("provider"):
+            print(_C("  ✗  No provider set. Cannot start.\n", "red"))
+            return
+
     try:
         from providers.factory import get_provider
         from core import Agent
