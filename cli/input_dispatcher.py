@@ -17,10 +17,16 @@ class InputDispatcher:
     _CODING_KEYWORDS = [
         # Turkish
         "kod yaz", "proje oluştur", "uygulama geliştir", "bug fix", "refactor",
-        "kodla", "geliştir", "implementasyon", "dosya oluştur",
+        "kodla", "geliştir", "implementasyon", "dosya oluştur", "düzelt",
+        "ekle", "oluştur", "yap", "kur", "güncelle", "değiştir",
         # English
         "write code", "create project", "build app", "implement",
         "develop", "create file", "write a program", "code this",
+        "fix", "add", "build", "make", "create", "update", "modify",
+        "refactor", "write", "generate", "set up", "install",
+        # File extensions / patterns
+        ".py", ".js", ".ts", ".html", ".css", ".json", ".yaml", ".yml",
+        ".sh", ".bat", ".ps1", ".sql", ".md",
     ]
 
     def __init__(self, agent, layout: ChatLayout, renderer: StreamRenderer) -> None:

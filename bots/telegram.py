@@ -17,10 +17,20 @@ logger = logging.getLogger(__name__)
 _bot_cfg: dict | None = None
 
 # ── Coding keyword detection for automatic background delegation ─────────────
+# ── Coding keyword detection for automatic background delegation ─────────────
 _CODING_KEYWORDS = [
-    "write code", "build", "implement", "create a", "develop",
-    "fix the bug", "refactor", "add feature", "write a script",
-    "coding mode", "code this", "program", "make a",
+    # Turkish
+    "kod yaz", "proje oluştur", "uygulama geliştir", "bug fix", "refactor",
+    "kodla", "geliştir", "implementasyon", "dosya oluştur", "düzelt",
+    "ekle", "oluştur", "yap", "kur", "güncelle", "değiştir",
+    # English
+    "write code", "create project", "build app", "implement",
+    "develop", "create file", "write a program", "code this",
+    "fix", "add", "build", "make", "create", "update", "modify",
+    "refactor", "write", "generate", "set up", "install",
+    # File extensions / patterns
+    ".py", ".js", ".ts", ".html", ".css", ".json", ".yaml", ".yml",
+    ".sh", ".bat", ".ps1", ".sql",
 ]
 
 
@@ -69,15 +79,27 @@ _agents: Dict[int, object] = {}
 _agents_lock = threading.Lock()
 
 
+# Tools that require explicit user approval via inline buttons.
+# Everything else is auto-approved to avoid spamming the chat.
+_TOOLS_REQUIRING_APPROVAL = {
+    "delete_file", "delete_directory",
+    "send_email", "git_push", "deploy", "install_package",
+}
+
+
 def _make_permission_callback(chat_id: int, bot, loop, kb_manager):
     """Create a permission callback that uses inline buttons for tool confirmation.
 
-    The returned closure sends an inline keyboard message and blocks the agent
-    thread until the user approves/rejects or a 5-minute timeout fires.
+    Only tools in _TOOLS_REQUIRING_APPROVAL prompt the user. All other tools
+    are auto-approved to keep the chat clean.
     """
 
     def permission_callback(tool_name: str, tool_args: dict) -> bool:
         """Block until user approves/rejects via inline button (or timeout)."""
+        # Auto-approve safe tools — no inline button needed
+        if tool_name not in _TOOLS_REQUIRING_APPROVAL:
+            return True
+
         conf_id, text, keyboard, future = kb_manager.build_tool_confirmation_kb(
             tool_name, tool_args, loop
         )
