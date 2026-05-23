@@ -8,6 +8,7 @@ import uuid
 
 from ._registry import _subagents
 from .runner import _run_subagent_thread
+from .background import BackgroundTaskManager, _background_tasks
 
 
 def spawn_subagent(goal: str, provider: str = "", model: str = "",

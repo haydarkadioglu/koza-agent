@@ -49,6 +49,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "gaming":     ["minecraft_command", "pokemon_lookup"],
     "mcp":        ["mcp_list_tools", "mcp_call_tool"],
     "productivity": ["google_calendar_list", "google_calendar_create", "google_sheets_read", "airtable_query"],
+    "background": ["start_background_task", "get_background_status", "list_background_tasks", "cancel_background_task"],
 }
 
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -114,6 +115,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "minecraft": ["gaming"], "pokemon": ["gaming"],
     # productivity
     "calendar": ["productivity"], "sheets": ["productivity"], "airtable": ["productivity"],
+    # background
+    "background": ["background"], "background task": ["background"],
+    "coding task": ["background"], "in the background": ["background"],
 }
 
 def _tool_name(t: dict) -> str:

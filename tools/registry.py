@@ -9,6 +9,7 @@ from skills import (
     session_memory, messaging, shared_memory, working_memory,
     config_manager, image_gen, sync,
 )
+from skills.agents.background_tools import BACKGROUND_TOOLS, BACKGROUND_HANDLERS
 
 
 def _normalize(tools: list[dict]) -> list[dict]:
@@ -56,6 +57,7 @@ ALL_TOOLS: list[dict] = _normalize(
     + config_manager.TOOL_DEFINITIONS
     + image_gen.TOOL_DEFINITIONS
     + sync.TOOL_DEFINITIONS
+    + BACKGROUND_TOOLS
 )
 
 ALL_HANDLERS: dict[str, Callable] = {
@@ -90,4 +92,5 @@ ALL_HANDLERS: dict[str, Callable] = {
     **config_manager.HANDLERS,
     **image_gen.HANDLERS,
     **sync.HANDLERS,
+    **BACKGROUND_HANDLERS,
 }

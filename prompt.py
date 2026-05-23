@@ -107,6 +107,24 @@ Rules:
 - `docker_run` for container execution.
 - `webhook_listen` to expose a local endpoint.
 """,
+
+    "background": """
+## Background Tasks
+- Use `start_background_task` to delegate long-running coding tasks to a background thread.
+- The background task runs a full CodingSession autonomously while you continue chatting.
+- Use `get_background_status` to check progress of a specific task (by task_id).
+- Use `list_background_tasks` to see all background tasks and their current status.
+- Use `cancel_background_task` to stop a running background task.
+
+When to delegate:
+- The user asks for a coding task that will take multiple steps (build, implement, refactor).
+- The user explicitly says "in the background" or "while I do other things".
+- The task involves writing or modifying multiple files.
+
+When NOT to delegate:
+- Simple questions, quick lookups, or single-command operations.
+- The user wants to interactively guide the coding process step by step.
+""",
 }
 
 # ── Keyword → section name mapping ───────────────────────────────────────────
@@ -119,6 +137,7 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "agent":      ["agent", "subagent", "parallel", "spawn", "sub-agent"],
     "security":   ["port", "ssl", "whois", "scan", "security", "pentest", "hack"],
     "devops":     ["docker", "container", "git", "webhook", "deploy", "ci"],
+    "background": ["background", "background task", "coding task", "delegate", "long running"],
 }
 
 

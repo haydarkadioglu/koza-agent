@@ -9,7 +9,60 @@ import logging
 import threading
 from typing import Dict, Callable
 
+from skills.agents.background import BackgroundTaskManager, _background_tasks
+
 logger = logging.getLogger(__name__)
+
+# ── Module-level config reference (set by start_bot_thread) ──────────────────
+_bot_cfg: dict | None = None
+
+# ── Coding keyword detection for automatic background delegation ─────────────
+_CODING_KEYWORDS = [
+    "write code", "build", "implement", "create a", "develop",
+    "fix the bug", "refactor", "add feature", "write a script",
+    "coding mode", "code this", "program", "make a",
+]
+
+
+def _is_coding_task(text: str) -> bool:
+    """Detect if a message should be delegated to background coding."""
+    lower = text.lower()
+    return any(kw in lower for kw in _CODING_KEYWORDS)
+
+
+def _register_completion_watcher(task_id: str, chat_id: int, bot) -> None:
+    """Poll task status and send notification on completion."""
+
+    def _watcher():
+        import time
+        loop = bot._loop if hasattr(bot, '_loop') else asyncio.get_event_loop()
+        while True:
+            time.sleep(5)
+            status = BackgroundTaskManager.get_status(task_id)
+            if not status:
+                break
+            if status["status"] == "done":
+                summary = BackgroundTaskManager.get_summary(task_id)
+                msg_text = f"✅ Task {task_id} done:\n{summary}"
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(chat_id=chat_id, text=msg_text),
+                    loop,
+                )
+                break
+            elif status["status"] == "error":
+                task = _background_tasks.get(task_id)
+                err = task.error_message if task else "Unknown error"
+                msg_text = f"❌ Task {task_id} failed:\n{err}"
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(chat_id=chat_id, text=msg_text),
+                    loop,
+                )
+                break
+            elif status["status"] == "cancelled":
+                break
+
+    threading.Thread(target=_watcher, daemon=True, name=f"tg-watcher-{task_id}").start()
+
 
 # chat_id → Agent instance
 _agents: Dict[int, object] = {}
@@ -53,6 +106,16 @@ async def _process_message(update, context, agent_factory: Callable):
             user_text = "Analyze this photo."
 
     if not user_text:
+        return
+
+    # ── Auto-delegate coding tasks to background ─────────────────────────────
+    if _is_coding_task(user_text) and _bot_cfg:
+        cfg = _bot_cfg
+        db_path = cfg.get("db_path", "")
+        task_id = BackgroundTaskManager.create_task(user_text, cfg, db_path)
+        confirmation = f"🚀 Background task started: `{task_id}`\nGoal: {user_text}"
+        await context.bot.send_message(chat_id=chat_id, text=confirmation)
+        _register_completion_watcher(task_id, chat_id, context.bot)
         return
 
     agent = _get_or_create_agent(chat_id, agent_factory)
@@ -186,6 +249,9 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
     agent_factory: callable() → Agent (called once per chat_id for isolation).
     Returns True on successful thread start.
     """
+    global _bot_cfg
+    _bot_cfg = cfg
+
     token = (
         cfg.get("telegram_token", "").strip()
         or cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
