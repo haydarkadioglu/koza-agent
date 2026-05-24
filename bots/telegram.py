@@ -6,6 +6,7 @@ Messages stream back to the user in real time (chunked text edits).
 """
 import asyncio
 import logging
+import re
 import threading
 from typing import Dict, Callable
 
@@ -16,36 +17,38 @@ logger = logging.getLogger(__name__)
 # ── Module-level config reference (set by start_bot_thread) ──────────────────
 _bot_cfg: dict | None = None
 
-# ── Coding keyword detection for automatic background delegation ─────────────
-# ── Coding keyword detection for automatic background delegation ─────────────
-_CODING_KEYWORDS = [
-    # Turkish
-    "kod yaz", "proje oluştur", "uygulama geliştir", "bug fix", "refactor",
-    "kodla", "geliştir", "implementasyon", "dosya oluştur", "düzelt",
-    "ekle", "oluştur", "yap", "kur", "güncelle", "değiştir",
-    # English
-    "write code", "create project", "build app", "implement",
-    "develop", "create file", "write a program", "code this",
-    "fix", "add", "build", "make", "create", "update", "modify",
-    "refactor", "write", "generate", "set up", "install",
-    # File extensions / patterns
-    ".py", ".js", ".ts", ".html", ".css", ".json", ".yaml", ".yml",
-    ".sh", ".bat", ".ps1", ".sql",
-]
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting from text for clean Telegram display."""
+    # Remove headers (## Title → Title)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    # Remove bold (**text** or __text__ → text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    # Remove italic (*text* or _text_ → text) — careful not to hit underscores in code
+    text = re.sub(r"(?<!\w)\*([^*]+?)\*(?!\w)", r"\1", text)
+    # Remove inline code (`text` → text)
+    text = re.sub(r"`([^`]+?)`", r"\1", text)
+    # Remove code block fences (```lang ... ``` → just the code)
+    text = re.sub(r"```\w*\n?", "", text)
+    # Remove horizontal rules (--- or ***)
+    text = re.sub(r"^[-*]{3,}\s*$", "", text, flags=re.MULTILINE)
+    # Remove bullet markers (- item → item, * item → item)
+    text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
+    return text.strip()
 
 
-def _is_coding_task(text: str) -> bool:
-    """Detect if a message should be delegated to background coding."""
-    lower = text.lower()
-    return any(kw in lower for kw in _CODING_KEYWORDS)
+# ── LLM-driven routing (replaces keyword-based detection) ────────────────────
+# The router is accessed via the agent instance: agent._router.classify(text)
+# No more keyword lists here — the LLM decides what's a coding task.
 
 
-def _register_completion_watcher(task_id: str, chat_id: int, bot) -> None:
+def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> None:
     """Poll task status and send notification on completion."""
 
     def _watcher():
         import time
-        loop = bot._loop if hasattr(bot, '_loop') else asyncio.get_event_loop()
+        _loop = loop or asyncio.new_event_loop()
         while True:
             time.sleep(5)
             status = BackgroundTaskManager.get_status(task_id)
@@ -56,7 +59,7 @@ def _register_completion_watcher(task_id: str, chat_id: int, bot) -> None:
                 msg_text = f"✅ Task {task_id} done:\n{summary}"
                 asyncio.run_coroutine_threadsafe(
                     bot.send_message(chat_id=chat_id, text=msg_text),
-                    loop,
+                    _loop,
                 )
                 break
             elif status["status"] == "error":
@@ -65,7 +68,7 @@ def _register_completion_watcher(task_id: str, chat_id: int, bot) -> None:
                 msg_text = f"❌ Task {task_id} failed:\n{err}"
                 asyncio.run_coroutine_threadsafe(
                     bot.send_message(chat_id=chat_id, text=msg_text),
-                    loop,
+                    _loop,
                 )
                 break
             elif status["status"] == "cancelled":
@@ -180,8 +183,23 @@ async def _process_message(update, context, agent_factory: Callable,
     if not user_text:
         return
 
-    # ── Auto-delegate coding tasks to background ─────────────────────────────
-    if _is_coding_task(user_text) and _bot_cfg:
+    # ── LLM-driven background delegation (replaces keyword matching) ────────────
+    # Get or create agent first so we can use its router
+    permission_cb = None
+    if kb_manager and bot_loop:
+        permission_cb = _make_permission_callback(
+            chat_id, context.bot, bot_loop, kb_manager
+        )
+    agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
+
+    # Use the router to decide if this should be a background task
+    try:
+        decision = agent._router.classify(user_text)
+        should_delegate = decision.delegate_to_background
+    except Exception:
+        should_delegate = False
+
+    if should_delegate and _bot_cfg:
         cfg = _bot_cfg
         db_path = cfg.get("db_path", "")
         task_id = BackgroundTaskManager.create_task(user_text, cfg, db_path)
@@ -193,16 +211,18 @@ async def _process_message(update, context, agent_factory: Callable,
         await context.bot.send_message(
             chat_id=chat_id, text=confirmation, reply_markup=reply_markup
         )
-        _register_completion_watcher(task_id, chat_id, context.bot)
+        _register_completion_watcher(task_id, chat_id, context.bot, loop=bot_loop)
+        # Record in agent's conversation history so it knows about the task
+        agent.messages.append({"role": "user", "content": user_text})
+        agent.messages.append({
+            "role": "assistant",
+            "content": f"Kodlama ekibini başlattım (task {task_id}). "
+                       f"Team Lead planlıyor, Backend/Frontend/Test Engineer sırayla çalışacak. "
+                       f"Görev: {user_text[:100]}"
+        })
         return
 
-    # ── Create agent with permission callback wired to inline buttons ────────
-    permission_cb = None
-    if kb_manager and bot_loop:
-        permission_cb = _make_permission_callback(
-            chat_id, context.bot, bot_loop, kb_manager
-        )
-    agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
+    # Agent already created above for router access
 
     if agent._busy:
         agent.interrupt()
@@ -248,6 +268,7 @@ async def _process_message(update, context, agent_factory: Callable,
         if not force and (now - last_edit) < 1.5:
             return
         display = text_buf + (f"\n\n{status}" if status else "")
+        display = _strip_markdown(display)
         if not display.strip():
             return
         # Overflow: start new message

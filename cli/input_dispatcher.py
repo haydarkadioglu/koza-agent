@@ -14,16 +14,6 @@ if TYPE_CHECKING:
 class InputDispatcher:
     """Routes user input: interrupts agent if busy, submits otherwise."""
 
-    _CODING_KEYWORDS = [
-        # Turkish — multi-word phrases only (avoid false positives)
-        "kod yaz", "proje oluştur", "uygulama geliştir", "bug fix",
-        "kodla bunu", "dosya oluştur", "script yaz", "program yaz",
-        # English — multi-word phrases only
-        "write code", "create project", "build app", "implement this",
-        "create file", "write a program", "code this", "write a script",
-        "fix this bug", "refactor this",
-    ]
-
     def __init__(self, agent, layout: ChatLayout, renderer: StreamRenderer) -> None:
         self.agent = agent
         self.layout: ChatLayout = layout
@@ -50,11 +40,6 @@ class InputDispatcher:
         self._coding_session = None
         self.renderer.set_coding_mode(False)
 
-    def _should_auto_coding_mode(self, text: str) -> bool:
-        """Check if user message contains coding-related keywords."""
-        text_lower = text.lower()
-        return any(kw in text_lower for kw in self._CODING_KEYWORDS)
-
     def submit(self, user_input: str) -> None:
         """Handle user submission — interrupt if busy, then process."""
         if not user_input:
@@ -75,11 +60,16 @@ class InputDispatcher:
             if self._proc_thread and self._proc_thread.is_alive():
                 self._proc_thread.join(timeout=3.0)
 
-        # Auto-enable coding mode if message contains coding keywords
-        if not self._coding_mode and self._should_auto_coding_mode(user_input):
-            from .ui._colors import _C
-            self.enable_coding_mode()
-            self.layout.append_output(_C("  ℹ  Auto-activating coding mode…\n", "cyan"))
+        # LLM-driven coding mode detection (replaces keyword matching)
+        if not self._coding_mode:
+            try:
+                decision = self.agent._router.classify(user_input)
+                if decision.activate_coding_mode:
+                    from .ui._colors import _C
+                    self.enable_coding_mode()
+                    self.layout.append_output(_C("  ℹ  Auto-activating coding mode…\n", "cyan"))
+            except Exception:
+                pass  # On router failure, skip auto-activation
 
         # Start new processing
         self._proc_thread = threading.Thread(

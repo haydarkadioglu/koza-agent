@@ -4,6 +4,7 @@ from typing import Callable
 
 from providers.base import LLMProvider
 from prompt import build_system_prompt
+from router import IntentRouter, RoutingDecision
 from skills import (
     kanban, cron, session_memory, messaging, shared_memory, working_memory,
     email_skill, media, smarthome, social, productivity, notes, github_skill,
@@ -174,6 +175,8 @@ class Agent:
         # Interrupt/cancel support — set to cancel the current stream_chat loop
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
+        # LLM-driven intent router (replaces keyword-based routing)
+        self._router = IntentRouter(provider)
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)

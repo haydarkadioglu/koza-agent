@@ -50,15 +50,22 @@ class ChatLayout:
 
         Enter submits the input (calls validate_and_handle which triggers
         the accept_handler). Escape+Enter (Meta+Enter) inserts a newline
-        for multi-line composition. This is the standard prompt_toolkit
-        pattern for multiline TextAreas.
+        for multi-line composition.
         """
+        from prompt_toolkit.filters import is_done
+
         kb = KeyBindings()
 
-        @kb.add("enter", eager=True)
+        @kb.add("enter", eager=True, filter=~is_done)
         def _submit(event):
-            """Submit on Enter — override multiline's default newline."""
-            event.current_buffer.validate_and_handle()
+            """Submit on Enter — override multiline's default newline.
+            Works even after paste (bracketed paste mode)."""
+            buf = event.current_buffer
+            # If completion menu is open, dismiss it first
+            if buf.complete_state:
+                buf.complete_state = None
+                return
+            buf.validate_and_handle()
 
         @kb.add("escape", "enter")
         def _newline(event):
@@ -102,16 +109,18 @@ class ChatLayout:
         └─────────────────────────────────────┘
         """
         # Top: scrollable output window with ANSI color support
-        # get_cursor_position returns the last line so the Window auto-scrolls
-        # to keep the newest content visible.
+        # _auto_scroll flag: True = follow new content, False = user scrolled up
+        self._auto_scroll = True
+
         output_window = Window(
             content=FormattedTextControl(
                 lambda: ANSI(self._output_text) if self._output_text else "",
                 get_cursor_position=lambda: Point(
                     x=0, y=self._output_text.count("\n")
-                ),
+                ) if self._auto_scroll else None,
             ),
             wrap_lines=True,
+            allow_scroll_beyond_bottom=True,
         )
 
         # Middle: status bar
@@ -147,6 +156,7 @@ class ChatLayout:
         """Thread-safe append to the output pane. Supports ANSI escape codes."""
         def _update() -> None:
             self._output_text += text
+            self._auto_scroll = True  # Follow new content
             # Trim oldest lines when buffer exceeds the maximum
             lines = self._output_text.split('\n')
             if len(lines) > _MAX_OUTPUT_LINES:
@@ -169,7 +179,11 @@ class ChatLayout:
             self._app.invalidate()
 
     def set_status(self, text: str) -> None:
-        """Update the status bar text. Supports ANSI codes."""
+        """Update the status bar text. Supports ANSI codes. Thread-safe."""
         self.status_text = text
         if self._app and self._app.is_running:
-            self._app.invalidate()
+            loop = self._app.loop
+            if loop is not None:
+                loop.call_soon_threadsafe(self._app.invalidate)
+            else:
+                self._app.invalidate()

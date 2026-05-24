@@ -86,19 +86,19 @@ class DeepSeekProvider(LLMProvider):
                 }
 
         # ── Post-process text: extract any DSML blocks as tool calls ──────────
-        # DSML uses fullwidth ｜ (U+FF5C), NOT ASCII |
-        # Patterns must match the actual unicode chars in the bleed-through text
-        _P = "｜"  # U+FF5C fullwidth vertical line
+        # DeepSeek uses either fullwidth ｜ (U+FF5C) or ASCII | in DSML bleed-through
+        # with varying whitespace. We match all variants flexibly.
+        _SEP = r"\s*[｜|]?\s*[｜|]?\s*"  # 0-2 pipes with optional whitespace
         dsml_pattern = re.compile(
-            rf"<{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>",
+            rf"<{_SEP}DSML{_SEP}tool_calls\s*>(.*?)<\s*/?{_SEP}DSML{_SEP}tool_calls\s*>",
             re.DOTALL
         )
         invoke_pattern = re.compile(
-            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}invoke\s+name=["\']([^"\']+)["\']>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}invoke>',
+            rf'<{_SEP}DSML{_SEP}invoke\s+name=["\']([^"\']+)["\']>(.*?)<\s*/?{_SEP}DSML{_SEP}invoke\s*>',
             re.DOTALL
         )
         param_pattern = re.compile(
-            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}parameter>',
+            rf'<{_SEP}DSML{_SEP}parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)<\s*/?{_SEP}DSML{_SEP}parameter\s*>',
             re.DOTALL
         )
 
@@ -132,6 +132,10 @@ class DeepSeekProvider(LLMProvider):
             return ""
 
         clean_text = dsml_pattern.sub(_collect_dsml, text_buf).strip()
+
+        # Also strip any remaining partial DSML tags that weren't matched
+        partial_dsml = re.compile(r'<\s*/?\s*[｜|]?\s*[｜|]?\s*DSML[^>]*>', re.DOTALL)
+        clean_text = partial_dsml.sub("", clean_text).strip()
 
         # Yield DSML-extracted tool calls
         for tc_event in dsml_tool_yields:

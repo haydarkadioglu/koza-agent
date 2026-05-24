@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from ._layout import ChatLayout
 
 _CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_INTERVAL = 0.1  # 100ms update interval
+_INTERVAL = 0.2  # 200ms update interval (less aggressive to avoid input corruption)
 
 
 class OutputSpinner:

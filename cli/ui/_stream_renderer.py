@@ -132,28 +132,22 @@ class StreamRenderer:
             self.layout.set_status(self._format_status(
                 _C(f"⚙ {label}…", "cyan")
             ))
-            line = _C(f"  ⚙  {name}", "cyan")
-            if arg_str:
-                line += _C(f"  ({arg_str[:60]})", "grey")
-            self.layout.append_output(line + "\n")
+            # Store tool name for inline completion on tool_done
+            self._pending_tool = name
+            self._pending_tool_arg = arg_str[:50] if arg_str else ""
 
         elif etype == "tool_done":
             name = event["name"]
             elapsed = event.get("elapsed", 0)
-            result = str(event.get("result", ""))
-            lines = [l for l in result.splitlines() if l.strip()]
-            summary = (
-                (lines[0][:80] + ("…" if len(lines[0]) > 80 else ""))
-                if lines else "(no output)"
-            )
-            extra = _C(f"  +{len(lines)-1} lines", "grey") if len(lines) > 1 else ""
             self._spinner.stop()
-            self.layout.append_output(
-                _C(f"  ✓  {name}", "green")
-                + _C(f"  {elapsed:.2f}s", "grey")
-                + _C(f"  → {summary}", "white")
-                + extra + "\n"
-            )
+            # Single-line: ⚙ tool_name (args) → ✓ 0.05s
+            line = _C(f"  ⚙ {name}", "cyan")
+            if getattr(self, '_pending_tool_arg', ''):
+                line += _C(f" ({self._pending_tool_arg})", "grey")
+            line += _C(f" → ✓ {elapsed:.2f}s", "green")
+            self.layout.append_output(line + "\n")
+            self._pending_tool = None
+            self._pending_tool_arg = ""
             self._spinner.start("Thinking…")
             self.layout.set_status(self._format_status(
                 _C("◐ Reasoning…", "cyan")
@@ -233,17 +227,15 @@ class StreamRenderer:
                 self._close_persona_box()
                 self._open_persona_box(persona)
             if phase == "start":
-                self.layout.append_output(
-                    _C(f"  ⚙ {tool}", "cyan") + "\n"
-                    + _C("  │ ", "magenta")
-                )
+                # Don't print anything — wait for done to show single line
                 self.layout.set_status(self._format_status(
                     _C(f"⚙ {tool}…", "cyan")
                 ))
             elif phase == "done":
+                # Single line: ⚙ tool → ✓ 0.05s
                 self.layout.append_output(
-                    _C(f"  ✓ {tool}", "green")
-                    + _C(f"  {elapsed:.2f}s", "grey") + "\n"
+                    _C(f"  ⚙ {tool}", "cyan")
+                    + _C(f" → ✓ {elapsed:.2f}s", "green") + "\n"
                     + _C("  │ ", "magenta")
                 )
                 self.layout.set_status(self._format_status(

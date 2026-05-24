@@ -118,6 +118,10 @@ def _plain_cli(agent, cfg: dict) -> None:
         "github_repo_info", "pandas_query", "matplotlib_plot",
         "list_projects", "list_capabilities", "get_weather", "get_time",
         "calculator", "search_files", "get_cwd",
+        "run_command", "run_python", "run_node", "run_script",
+        "write_file", "create_dir", "create_project",
+        "spawn_subagent", "start_background_task", "get_background_status",
+        "list_background_tasks", "cancel_background_task",
     }
     _session_allowed:  set = set()
     _permanent_allowed: set = set(cfg.get("allowed_tools", []))
@@ -567,6 +571,20 @@ def _plain_cli(agent, cfg: dict) -> None:
         )
         layout._app = app
         layout.set_status(renderer._format_status(_C("● Idle", "green")))
+
+        # Render previous session history in output pane
+        _prev_msgs = [m for m in agent.messages if m.get("role") in ("user", "assistant")]
+        if len(_prev_msgs) > 0:
+            layout.append_output(_C("  ── Previous session ──\n", "grey"))
+            for m in _prev_msgs[-10:]:  # Show last 10 messages max
+                if m["role"] == "user":
+                    content = (m.get("content") or "")[:100]
+                    layout.append_output(_C(f"  You: ", "blue") + content + "\n")
+                elif m["role"] == "assistant":
+                    content = (m.get("content") or "")[:150]
+                    layout.append_output(_C(f"  Koza: ", "teal") + content + "\n")
+            layout.append_output(_C("  ── End of history ──\n\n", "grey"))
+
         try:
             app.run()
         finally:
