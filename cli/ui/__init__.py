@@ -9,10 +9,11 @@ from ._spinner import (
 )
 from ._render import _render_md
 from ._banner import (
-    _LOGO, _TOOL_CATEGORIES, _get_version, _print_banner, _print_inline_help,
+    _LOGO, _get_version, _print_banner, _print_inline_help,
 )
 from ._layout import ChatLayout
 from ._stream_renderer import StreamRenderer
+from ._progress import ProgressBar
 
 __all__ = [
     "_ANSI", "_C", "_hr", "_section",
@@ -20,7 +21,8 @@ __all__ = [
     "_extract_gemini_cookies", "_prompt_secret",
     "_spinner_active_check", "_spinner_set", "_spinner_start", "_spinner_stop",
     "_render_md",
-    "_LOGO", "_TOOL_CATEGORIES", "_get_version", "_print_banner", "_print_inline_help",
+    "_LOGO", "_get_version", "_print_banner", "_print_inline_help",
     "ChatLayout",
     "StreamRenderer",
+    "ProgressBar",
 ]

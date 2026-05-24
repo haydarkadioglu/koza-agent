@@ -7,6 +7,7 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, VSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -31,16 +32,40 @@ class ChatLayout:
         # Dynamic prompt indicator
         self._prompt_busy: bool = False
 
-        # Fixed-bottom input widget with single-line entry
+        # Multi-line input widget with dynamic height (1–5 lines)
         self.input_area: TextArea = TextArea(
-            multiline=False,
+            multiline=True,
             prompt=self._get_prompt_text,
             accept_handler=self._on_accept,
-            height=Dimension.exact(1),
+            height=Dimension(min=1, max=5),
         )
+        # Attach custom key bindings to the TextArea's BufferControl
+        self.input_area.control.key_bindings = self._create_input_bindings()
 
         # Application reference (set later when Application is created)
         self._app: Optional["Application"] = None  # noqa: F821
+
+    def _create_input_bindings(self) -> KeyBindings:
+        """Create key bindings for the input area.
+
+        Enter submits the input (calls validate_and_handle which triggers
+        the accept_handler). Escape+Enter (Meta+Enter) inserts a newline
+        for multi-line composition. This is the standard prompt_toolkit
+        pattern for multiline TextAreas.
+        """
+        kb = KeyBindings()
+
+        @kb.add("enter", eager=True)
+        def _submit(event):
+            """Submit on Enter — override multiline's default newline."""
+            event.current_buffer.validate_and_handle()
+
+        @kb.add("escape", "enter")
+        def _newline(event):
+            """Insert newline on Escape+Enter (Meta+Enter / Shift+Enter)."""
+            event.current_buffer.insert_text("\n")
+
+        return kb
 
     def _get_prompt_text(self):
         """Return dynamic prompt text with color based on busy state."""
@@ -97,9 +122,15 @@ class ChatLayout:
             height=Dimension.exact(1),
         )
 
-        # Bottom: input area (no extra border — status bar above acts as separator)
+        # Bottom: input area with Unicode box-drawing border frame
         framed_input = HSplit([
+            Window(content=FormattedTextControl(
+                lambda: ANSI("\033[90m┌" + "─" * 60 + "┐\033[0m")
+            ), height=Dimension.exact(1)),
             self.input_area,
+            Window(content=FormattedTextControl(
+                lambda: ANSI("\033[90m└" + "─" * 60 + "┘\033[0m")
+            ), height=Dimension.exact(1)),
         ])
 
         container = HSplit(

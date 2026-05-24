@@ -2,14 +2,29 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 from ._colors import _C
 from ._render import _render_md
 from ._spinner_widget import OutputSpinner
+from ._status import format_status as _format_status_fn
 
 if TYPE_CHECKING:
     from ._layout import ChatLayout
+
+
+def _timestamp() -> str:
+    """Return current time as grey HH:MM string."""
+    return _C(datetime.now().strftime("%H:%M"), "grey")
+
+
+_RESPONSE_COLORS = {
+    "normal": "teal",
+    "error": "red",
+    "success": "green",
+    "warning": "yellow",
+}
 
 
 class StreamRenderer:
@@ -59,6 +74,10 @@ class StreamRenderer:
         self._current_persona: Optional[str] = None
         # Coding mode status indicator
         self._coding_mode_active: bool = False
+        # Background task count for status bar
+        self._bg_task_count: int = 0
+        # Current response box border color
+        self._current_box_color: str = "teal"
         # Spinner widget for animated status in status bar
         self._spinner: OutputSpinner = OutputSpinner(layout)
         self._spinner._format_status = self._format_status
@@ -67,19 +86,21 @@ class StreamRenderer:
         """Toggle coding mode indicator in the status bar."""
         self._coding_mode_active = active
 
+    def set_bg_task_count(self, count: int) -> None:
+        """Update the background task count displayed in the status bar."""
+        self._bg_task_count = count
+
     def _format_status(self, state_text: str) -> str:
         """Compose full status text with state indicator and persistent info."""
-        elapsed = int(time.time() - self._session_start)
-        h, m = divmod(elapsed // 60, 60)
-        s_time = f"{h}h {m:02d}m" if h else f"{m}m"
-        if self._total_tokens >= 1000:
-            tok_str = f"{self._total_tokens // 1000}K/{self._token_limit // 1000}K"
-        else:
-            tok_str = f"{self._total_tokens}/{self._token_limit // 1000}K"
-        base = f"{state_text}  │  {self._model_name}  │  {tok_str}  │  {s_time}"
-        if self._coding_mode_active:
-            return f"🎯 Coding Mode  │  {base}"
-        return base
+        return _format_status_fn(
+            state_text=state_text,
+            model_name=self._model_name,
+            total_tokens=self._total_tokens,
+            token_limit=self._token_limit,
+            session_start=self._session_start,
+            bg_task_count=self._bg_task_count,
+            coding_mode=self._coding_mode_active,
+        )
 
     def add_tokens(self, count: int) -> None:
         """Increment the total token counter."""
@@ -98,10 +119,13 @@ class StreamRenderer:
         elif etype == "tool_start":
             name = event["name"]
             args = event.get("args", {})
-            visible = {k: v for k, v in args.items() if k not in self._HIDDEN_ARGS}
-            arg_str = ", ".join(
-                f"{k}={repr(v)[:40]}" for k, v in list(visible.items())[:2]
-            )
+            visible_parts = []
+            for k, v in list(args.items())[:4]:
+                if k in self._HIDDEN_ARGS:
+                    visible_parts.append(self._summarize_hidden_arg(k, str(v)))
+                else:
+                    visible_parts.append(f"{k}={repr(v)[:40]}")
+            arg_str = ", ".join(visible_parts)
             label = self._TOOL_LABELS.get(name, f"Running {name}")
             self._spinner.stop()
             self._spinner.start(f"{label}…")
@@ -140,14 +164,8 @@ class StreamRenderer:
             if not self._text_started:
                 self._text_started = True
                 self._spinner.stop()
-                self.layout.append_output(
-                    "\n"
-                    + _C("  ╭─ ", "teal")
-                    + _C("Koza ", "teal", "bold")
-                    + _C("─" * 40, "teal")
-                    + "\n"
-                    + _C("  │ ", "teal")
-                )
+                response_type = event.get("response_type", "normal")
+                self._open_response_box("Koza", response_type)
             self._full_response += token
             self._total_tokens += max(1, len(token) // 4)
 
@@ -162,17 +180,14 @@ class StreamRenderer:
                 complete, self._line_buf = self._line_buf.split("\n", 1)
                 rendered = _render_md(complete) if complete.strip() else ""
                 self.layout.append_output(
-                    rendered + "\n" + _C("  │ ", "teal")
+                    rendered + "\n" + _C("  │ ", self._current_box_color)
                 )
 
         elif etype == "interrupted":
             self._spinner.stop()
             self._flush_line_buf()
             if self._text_started:
-                self.layout.append_output(
-                    "\n" + _C("  ╰─", "teal")
-                    + _C("  (interrupted)", "grey") + "\n"
-                )
+                self._close_response_box("(interrupted)")
             else:
                 self.layout.append_output(
                     _C("  (interrupted)", "grey") + "\n"
@@ -302,6 +317,43 @@ class StreamRenderer:
             self.layout.append_output(rendered)
             self._line_buf = ""
 
+    # ── Response box helpers ──────────────────────────────────────────────────
+
+    def _open_response_box(self, label: str, response_type: str = "normal") -> None:
+        """Open a response box with border color based on response type."""
+        color = _RESPONSE_COLORS.get(response_type, "teal")
+        self._current_box_color = color
+        self.layout.append_output(
+            "\n"
+            + _C("  ╭─ ", color)
+            + _timestamp() + " "
+            + _C(f"{label} ", color, "bold")
+            + _C("─" * 40, color)
+            + "\n"
+            + _C("  │ ", color)
+        )
+
+    def _close_response_box(self, suffix: str = "") -> None:
+        """Close the current response box using the stored box color."""
+        color = self._current_box_color
+        self.layout.append_output(
+            "\n" + _C("  ╰─", color)
+            + _C(f"  {suffix}", "grey") + "\n\n"
+        )
+
+    # ── Tool argument helpers ─────────────────────────────────────────────────
+
+    def _summarize_hidden_arg(self, key: str, value: str) -> str:
+        """Produce a one-line summary for a hidden argument."""
+        lines = value.split("\n")
+        first_line = lines[0]
+        if len(lines) > 1:
+            summary = first_line[:60]
+            return f'{key}="{summary}…" ({len(lines)} lines)'
+        if len(first_line) > 60:
+            return f'{key}="{first_line[:60]}…"'
+        return f'{key}="{first_line}"'
+
     # ── Persona box helpers ───────────────────────────────────────────────────
 
     def _open_persona_box(self, persona: str) -> None:
@@ -329,11 +381,13 @@ class StreamRenderer:
 
     def render_user_message(self, message: str) -> None:
         """Render user message in the output pane with framed style."""
+        ts = _timestamp()
         self.layout.append_output(
             "\n"
-            + _C("  ┌─ ", "cyan") + _C("You ", "cyan", "bold") + _C("─" * 40, "cyan") + "\n"
-            + _C("  │ ", "cyan") + message + "\n"
-            + _C("  └─", "cyan") + _C("─" * 44, "cyan") + "\n"
+            + _C("  ┌─ ", "blue") + ts + " " + _C("You ", "blue", "bold")
+            + _C("─" * 36, "blue") + "\n"
+            + _C("  │ ", "blue") + _C(message, "white") + "\n"
+            + _C("  └─", "blue") + _C("─" * 44, "blue") + "\n"
         )
 
     def finalize(self, elapsed: float) -> None:
@@ -344,10 +398,7 @@ class StreamRenderer:
         self._close_persona_box()
         if self._text_started:
             self._flush_line_buf()
-            self.layout.append_output(
-                "\n" + _C("  ╰─", "teal")
-                + _C(f"  {elapsed:.1f}s", "grey") + "\n\n"
-            )
+            self._close_response_box(f"{elapsed:.1f}s")
         self.layout.set_status(self._format_status(
             _C("● Idle", "green")
         ))
@@ -359,3 +410,4 @@ class StreamRenderer:
         self._full_response = ""
         self._line_buf = ""
         self._current_persona = None
+        self._current_box_color = "teal"

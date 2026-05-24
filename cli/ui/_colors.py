@@ -4,10 +4,12 @@ import os
 
 _ANSI = {
     "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
+    "italic": "\033[3m", "underline": "\033[4m",
     "teal": "\033[36m",  "cyan": "\033[96m",
     "green": "\033[92m", "red": "\033[91m", "blue": "\033[94m",
     "white": "\033[97m", "grey": "\033[90m", "magenta": "\033[95m",
-    "yellow": "\033[36m", "gold": "\033[96m",
+    "yellow": "\033[33m", "gold": "\033[38;5;178m",
+    "orange": "\033[38;5;208m",
 }
 
 

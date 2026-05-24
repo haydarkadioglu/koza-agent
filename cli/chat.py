@@ -570,6 +570,11 @@ def _plain_cli(agent, cfg: dict) -> None:
         try:
             app.run()
         finally:
+            # Auto-save session on exit
+            try:
+                agent.auto_save()
+            except Exception:
+                pass
             # Ensure background services persist after ANY exit
             # (terminal close, Ctrl+C while idle, app crash, etc.)
             if _active_services:

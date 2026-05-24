@@ -167,6 +167,8 @@ class Agent:
         self.cfg = cfg or {}
         self.db_path = db_path
         self.messages: list[dict] = [{"role": "system", "content": build_system_prompt(channel=channel)}]
+        # Try to restore last session's conversation history
+        self._restore_last_session = True  # flag for lazy restore
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop
@@ -177,6 +179,16 @@ class Agent:
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
         working_memory.init_db(db_path)
+        # Clear stale working memory from previous sessions
+        working_memory.wm_clear()
+        # Restore last session's conversation history
+        if self._restore_last_session:
+            prev_msgs = session_memory.load_last_session()
+            if prev_msgs:
+                # Keep system prompt, append previous messages
+                for m in prev_msgs:
+                    if m.get("role") in ("user", "assistant"):
+                        self.messages.append(m)
         if cfg:
             email_skill.init_email(cfg)
             media.init_media(cfg)

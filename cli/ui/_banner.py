@@ -11,29 +11,17 @@ _LOGO = r"""
    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
 """.strip("\n")
 
-_TOOL_CATEGORIES = {
-    "config":      ["get_config", "set_config", "delete_config"],
-    "filesystem":  ["read_file", "write_file", "list_dir", "delete_file"],
-    "shell":       ["run_command"],
-    "web":         ["web_search", "fetch_url"],
-    "code":        ["run_python", "run_node", "run_script", "run_jupyter_cell"],
-    "kanban":      ["create_task", "list_tasks", "move_task"],
-    "cron":        ["create_cron", "list_crons", "delete_cron"],
-    "memory":      ["memory_store", "memory_recall", "wm_add", "wm_get"],
-    "agents":      ["spawn_subagent", "get_subagent_status"],
-    "messaging":   ["send_message", "telegram_send", "discord_send", "whatsapp_send"],
-    "github":      ["github_search_code", "github_create_issue"],
-    "finance":     ["crypto_price", "stock_price"],
-    "media":       ["spotify_search", "youtube_search", "gif_search"],
-    "research":    ["arxiv_search", "wikipedia_search"],
-    "security":    ["port_scan", "ssl_check", "whois_lookup"],
-    "social":      ["twitter_search", "bluesky_search", "hackernews_top", "linkedin_post"],
-    "smarthome":   ["hue_set_light", "mqtt_publish"],
-    "email":       ["send_email", "read_emails"],
-    "devops":      ["git_operation", "docker_run"],
-    "notes":       ["note_create", "note_search"],
-    "productivity": ["google_calendar_list", "airtable_query"],
-}
+# Teal-to-cyan gradient for logo lines
+_GRADIENT = [
+    "\033[36m",      # teal
+    "\033[36m",      # teal
+    "\033[38;5;44m", # teal-cyan blend
+    "\033[38;5;80m", # mid cyan
+    "\033[96m",      # bright cyan
+    "\033[96m",      # bright cyan
+]
+
+_RESET = "\033[0m"
 
 
 def _get_version() -> str:
@@ -52,58 +40,19 @@ def _get_version() -> str:
 
 
 def _print_banner(cfg: dict) -> None:
-    from datetime import date
-    import shutil
-
     ver = _get_version()
-    today = date.today().strftime("%Y.%m.%d")
-    provider = cfg.get("provider", "?")
     model = cfg.get("model") or "default"
-    fallback = cfg.get("fallback_provider", "")
-    term_w = shutil.get_terminal_size((100, 24)).columns
 
-    header = f" Koza Agent v{ver} ({today}) · {provider} / {model} "
-    if fallback:
-        header += f"· fallback: {fallback} "
-    bar = "─" * max(0, term_w - 2)
-    print(_C(f"\n┌{bar}┐", "teal"))
-    pad = max(0, term_w - 2 - len(header))
-    print(_C(f"│{header}{' ' * pad}│", "teal"))
-    print(_C(f"└{bar}┘", "teal"))
+    # Print logo with teal-to-cyan gradient
+    for i, line in enumerate(_LOGO.split("\n")):
+        color = _GRADIENT[i % len(_GRADIENT)]
+        print(f"{color}{line}{_RESET}")
 
-    logo_lines = _LOGO.split("\n")
-    logo_w = max(len(l) for l in logo_lines) + 2
-
-    panel_lines: list = []
-    panel_lines.append(_C("  Available Tools", "bold") + _C("", "yellow"))
-
-    for cat, tools in _TOOL_CATEGORIES.items():
-        preview = ", ".join(tools[:3])
-        if len(tools) > 3:
-            preview += f", …+{len(tools)-3}"
-        panel_lines.append(
-            f"  {_C(cat + ':', 'cyan')}  {_C(preview, 'white')}"
-        )
-
-    height = max(len(logo_lines), len(panel_lines))
-    logo_lines += [""] * (height - len(logo_lines))
-    panel_lines += [""] * (height - len(panel_lines))
-
-    for logo_l, panel_l in zip(logo_lines, panel_lines):
-        padded = f"  {logo_l:<{logo_w}}"
-        print(f"{_C(padded, 'teal')}  {panel_l}")
-
-    try:
-        from tools.registry import ALL_TOOLS
-        n_tools = len(ALL_TOOLS)
-    except Exception:
-        n_tools = 0
-    n_cats = len(_TOOL_CATEGORIES)
-    summary = f"  {n_tools} tools · {n_cats} categories · type /help for commands"
-    print(_C("─" * term_w, "teal"))
-    print(_C(summary, "grey"))
-    print(_C("─" * term_w, "teal"))
-    print(_C("  Welcome to Koza! Type your message or /help for commands.\n", "green"))
+    # Version, model, and help hint below logo
+    print(_C(f"  v{ver}", "grey"))
+    print(_C(f"  model: {model}", "grey"))
+    print(_C("  type /help for commands", "grey"))
+    print()
 
 
 def _print_inline_help() -> None:

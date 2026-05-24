@@ -3,6 +3,38 @@ import re
 import shutil
 from ._colors import _C
 
+try:
+    from pygments import highlight as _pygments_highlight
+    from pygments.lexers import get_lexer_by_name, ClassNotFound
+    from pygments.formatters import Terminal256Formatter
+    _HAS_PYGMENTS = True
+except ImportError:
+    _HAS_PYGMENTS = False
+
+
+def _highlight_code(code: str, lang: str) -> str:
+    """Apply Pygments syntax highlighting or fall back to cyan."""
+    if _HAS_PYGMENTS and lang:
+        try:
+            lexer = get_lexer_by_name(lang, stripall=False)
+            formatter = Terminal256Formatter()
+            highlighted = _pygments_highlight(code, lexer, formatter)
+            # Pygments always appends exactly one trailing newline; remove it
+            if highlighted.endswith("\n"):
+                highlighted = highlighted[:-1]
+            # Pygments may normalize trailing newlines in the input,
+            # so ensure the output has the same number of lines as the input
+            input_line_count = code.count("\n") + 1
+            output_line_count = highlighted.count("\n") + 1
+            if output_line_count < input_line_count:
+                highlighted += "\n" * (input_line_count - output_line_count)
+            return highlighted
+        except ClassNotFound:
+            pass
+    # Fallback: plain cyan
+    lines = code.split("\n")
+    return "\n".join(_C(line, "cyan") for line in lines)
+
 
 def _render_md(text: str) -> str:
     """Convert Markdown to ANSI-styled plain text."""
@@ -21,6 +53,24 @@ def _render_md(text: str) -> str:
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
+
+        # Fenced code blocks: ```lang ... ```
+        fence_match = re.match(r"^(`{3,})(\w*)$", stripped)
+        if fence_match:
+            fence_marker = fence_match.group(1)
+            lang = fence_match.group(2)
+            code_lines = []
+            i += 1
+            while i < len(lines):
+                if lines[i].strip() == fence_marker:
+                    i += 1
+                    break
+                code_lines.append(lines[i])
+                i += 1
+            code = "\n".join(code_lines)
+            highlighted = _highlight_code(code, lang)
+            out.append(highlighted)
+            continue
 
         m = re.match(r"^(#{1,6})\s+(.+)$", stripped)
         if m:

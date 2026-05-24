@@ -99,6 +99,23 @@ def recall_sessions(query: str, limit: int = 5) -> str:
 
 # ─── Tool: list_sessions ─────────────────────────────────────────────────────
 
+def load_last_session() -> list | None:
+    """Load the most recent session's messages. Returns None if no sessions exist."""
+    if not _db_path:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT messages FROM sessions ORDER BY started DESC LIMIT 1"
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        messages = json.loads(row["messages"])
+        return messages if messages else None
+    except Exception:
+        return None
+
+
 def list_sessions(limit: int = 20) -> str:
     """List recent sessions."""
     if not _db_path:
