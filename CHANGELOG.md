@@ -5,6 +5,7 @@ Each version has its own file in the [`changelog/`](changelog/) folder.
 
 | Version | Summary |
 |---------|---------|
+| [v1.4.4](changelog/v1.4.4.md) | Prompt Externalization — Harici Prompt Yönetimi & Self-Sufficiency Analizi |
 | [v1.4.3](changelog/v1.4.3.md) | Interrupt & Stability — Real Cancel, Tool Calls in Stream, UI Fixes |
 | [v1.4.2](changelog/v1.4.2.md) | CLI Visual Polish & Stability Fixes |
 | [v1.4.1](changelog/v1.4.1.md) | Telegram Inline Keyboard & Proactive Notifications |

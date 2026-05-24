@@ -44,6 +44,12 @@ class ChatLayout:
         self._invalidate_timer: Optional[threading.Timer] = None
         self._pending_invalidate: bool = False
 
+        # Lock protecting _output_text mutations from multiple threads.
+        # We do NOT dispatch text updates to the event loop — instead we
+        # mutate _output_text under this lock and let the next invalidate
+        # pick up the new content when the FormattedTextControl lambda runs.
+        self._text_lock = threading.Lock()
+
         # Multi-line input widget with dynamic height (1–5 lines)
         # dont_extend_height=True prevents prompt_toolkit from recalculating
         # the input area height during layout invalidation (e.g. when output
@@ -176,12 +182,21 @@ class ChatLayout:
     def append_output(self, text: str) -> None:
         """Thread-safe append to the output pane with throttled invalidation.
 
-        Text is buffered immediately (no data loss), but UI invalidation is
-        throttled to at most once per _INVALIDATE_MIN_INTERVAL seconds. This
-        prevents excessive redraws at high token rates (50+ tokens/sec) which
-        can corrupt the input buffer cursor position.
+        Text is buffered immediately under a lock (no data loss), but UI
+        invalidation is throttled to at most once per _INVALIDATE_MIN_INTERVAL
+        seconds. This prevents excessive redraws at high token rates (50+
+        tokens/sec) which can corrupt the input buffer cursor position.
+
+        IMPORTANT: We do NOT dispatch the text mutation to the event loop.
+        Dispatching via call_soon_threadsafe causes the event loop to process
+        the mutation inline, which changes FormattedTextControl content and
+        triggers prompt_toolkit's internal layout recalculation — resetting
+        the input Buffer cursor. Instead, we mutate _output_text under a lock
+        and schedule a throttled invalidate. The next render cycle picks up
+        the new content safely (FormattedTextControl lambdas are called from
+        the render thread which is the event loop thread).
         """
-        def _update() -> None:
+        with self._text_lock:
             self._output_text += text
             self._auto_scroll = True  # Follow new content
             # Trim oldest lines when buffer exceeds the maximum
@@ -190,16 +205,7 @@ class ChatLayout:
                 self._output_text = '\n'.join(lines[-_MAX_OUTPUT_LINES:])
 
         if self._app and self._app.is_running:
-            loop = self._app.loop
-            if loop is not None:
-                # Always update the text buffer immediately (thread-safe via event loop)
-                loop.call_soon_threadsafe(_update)
-                # Throttle invalidation: only trigger a redraw if enough time has passed
-                self._schedule_throttled_invalidate()
-            else:
-                _update()
-        else:
-            _update()
+            self._schedule_throttled_invalidate()
 
     def _schedule_throttled_invalidate(self) -> None:
         """Schedule an invalidate call, throttled to _INVALIDATE_MIN_INTERVAL.
@@ -249,7 +255,8 @@ class ChatLayout:
 
     def clear_output(self) -> None:
         """Clear the output pane. Thread-safe."""
-        self._output_text = ""
+        with self._text_lock:
+            self._output_text = ""
         if self._app and self._app.is_running:
             loop = self._app.loop
             if loop is not None:
@@ -258,11 +265,12 @@ class ChatLayout:
                 self._app.invalidate()
 
     def set_status(self, text: str) -> None:
-        """Update the status bar text. Supports ANSI codes. Thread-safe."""
+        """Update the status bar text. Supports ANSI codes. Thread-safe.
+
+        Uses the same throttled invalidation as append_output to prevent
+        excessive redraws from the spinner (every 200ms) and per-token
+        status updates from corrupting the input buffer.
+        """
         self.status_text = text
         if self._app and self._app.is_running:
-            loop = self._app.loop
-            if loop is not None:
-                loop.call_soon_threadsafe(self._app.invalidate)
-            else:
-                self._app.invalidate()
+            self._schedule_throttled_invalidate()

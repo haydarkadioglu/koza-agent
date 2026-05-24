@@ -1,4 +1,4 @@
-# Koza Agent &nbsp;[![Version](https://img.shields.io/badge/version-v1.3.42-cyan)](https://github.com/haydarkadioglu/koza-agent/releases)
+# Koza Agent &nbsp;[![Version](https://img.shields.io/badge/version-v1.4.4-cyan)](https://github.com/haydarkadioglu/koza-agent/releases)
 
 ```
    ██╗  ██╗ ██████╗ ███████╗ █████╗
@@ -171,6 +171,60 @@ koza-agent/
     ├── chat_app.py
     └── kanban_app.py
 ```
+
+---
+
+## Prompt Externalization
+
+Tüm system prompt'lar Python kaynak kodundan ayrılmış olup `prompts/` dizininde `.md` dosyaları olarak tutulur. Bu sayede prompt'ları kod değiştirmeden düzenleyebilir, versiyonlayabilir ve bağımsız olarak test edebilirsiniz.
+
+### Dizin Yapısı
+
+```
+prompts/
+├── core/
+│   └── system.md           # Ana system prompt (CORE_PROMPT)
+├── sections/
+│   ├── workspace.md        # Dinamik olarak eklenen bölümler
+│   ├── code.md
+│   ├── web.md
+│   ├── shell.md
+│   ├── memory.md
+│   ├── agent.md
+│   ├── security.md
+│   ├── devops.md
+│   └── background.md
+├── personas/
+│   ├── team_lead.md        # Coding Mode persona prompt'ları
+│   ├── backend_dev.md
+│   ├── frontend_dev.md
+│   └── test_engineer.md
+├── channels/
+│   ├── telegram.md         # Kanal-spesifik prompt ekleri
+│   ├── discord.md
+│   ├── whatsapp.md
+│   └── cli.md
+└── routing/
+    └── classifier.md       # Intent Router system prompt'u
+```
+
+### Prompt Düzenleme
+
+Prompt dosyalarını doğrudan düzenleyebilirsiniz — değişiklikler otomatik olarak algılanır. `PromptLoader` modülü mtime-based cache invalidation kullanır; dosya değiştiğinde bir sonraki erişimde güncel içerik yüklenir. Restart gerekmez.
+
+### Yeni Section Ekleme
+
+`prompts/sections/` dizinine yeni bir `.md` dosyası oluşturmanız yeterlidir. Dosya adı section adı olarak kullanılır ve sistem tarafından otomatik algılanır.
+
+### Yeni Channel Ekleme
+
+`prompts/channels/` dizinine kanal adıyla bir `.md` dosyası oluşturun (örn. `slack.md`). `build_system_prompt(channel="slack")` çağrıldığında ilgili dosya otomatik yüklenir. Dosya yoksa hata fırlatılmaz, sadece channel prompt'u eklenmez.
+
+### Teknik Detaylar
+
+- **Cache**: `PromptLoader` singleton pattern ile çalışır, thread-safe in-memory cache kullanır
+- **Validation**: UTF-8 encoding zorunlu, boş dosyalar `ValueError` fırlatır
+- **Geriye uyumluluk**: `from prompt import SYSTEM_PROMPT, build_system_prompt` çalışmaya devam eder
 
 ---
 

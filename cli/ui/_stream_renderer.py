@@ -163,10 +163,12 @@ class StreamRenderer:
             self._full_response += token
             self._total_tokens += max(1, len(token) // 4)
 
-            # Update status with token count while streaming
-            self.layout.set_status(self._format_status(
-                _C(f"● Streaming… {self._total_tokens} tok", "green")
-            ))
+            # Update status with token count — but only every ~20 tokens
+            # to avoid excessive set_status calls that trigger invalidation.
+            if self._total_tokens % 20 < 2:
+                self.layout.set_status(self._format_status(
+                    _C(f"● Streaming… {self._total_tokens} tok", "green")
+                ))
 
             # Buffer tokens and render complete lines with markdown
             self._line_buf += token
@@ -205,9 +207,10 @@ class StreamRenderer:
                 self._open_persona_box(persona)
             self._full_response += token
             self._total_tokens += max(1, len(token) // 4)
-            self.layout.set_status(self._format_status(
-                _C(f"● Streaming… {self._total_tokens} tok", "green")
-            ))
+            if self._total_tokens % 20 < 2:
+                self.layout.set_status(self._format_status(
+                    _C(f"● Streaming… {self._total_tokens} tok", "green")
+                ))
             # Buffer tokens and render complete lines with persona prefix
             self._line_buf += token
             while "\n" in self._line_buf:
