@@ -522,7 +522,7 @@ class GeminiProvider(LLMProvider):
                 })
         return {"content": content_text, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
         if self._auth_mode == "cookie":
             import json as _json
             result = self.chat(messages, tools=tools)
@@ -549,6 +549,8 @@ class GeminiProvider(LLMProvider):
             for m in messages if m["role"] != "system"
         ]
         for chunk in self._client.models.generate_content_stream(model=self._model, contents=contents):
+            if cancel_event and cancel_event.is_set():
+                break
             if chunk.text:
                 yield chunk.text
 

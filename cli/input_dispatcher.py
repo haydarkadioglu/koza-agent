@@ -1,9 +1,12 @@
 """Input dispatcher — routes user input, handles interrupt-if-busy logic."""
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Optional, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .ui._layout import ChatLayout
@@ -49,6 +52,14 @@ class InputDispatcher:
                     self._coding_session.interrupt()
                 else:
                     self.agent.interrupt()
+                # Immediate UX feedback — don't wait for agent to actually stop
+                self._show_interrupting_status()
+                # Start force-kill watchdog: if interrupt doesn't complete
+                # within 5s, force-clear all state to prevent permanent hang.
+                threading.Thread(
+                    target=self._force_kill_watchdog,
+                    daemon=True,
+                ).start()
             return
 
         if self._processing.is_set():
@@ -57,8 +68,18 @@ class InputDispatcher:
                 self._coding_session.interrupt()
             else:
                 self.agent.interrupt()
+            # Immediate UX feedback — don't wait for agent to actually stop
+            self._show_interrupting_status()
             if self._proc_thread and self._proc_thread.is_alive():
-                self._proc_thread.join(timeout=3.0)
+                self._proc_thread.join(timeout=5.0)
+                if self._proc_thread.is_alive():
+                    # Zombie thread — force-clear state to prevent permanent hang
+                    logger.warning(
+                        "Agent thread still alive after 5s timeout — "
+                        "force-clearing processing state (zombie thread)"
+                    )
+                    self._processing.clear()
+                    self.agent._busy = False
 
         # LLM-driven coding mode detection (replaces keyword matching)
         if not self._coding_mode:
@@ -71,7 +92,13 @@ class InputDispatcher:
             except Exception:
                 pass  # On router failure, skip auto-activation
 
-        # Start new processing
+        # Start new processing — wait for stream_lock to ensure previous
+        # stream_chat has fully released before starting a new thread.
+        if hasattr(self.agent, '_stream_lock'):
+            acquired = self.agent._stream_lock.acquire(timeout=5.0)
+            if acquired:
+                self.agent._stream_lock.release()
+
         self._proc_thread = threading.Thread(
             target=self._run_agent,
             args=(user_input,),
@@ -82,6 +109,39 @@ class InputDispatcher:
     def is_busy(self) -> bool:
         """Check if agent is currently processing."""
         return self._processing.is_set()
+
+    def _show_interrupting_status(self) -> None:
+        """Immediately update status bar to show interrupt was received."""
+        from .ui._colors import _C
+
+        self.layout.set_status(self.renderer._format_status(
+            _C("⏸ Interrupting…", "yellow")
+        ))
+        self.renderer._spinner.stop()
+        self.renderer._spinner.start("Interrupting…")
+
+    def _force_kill_watchdog(self) -> None:
+        """Wait up to 5s for interrupt to complete; force-clear state if it doesn't."""
+        from .ui._colors import _C
+
+        # Wait for processing to finish (interrupt should clear it)
+        deadline = time.time() + 5.0
+        while self._processing.is_set() and time.time() < deadline:
+            time.sleep(0.1)
+
+        if self._processing.is_set():
+            # Interrupt didn't complete within 5s — force-clear all state
+            logger.warning(
+                "Interrupt did not complete within 5s — force-clearing all state"
+            )
+            self._processing.clear()
+            self.agent._busy = False
+            self.agent._cancel.clear()
+            self.layout.set_prompt_indicator(busy=False)
+            self.renderer._spinner.stop()
+            self.layout.append_output(
+                _C("\n  ⚠ Force stopped — interrupt timed out after 5s\n", "yellow")
+            )
 
     def _run_agent(self, user_input: str) -> None:
         """Background thread: stream agent response to output pane."""

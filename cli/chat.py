@@ -129,7 +129,6 @@ def _plain_cli(agent, cfg: dict) -> None:
 
     def _show_permission_ui(name: str, args: dict) -> bool:
         """Render the permission prompt — always runs in terminal context."""
-        _spinner_stop()
         arg_preview = ", ".join(f"{k}={repr(v)[:40]}" for k, v in list(args.items())[:3])
         print()
         print(_C("  ┌─ Permission Required ", "yellow", "bold") + _C("─" * 40, "gold"))
@@ -173,9 +172,45 @@ def _plain_cli(agent, cfg: dict) -> None:
             return True
         if name in _SAFE_TOOLS or name in _session_allowed or name in _permanent_allowed:
             return True
-        # Permission UI runs directly — since we're in a background thread
-        # and the prompt_toolkit Application handles input separately,
-        # we can safely call the permission UI from the agent thread.
+        # Stop spinner before showing permission UI to avoid display corruption
+        _spinner_stop()
+        # If a prompt_toolkit Application is running, use run_in_terminal to
+        # temporarily suspend the TUI, run the permission menu in raw terminal,
+        # then resume the TUI. This prevents print() from a background thread
+        # corrupting the prompt_toolkit display.
+        pt_app = get_app_or_none() if _HAS_PT else None
+        if pt_app is not None and pt_app.is_running and pt_app.loop is not None:
+            import asyncio
+            from prompt_toolkit.application import run_in_terminal
+
+            result = [False]
+
+            def _permission_in_terminal():
+                result[0] = _show_permission_ui(name, args)
+
+            # Schedule run_in_terminal on the app's event loop from this
+            # background thread, then block until the UI interaction completes.
+            # This bridges the background thread (where the agent runs) to the
+            # main event loop thread (where prompt_toolkit UI lives).
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    run_in_terminal(_permission_in_terminal, render_cli_done=False),
+                    pt_app.loop,
+                )
+                # Block the background thread until the permission UI finishes.
+                # Timeout prevents permanent hang if the app exits mid-prompt.
+                future.result(timeout=300)  # 5 min timeout for user response
+            except (asyncio.CancelledError, asyncio.InvalidStateError):
+                # App was closed while waiting for permission — deny by default
+                return False
+            except TimeoutError:
+                # User didn't respond within timeout — deny by default
+                return False
+            except Exception:
+                # Event loop closed or other unexpected error — deny safely
+                return False
+            return result[0]
+        # No prompt_toolkit app running — call permission UI directly (plain CLI)
         return _show_permission_ui(name, args)
 
     agent.permission_callback = _ask_permission
@@ -561,6 +596,8 @@ def _plain_cli(agent, cfg: dict) -> None:
                     dispatcher._coding_session.interrupt()
                 else:
                     agent.interrupt()
+                # Immediate UX feedback — don't wait for agent to actually stop
+                dispatcher._show_interrupting_status()
             else:
                 event.app.exit()
 
@@ -613,7 +650,16 @@ def _plain_cli(agent, cfg: dict) -> None:
             if _processing.is_set():
                 agent.interrupt()
                 if _proc_thread[0]:
-                    _proc_thread[0].join(timeout=3)
+                    _proc_thread[0].join(timeout=5)
+                    if _proc_thread[0].is_alive():
+                        # Zombie thread — force-clear state to prevent permanent hang
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning(
+                            "Agent thread still alive after 5s timeout — "
+                            "force-clearing processing state (zombie thread)"
+                        )
+                        _processing.clear()
+                        agent._busy = False
                 continue
             _hr()
             print(_C("\n  Goodbye! 👋\n", "yellow"))

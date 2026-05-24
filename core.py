@@ -175,6 +175,8 @@ class Agent:
         # Interrupt/cancel support — set to cancel the current stream_chat loop
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
+        # Prevents concurrent stream_chat calls (message list corruption)
+        self._stream_lock: threading.Lock = threading.Lock()
         # LLM-driven intent router (replaces keyword-based routing)
         self._router = IntentRouter(provider)
         kanban.init_db(db_path)
@@ -346,115 +348,119 @@ class Agent:
         """
         import time, json as _json
 
-        self._refresh_memory_context(user_input)
-        self.messages.append({"role": "user", "content": user_input})
-        tools = _select_tools(user_input)
-
-        self._cancel.clear()
-        self._busy = True
-
+        self._stream_lock.acquire()
         try:
-            MAX_ROUNDS = 10  # safety cap
-            for _round in range(MAX_ROUNDS):
-                if self._cancel.is_set():
-                    yield {"type": "interrupted"}
-                    return
+            self._refresh_memory_context(user_input)
+            self.messages.append({"role": "user", "content": user_input})
+            tools = _select_tools(user_input)
 
-                if self.provider.supports_thinking:
-                    yield {"type": "thinking"}
+            self._cancel.clear()
+            self._busy = True
 
-                # ── Collect the streaming response ──────────────────────────────
-                full = ""
-                _tool_buf: dict[int, dict] = {}
-
-                for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
+            try:
+                MAX_ROUNDS = 10  # safety cap
+                for _round in range(MAX_ROUNDS):
                     if self._cancel.is_set():
                         yield {"type": "interrupted"}
                         return
-                    if isinstance(item, dict) and item.get("__tool_chunk__"):
-                        idx = item["index"]
-                        if idx not in _tool_buf:
-                            _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
-                        if item.get("name"):
-                            _tool_buf[idx]["name"] = item["name"]
-                        if item.get("id"):
-                            _tool_buf[idx]["id"] = item["id"]
-                        _tool_buf[idx]["args"] += item.get("args_chunk", "")
-                    else:
-                        token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
-                        if token:
-                            full += token
-                            yield {"type": "text", "token": token}
 
-                # ── No tool calls → pure text response, done ─────────────────────
-                if not _tool_buf:
-                    self.messages.append({"role": "assistant", "content": full})
-                    return
+                    if self.provider.supports_thinking:
+                        yield {"type": "thinking"}
 
-                # ── Build call list from buffered chunks ─────────────────────────
-                calls = []
-                for idx, stc in sorted(_tool_buf.items()):
-                    try:
-                        args_parsed = _json.loads(stc["args"] or "{}")
-                    except Exception:
-                        args_parsed = {}
-                    calls.append({
-                        "id": stc["id"] or stc["name"],
-                        "name": stc["name"],
-                        "arguments": args_parsed,
+                    # ── Collect the streaming response ──────────────────────────────
+                    full = ""
+                    _tool_buf: dict[int, dict] = {}
+
+                    for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
+                        if self._cancel.is_set():
+                            yield {"type": "interrupted"}
+                            return
+                        if isinstance(item, dict) and item.get("__tool_chunk__"):
+                            idx = item["index"]
+                            if idx not in _tool_buf:
+                                _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
+                            if item.get("name"):
+                                _tool_buf[idx]["name"] = item["name"]
+                            if item.get("id"):
+                                _tool_buf[idx]["id"] = item["id"]
+                            _tool_buf[idx]["args"] += item.get("args_chunk", "")
+                        else:
+                            token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                            if token:
+                                full += token
+                                yield {"type": "text", "token": token}
+
+                    # ── No tool calls → pure text response, done ─────────────────────
+                    if not _tool_buf:
+                        self.messages.append({"role": "assistant", "content": full})
+                        return
+
+                    # ── Build call list from buffered chunks ─────────────────────────
+                    calls = []
+                    for idx, stc in sorted(_tool_buf.items()):
+                        try:
+                            args_parsed = _json.loads(stc["args"] or "{}")
+                        except Exception:
+                            args_parsed = {}
+                        calls.append({
+                            "id": stc["id"] or stc["name"],
+                            "name": stc["name"],
+                            "arguments": args_parsed,
+                        })
+
+                    self.messages.append({
+                        "role": "assistant",
+                        "content": full or None,
+                        "tool_calls": calls,
                     })
 
-                self.messages.append({
-                    "role": "assistant",
-                    "content": full or None,
-                    "tool_calls": calls,
-                })
-
-                # ── Execute each tool call ────────────────────────────────────────
-                permanent_failure = False
-                for call in calls:
-                    if self._cancel.is_set():
-                        yield {"type": "interrupted"}
-                        return
-                    name, args = call["name"], call["arguments"]
-                    if self.permission_callback and not self.permission_callback(name, args):
-                        yield {"type": "tool_denied", "name": name}
+                    # ── Execute each tool call ────────────────────────────────────────
+                    permanent_failure = False
+                    for call in calls:
+                        if self._cancel.is_set():
+                            yield {"type": "interrupted"}
+                            return
+                        name, args = call["name"], call["arguments"]
+                        if self.permission_callback and not self.permission_callback(name, args):
+                            yield {"type": "tool_denied", "name": name}
+                            self.messages.append({
+                                "role": "tool",
+                                "tool_call_id": call["id"],
+                                "name": name,
+                                "content": "Permission denied by user.",
+                            })
+                            continue
+                        yield {"type": "tool_start", "name": name, "args": args}
+                        t0 = time.time()
+                        result = self._execute_tool(name, args)
+                        yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
+                        result_str = str(result)
                         self.messages.append({
                             "role": "tool",
                             "tool_call_id": call["id"],
                             "name": name,
-                            "content": "Permission denied by user.",
+                            "content": result_str,
                         })
-                        continue
-                    yield {"type": "tool_start", "name": name, "args": args}
-                    t0 = time.time()
-                    result = self._execute_tool(name, args)
-                    yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
-                    result_str = str(result)
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": call["id"],
-                        "name": name,
-                        "content": result_str,
-                    })
-                    if "PERMANENT FAILURE" in result_str:
-                        permanent_failure = True
+                        if "PERMANENT FAILURE" in result_str:
+                            permanent_failure = True
 
-                if permanent_failure:
-                    # Tell the model once, then stop — do not retry
-                    self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
-                    response = self.provider.chat(self._trim_messages(), tools=[])
-                    final = (response.get("content") or "").strip()
-                    if final:
-                        for tok in final:
-                            yield {"type": "text", "token": tok}
-                        self.messages.append({"role": "assistant", "content": final})
-                    return
-                # loop → ask model again with tool results
+                    if permanent_failure:
+                        # Tell the model once, then stop — do not retry
+                        self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
+                        response = self.provider.chat(self._trim_messages(), tools=[])
+                        final = (response.get("content") or "").strip()
+                        if final:
+                            for tok in final:
+                                yield {"type": "text", "token": tok}
+                            self.messages.append({"role": "assistant", "content": final})
+                        return
+                    # loop → ask model again with tool results
 
+            finally:
+                self._busy = False
+                self._cancel.clear()
         finally:
-            self._busy = False
-            self._cancel.clear()
+            self._stream_lock.release()
 
     def _refresh_memory_context(self, user_input: str) -> None:
         """

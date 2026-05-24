@@ -1,4 +1,5 @@
 """Base LLM provider interface."""
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Generator
 
@@ -27,8 +28,18 @@ class LLMProvider(ABC):
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> Generator[str, None, None]:
-        """Stream response tokens as a generator of strings."""
+        """Stream response tokens as a generator of strings.
+
+        Args:
+            messages: The conversation messages to send.
+            tools: Optional tool definitions for function calling.
+            cancel_event: When set, the provider should stop iterating over
+                the response stream and return early. Providers should check
+                ``cancel_event.is_set()`` periodically during iteration and
+                close the underlying connection when cancellation is requested.
+        """
 
     @abstractmethod
     def list_models(self) -> list[str]:

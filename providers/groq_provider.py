@@ -37,7 +37,7 @@ class GroqProvider(LLMProvider):
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
         kwargs = {"model": self._model, "messages": messages, "stream": True}
         if tools:
             kwargs["tools"] = tools
@@ -47,6 +47,10 @@ class GroqProvider(LLMProvider):
         tool_chunks: dict[int, dict] = {}
 
         for chunk in resp:
+            if cancel_event and cancel_event.is_set():
+                resp.close()
+                break
+
             choice = chunk.choices[0]
             delta = choice.delta
 

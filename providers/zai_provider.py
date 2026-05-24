@@ -36,7 +36,7 @@ class ZAIProvider(LLMProvider):
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
         import json
         kwargs = {"model": self._model, "messages": messages, "stream": True}
         if tools:

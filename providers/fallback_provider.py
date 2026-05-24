@@ -25,9 +25,9 @@ class FallbackProvider(LLMProvider):
             logger.warning("Primary provider failed (%s), switching to fallback.", e)
             return self.fallback.chat(messages, tools=tools)
 
-    def stream_chat(self, messages: list[dict], tools: list[dict] = None):
+    def stream_chat(self, messages: list[dict], tools: list[dict] = None, cancel_event=None):
         try:
-            yield from self.primary.stream_chat(messages, tools=tools)
+            yield from self.primary.stream_chat(messages, tools=tools, cancel_event=cancel_event)
         except Exception as e:
             logger.warning("Primary provider failed during stream (%s), switching to fallback.", e)
-            yield from self.fallback.stream_chat(messages, tools=tools)
+            yield from self.fallback.stream_chat(messages, tools=tools, cancel_event=cancel_event)
