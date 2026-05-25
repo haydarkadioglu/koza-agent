@@ -117,23 +117,6 @@ class InputDispatcher:
             except Exception:
                 pass  # On router failure, skip auto-activation
 
-        # LLM-driven background delegation
-        if not self._coding_mode:
-            try:
-                if not hasattr(self, '_last_decision'):
-                    self._last_decision = self.agent._router.classify(user_input)
-                decision = self._last_decision
-                if decision.delegate_to_background:
-                    from .ui._colors import _C
-                    self.layout.append_output(_C("  ℹ  Running in background…\n", "cyan"))
-                    self._start_background_task(user_input)
-                    del self._last_decision
-                    return
-                del self._last_decision
-            except Exception:
-                if hasattr(self, '_last_decision'):
-                    del self._last_decision
-
         # Start new processing — wait for stream_lock to ensure previous
         # stream_chat has fully released before starting a new thread.
         if hasattr(self.agent, '_stream_lock'):

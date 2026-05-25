@@ -183,45 +183,16 @@ async def _process_message(update, context, agent_factory: Callable,
     if not user_text:
         return
 
-    # ── LLM-driven background delegation (replaces keyword matching) ────────────
-    # Get or create agent first so we can use its router
+    # ── Background delegation disabled ────────────────────────────────────────
+    # Koza handles all requests directly. User can explicitly use spawn_subagent
+    # tool if they want background delegation.
+    # Get or create agent first
     permission_cb = None
     if kb_manager and bot_loop:
         permission_cb = _make_permission_callback(
             chat_id, context.bot, bot_loop, kb_manager
         )
     agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
-
-    # Use the router to decide if this should be a background task
-    try:
-        decision = agent._router.classify(user_text)
-        should_delegate = decision.delegate_to_background
-    except Exception:
-        should_delegate = False
-
-    if should_delegate and _bot_cfg:
-        cfg = _bot_cfg
-        db_path = cfg.get("db_path", "")
-        task_id = BackgroundTaskManager.create_task(user_text, cfg, db_path)
-        confirmation = f"🚀 Background task started: `{task_id}`\nGoal: {user_text}"
-        # Attach inline keyboard with Status/Cancel buttons
-        reply_markup = None
-        if kb_manager:
-            reply_markup = kb_manager.build_task_control_kb(task_id)
-        await context.bot.send_message(
-            chat_id=chat_id, text=confirmation, reply_markup=reply_markup
-        )
-        _register_completion_watcher(task_id, chat_id, context.bot, loop=bot_loop)
-        # Record in agent's conversation history so it knows about the task
-        agent.messages.append({"role": "user", "content": user_text})
-        agent.messages.append({
-            "role": "assistant",
-            "content": f"Arka plan görevi başlatıldı (task {task_id}). "
-                       f"Görev: {user_text[:100]}"
-        })
-        return
-
-    # Agent already created above for router access
 
     if agent._busy:
         agent.interrupt()
