@@ -216,8 +216,7 @@ async def _process_message(update, context, agent_factory: Callable,
         agent.messages.append({"role": "user", "content": user_text})
         agent.messages.append({
             "role": "assistant",
-            "content": f"Kodlama ekibini başlattım (task {task_id}). "
-                       f"Team Lead planlıyor, Backend/Frontend/Test Engineer sırayla çalışacak. "
+            "content": f"Arka plan görevi başlatıldı (task {task_id}). "
                        f"Görev: {user_text[:100]}"
         })
         return

@@ -46,6 +46,28 @@ class InputDispatcher:
         self._coding_session = None
         self.renderer.set_coding_mode(False)
 
+    def _start_background_task(self, user_input: str) -> None:
+        """Delegate a task to run in background and notify on completion."""
+        from .ui._colors import _C
+        from skills.agents import spawn_subagent
+
+        def _run_and_notify():
+            try:
+                result = spawn_subagent(user_input, wait=True)
+                self.layout.append_output(
+                    _C(f"\n  ✓  Background task completed:\n", "green")
+                )
+                # Show result summary (truncated)
+                summary = result[:500] if result else "(no output)"
+                self.layout.append_output(f"  {summary}\n\n")
+            except Exception as exc:
+                self.layout.append_output(
+                    _C(f"\n  ✗  Background task failed: {exc}\n\n", "red")
+                )
+
+        t = threading.Thread(target=_run_and_notify, daemon=True)
+        t.start()
+
     def submit(self, user_input: str) -> None:
         """Handle user submission — interrupt if busy, then process."""
         if not user_input:
@@ -94,6 +116,23 @@ class InputDispatcher:
                     self.layout.append_output(_C("  ℹ  Auto-activating coding mode…\n", "cyan"))
             except Exception:
                 pass  # On router failure, skip auto-activation
+
+        # LLM-driven background delegation
+        if not self._coding_mode:
+            try:
+                if not hasattr(self, '_last_decision'):
+                    self._last_decision = self.agent._router.classify(user_input)
+                decision = self._last_decision
+                if decision.delegate_to_background:
+                    from .ui._colors import _C
+                    self.layout.append_output(_C("  ℹ  Running in background…\n", "cyan"))
+                    self._start_background_task(user_input)
+                    del self._last_decision
+                    return
+                del self._last_decision
+            except Exception:
+                if hasattr(self, '_last_decision'):
+                    del self._last_decision
 
         # Start new processing — wait for stream_lock to ensure previous
         # stream_chat has fully released before starting a new thread.

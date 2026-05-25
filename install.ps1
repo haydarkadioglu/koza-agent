@@ -185,9 +185,25 @@ Write-Host "  ──────────────────────
 Write-Host "  Koza Agent installed successfully!" -ForegroundColor Green
 Write-Host "  ─────────────────────────────────────────" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Run " -NoNewline
-Write-Host "koza" -ForegroundColor White -NoNewline
-Write-Host " to start."
+
+# Verify koza is accessible in current session
+$env:PATH = "$ScriptsDir;$env:PATH"
+$kozaCheck = Get-Command koza -ErrorAction SilentlyContinue
+if ($kozaCheck) {
+    Write-Ok "koza command is ready: $($kozaCheck.Source)"
+    Write-Host ""
+    Write-Host "  Run " -NoNewline
+    Write-Host "koza" -ForegroundColor White -NoNewline
+    Write-Host " to start."
+} else {
+    Write-Warn "koza is installed but not found in this session."
+    Write-Host ""
+    Write-Host "  Run directly:" -ForegroundColor White
+    Write-Host "    $VenvKoza" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Or open a NEW PowerShell/terminal window and type:" -ForegroundColor DarkGray
+    Write-Host "    koza" -ForegroundColor Yellow
+}
 Write-Host "  Setup wizard will run on first launch." -ForegroundColor DarkGray
 Write-Host ""
 

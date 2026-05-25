@@ -2,11 +2,25 @@
 """Koza Agent — Entry point."""
 import sys
 
-# Set process title so Task Manager shows "Koza" instead of "python"
+# ── Windows: Enable VT100/ANSI escape sequences in cmd.exe ───────────────────
 if sys.platform == "win32":
     try:
         import ctypes
-        ctypes.windll.kernel32.SetConsoleTitleW("Koza Agent")
+        kernel32 = ctypes.windll.kernel32
+        # Set console title
+        kernel32.SetConsoleTitleW("Koza Agent")
+        # Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004) on stdout
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_ulong()
+        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+        mode.value |= 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        kernel32.SetConsoleMode(handle, mode)
+        # Also enable on stderr
+        handle_err = kernel32.GetStdHandle(-12)  # STD_ERROR_HANDLE
+        mode_err = ctypes.c_ulong()
+        kernel32.GetConsoleMode(handle_err, ctypes.byref(mode_err))
+        mode_err.value |= 0x0004
+        kernel32.SetConsoleMode(handle_err, mode_err)
     except Exception:
         pass
 try:
