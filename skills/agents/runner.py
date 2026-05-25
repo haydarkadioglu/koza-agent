@@ -42,7 +42,11 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
             handlers = {k: v for k, v in ALL_HANDLERS.items() if k in tools_filter}
         else:
             tools    = ALL_TOOLS
-            handlers = ALL_HANDLERS
+            handlers = dict(ALL_HANDLERS)  # copy — we'll wrap some entries below
+
+        # Sandbox: restrict write ops to the agent's working directory
+        from skills.agents._sandbox import apply_sandbox
+        handlers = apply_sandbox(handlers, str(agent_dir), str(agent_dir))
 
         wm_ctx  = wm_get_context()
         mem_ctx = get_relevant_context(goal, limit=6)

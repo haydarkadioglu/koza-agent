@@ -8,6 +8,7 @@ from router import IntentRouter, RoutingDecision
 from skills import (
     kanban, cron, session_memory, messaging, shared_memory, working_memory,
     email_skill, media, smarthome, social, productivity, notes, github_skill,
+    user_profile,
 )
 from tools.registry import ALL_TOOLS, ALL_HANDLERS
 
@@ -27,7 +28,8 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "kanban":     ["create_task", "list_tasks", "move_task", "update_task", "delete_task"],
     "cron":       ["create_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
-                   "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
+                   "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions",
+                   "user_rule_add", "user_note_add", "user_profile_list", "user_profile_delete"],
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents"],
     "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
                    "discord_send", "discord_get_messages", "whatsapp_send"],
@@ -72,7 +74,8 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "remind": ["cron"], "alarm": ["cron"],
     # memory
     "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
-    "session": ["memory"],
+    "session": ["memory"], "rule": ["memory"], "kural": ["memory"], "note about": ["memory"],
+    "always": ["memory"], "never do": ["memory"], "from now on": ["memory"],
     # agents
     "agent": ["agent"], "subagent": ["agent"], "parallel": ["agent"],
     # messaging
@@ -195,6 +198,10 @@ class Agent:
                 for m in prev_msgs:
                     if m.get("role") in ("user", "assistant"):
                         self.messages.append(m)
+        # Inject user rules & notes into system prompt
+        user_ctx = user_profile.get_user_context(db_path)
+        if user_ctx:
+            self.messages[0]["content"] += "\n\n" + user_ctx
         if cfg:
             email_skill.init_email(cfg)
             media.init_media(cfg)

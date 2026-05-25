@@ -168,6 +168,17 @@ async def _process_message(update, context, agent_factory: Callable,
     user_text = msg.text or msg.caption or ""
     image_path = None
 
+    # React with 👀 to acknowledge the message immediately
+    try:
+        from telegram import ReactionTypeEmoji
+        await context.bot.set_message_reaction(
+            chat_id=chat_id,
+            message_id=msg.message_id,
+            reaction=[ReactionTypeEmoji(emoji="👀")],
+        )
+    except Exception:
+        pass  # Reactions not available in all chat types — ignore
+
     # Photo support
     if msg.photo:
         photo = msg.photo[-1]
@@ -316,6 +327,17 @@ async def _process_message(update, context, agent_factory: Callable,
     # Final flush: clear status, show clean response
     status = ""
     await _flush(force=True)
+
+    # Change reaction to ✅ after response is complete
+    try:
+        from telegram import ReactionTypeEmoji
+        await context.bot.set_message_reaction(
+            chat_id=chat_id,
+            message_id=msg.message_id,
+            reaction=[ReactionTypeEmoji(emoji="✅")],
+        )
+    except Exception:
+        pass
 
 
 def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
