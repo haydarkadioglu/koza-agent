@@ -1,4 +1,4 @@
-"""Twitter/X search."""
+"""Twitter/X search + tweet posting via tweepy (write-access bearer token)."""
 import urllib.parse
 from ._base import _get, get_cfg
 
@@ -24,5 +24,22 @@ def twitter_search(query: str, limit: int = 10) -> str:
                 f"💬{m.get('reply_count',0)}  [{t.get('created_at','')[:10]}]"
             )
         return "\n\n".join(lines)
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def twitter_post(text: str) -> str:
+    """Post a tweet using tweepy with OAuth 2.0 Bearer Token (write access)."""
+    token = get_cfg().get("twitter_bearer_token", "")
+    if not token:
+        return "Twitter Bearer Token not configured."
+    try:
+        import tweepy
+        client = tweepy.Client(bearer_token=token)
+        resp = client.create_tweet(text=text)
+        tid = resp.data["id"]
+        return f"✅ Tweet posted! ID: {tid}"
+    except ImportError:
+        return "ERROR: tweepy not installed. Run: pip install tweepy"
     except Exception as e:
         return f"ERROR: {e}"

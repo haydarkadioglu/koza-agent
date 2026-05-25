@@ -9,6 +9,13 @@ TOOL_DEFINITIONS = [
             "limit": {"type": "integer", "default": 10},
         }, "required": ["query"]},
     }},
+    {"type": "function", "function": {
+        "name": "twitter_post",
+        "description": "Post a tweet to Twitter/X using tweepy and a write-access bearer token.",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "Tweet text (max 280 chars)"},
+        }, "required": ["text"]},
+    }},
     # ── Reddit ───────────────────────────────────────────────────────────────
     {"type": "function", "function": {
         "name": "reddit_search",
