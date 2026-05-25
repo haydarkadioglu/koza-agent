@@ -7,11 +7,10 @@ import sys
 import shutil
 import time
 import threading
-import queue as _queue
 
 from cli.ui import (
     _C, _hr, _print_error, _print_inline_help, _print_banner,
-    _spinner_start, _spinner_stop, _spinner_set, _spinner_active_check,
+    _spinner_stop,
     _select_menu,
 )
 
@@ -243,128 +242,68 @@ def _plain_cli(agent, cfg: dict) -> None:
         print(line)
         print(_C("─" * tw, "grey"))
 
+    # ── Plain layout adapter for fallback (non-prompt_toolkit) mode ──────────
+
+    class _PlainLayout:
+        """Lightweight layout adapter that writes directly to stdout.
+
+        Implements the same interface as ChatLayout (append_output, set_status,
+        clear_output) so StreamRenderer can be used in the fallback CLI path.
+        """
+
+        def append_output(self, text: str) -> None:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+
+        def set_status(self, text: str) -> None:
+            # In plain mode, status bar is printed on finalize via _status_bar()
+            pass
+
+        def clear_output(self) -> None:
+            pass
+
+        def set_prompt_indicator(self, busy: bool) -> None:
+            pass
+
+    _plain_layout = _PlainLayout()
+
     # ── Streaming processor (runs in background thread) ───────────────────────
-    _TOOL_STATUS = {
-        "web_search": "Searching the web", "fetch_url": "Fetching URL",
-        "run_command": "Running command",   "run_python": "Running Python",
-        "run_node": "Running Node.js",      "read_file": "Reading file",
-        "write_file": "Writing file",       "list_dir": "Listing directory",
-        "send_message": "Sending message",  "telegram_send": "Sending Telegram message",
-        "discord_send": "Sending Discord message",
-        "memory_store": "Saving to memory", "memory_recall": "Recalling memory",
-        "github_search_code": "Searching GitHub",
-        "github_create_issue": "Creating GitHub issue",
-        "crypto_price": "Fetching crypto price", "stock_price": "Fetching stock price",
-        "arxiv_search": "Searching arXiv", "wikipedia_search": "Searching Wikipedia",
-        "get_config": "Checking config",   "set_config": "Updating config",
-        "spawn_subagent": "Spawning sub-agent",
-        "create_task": "Creating task",    "list_tasks": "Listing tasks",
-    }
 
     def _process(user_input: str) -> None:
         nonlocal total_tokens
         _processing.set()
-        t_start       = time.time()
-        text_started  = False
-        full_response = ""
-        tw = shutil.get_terminal_size((100, 24)).columns
+        t_start = time.time()
 
-        def _open_box(label: str = "Koza"):
-            """Print the agent box header on first text token."""
-            print()
-            llen = len(label) + 6
-            print(_C(f"  ╭─ {label} ", "yellow", "bold") + _C("─" * max(tw - llen, 2), "gold"))
-            sys.stdout.write(_C("  │ ", "yellow"))
-            sys.stdout.flush()
-
-        def _write_token(token: str) -> None:
-            """Write a streaming token, handling newlines with proper box indent."""
-            if "\n" in token:
-                parts = token.split("\n")
-                for i, part in enumerate(parts):
-                    if part:
-                        sys.stdout.write(part)
-                    if i < len(parts) - 1:
-                        sys.stdout.write("\n" + _C("  │ ", "yellow"))
-            else:
-                sys.stdout.write(token)
-            sys.stdout.flush()
+        from cli.ui import StreamRenderer
+        renderer = StreamRenderer(
+            _plain_layout,
+            model_name=model_name,
+            token_limit=token_limit,
+            session_start=session_start,
+        )
+        # Carry over accumulated token count from previous requests
+        renderer._total_tokens = total_tokens
 
         try:
             for event in agent.stream_chat(user_input):
                 if not isinstance(event, dict):
                     continue
-                etype = event.get("type")
-
-                if etype == "interrupted":
-                    _spinner_stop()
-                    if text_started:
-                        print()
-                        print(_C("  ╰─", "yellow") + _C("  (interrupted)", "grey"))
-                    else:
-                        print(_C("\n  (interrupted)", "grey"))
+                renderer.handle_event(event)
+                if event.get("type") == "interrupted":
                     break
-
-                elif etype == "thinking":
-                    if not text_started:
-                        _spinner_start("  Thinking…")
-
-                elif etype == "tool_start":
-                    name    = event["name"]
-                    args    = event.get("args", {})
-                    # Hide bulky code/script args — show only lightweight args
-                    _HIDDEN_ARGS = {"code", "script", "content", "text", "body"}
-                    visible_args = {k: v for k, v in args.items() if k not in _HIDDEN_ARGS}
-                    arg_str = ", ".join(f"{k}={repr(v)}" for k, v in list(visible_args.items())[:2])
-                    label   = _TOOL_STATUS.get(name, f"Running {name}")
-                    _spinner_set(f"  {label}…")
-                    if not _spinner_active_check():
-                        _spinner_start(f"  {label}…")
-                    print(
-                        "\r" + " " * 80 + "\r" +
-                        _C(f"  ⚙  {name}", "cyan") +
-                        (_C(f"  ({arg_str[:60]})", "grey") if arg_str else ""),
-                        flush=True,
-                    )
-
-                elif etype == "tool_done":
-                    _spinner_stop()
-                    name    = event["name"]
-                    elapsed = event.get("elapsed", 0)
-                    result  = str(event.get("result", ""))
-                    lines   = [l for l in result.splitlines() if l.strip()]
-                    summary = (lines[0][:80] + ("…" if len(lines[0]) > 80 else "")) if lines else "(no output)"
-                    extra   = _C(f"  +{len(lines)-1} lines", "grey") if len(lines) > 1 else ""
-                    print(
-                        _C(f"  ✓  {name}", "green") +
-                        _C(f"  {elapsed:.2f}s", "grey") +
-                        _C(f"  → {summary}", "white") + extra,
-                        flush=True,
-                    )
-                    _spinner_start("  Thinking…")
-
-                elif etype == "text":
-                    token = event.get("token", "")
-                    if not text_started:
-                        _spinner_stop()
-                        text_started = True
-                        _open_box()
-                    _write_token(token)
-                    full_response += token
-                    total_tokens  += max(1, len(token) // 4)
-
         except Exception as exc:
-            _spinner_stop()
+            renderer._spinner.stop()
             print()
             _print_error(exc)
         finally:
-            _spinner_stop()
+            elapsed = time.time() - t_start
+            had_response = bool(renderer._full_response.strip())
+            renderer.finalize(elapsed)
+            total_tokens = renderer._total_tokens
             _processing.clear()
 
-        if text_started and full_response.strip():
-            elapsed = time.time() - t_start
-            print()
-            print(_C("  ╰─", "yellow") + _C(f"  {elapsed:.1f}s", "grey"))
+        # Print status bar after response completes
+        if had_response:
             print()
             _status_bar()
 
@@ -641,6 +580,22 @@ def _plain_cli(agent, cfg: dict) -> None:
         return
 
     # ── Fallback: simple blocking loop (no prompt_toolkit) ────────────────────
+
+    # Register SIGINT handler to ensure cancel_event is set within 100ms of
+    # Ctrl+C, regardless of what the main thread is doing at that moment.
+    import signal as _signal
+
+    def _sigint_handler(signum, frame):
+        """Immediately interrupt the agent on Ctrl+C (< 100ms guarantee)."""
+        if _processing.is_set():
+            agent.interrupt()
+            # Don't exit — let the fallback loop handle the interrupted state
+            return
+        # Not processing — raise KeyboardInterrupt for normal exit handling
+        raise KeyboardInterrupt
+
+    _signal.signal(_signal.SIGINT, _sigint_handler)
+
     while True:
         try:
             user_input = input(
@@ -683,10 +638,25 @@ def _plain_cli(agent, cfg: dict) -> None:
         if cmd:
             continue
 
+        # If agent is busy streaming, interrupt current stream first
+        if agent._busy:
+            agent.interrupt()
+            print(_C("  ⏳  Interrupting current stream…", "grey"))
+
         # Wait for any previous processing to finish before starting new one
+        # (the stream_lock inside agent.stream_chat ensures proper sequencing)
         if _proc_thread[0] and _proc_thread[0].is_alive():
             print(_C("  ⏳  Waiting for previous request to finish…", "grey"))
-            _proc_thread[0].join()
+            _proc_thread[0].join(timeout=5.0)
+            if _proc_thread[0].is_alive():
+                # Zombie thread — force-clear state to prevent permanent hang
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "Agent thread still alive after 5s timeout — "
+                    "force-clearing processing state (zombie thread)"
+                )
+                _processing.clear()
+                agent._busy = False
 
         total_tokens += max(1, len(user_input) // 4)
         _proc_thread[0] = threading.Thread(

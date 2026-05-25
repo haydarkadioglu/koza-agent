@@ -41,9 +41,11 @@ class OllamaProvider(LLMProvider):
         with requests.post(f"{self._base_url}/api/chat", json=payload, stream=True, timeout=120) as resp:
             resp.raise_for_status()
             buffered_tool_calls: list[dict] = []
+            cancelled = False
             for line in resp.iter_lines():
                 if cancel_event and cancel_event.is_set():
                     resp.close()
+                    cancelled = True
                     break
                 if line:
                     data = json.loads(line)
@@ -61,14 +63,16 @@ class OllamaProvider(LLMProvider):
                         yield content
 
         # After stream ends, yield buffered tool calls as __tool_chunk__ dicts
-        for i, tc in enumerate(buffered_tool_calls):
-            yield {
-                "__tool_chunk__": True,
-                "index": i,
-                "id": f"ollama_{i}",
-                "name": tc["name"],
-                "args_chunk": json.dumps(tc["arguments"]) if isinstance(tc["arguments"], dict) else tc["arguments"],
-            }
+        # (skip if cancelled — consistent with other providers)
+        if not cancelled:
+            for i, tc in enumerate(buffered_tool_calls):
+                yield {
+                    "__tool_chunk__": True,
+                    "index": i,
+                    "id": f"ollama_{i}",
+                    "name": tc["name"],
+                    "args_chunk": json.dumps(tc["arguments"]) if isinstance(tc["arguments"], dict) else tc["arguments"],
+                }
 
     def list_models(self) -> list[str]:
         try:

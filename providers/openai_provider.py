@@ -37,7 +37,7 @@ class OpenAIProvider(LLMProvider):
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str | dict, None, None]:
         kwargs = {"model": self._model, "messages": messages, "stream": True}
         if tools:
             kwargs["tools"] = tools
@@ -49,11 +49,12 @@ class OpenAIProvider(LLMProvider):
         for chunk in resp:
             if cancel_event and cancel_event.is_set():
                 resp.close()
-                break
+                return
 
             choice = chunk.choices[0]
             delta = choice.delta
 
+            # Buffer tool call deltas
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -66,12 +67,12 @@ class OpenAIProvider(LLMProvider):
                             tool_chunks[idx]["name"] += tc.function.name
                         if getattr(tc.function, "arguments", None):
                             tool_chunks[idx]["args"] += tc.function.arguments
-                continue
 
+            # Yield text content immediately
             if delta.content:
                 yield delta.content
 
-        # Yield tool call chunks after text stream ends
+        # Yield buffered tool call chunks after text stream completes
         for idx, stc in sorted(tool_chunks.items()):
             if stc["name"]:
                 try:

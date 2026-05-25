@@ -49,7 +49,7 @@ class GroqProvider(LLMProvider):
         for chunk in resp:
             if cancel_event and cancel_event.is_set():
                 resp.close()
-                break
+                return
 
             choice = chunk.choices[0]
             delta = choice.delta

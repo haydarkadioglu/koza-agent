@@ -342,6 +342,8 @@ class Agent:
           {"type": "tool_done",  "name": ..., "result": ..., "elapsed": float}
           {"type": "tool_denied", "name": ...}
           {"type": "text", "token": ...}               — streamed response token
+          {"type": "interrupted"}                      — cancelled by user
+          {"type": "error", "message": ...}            — provider/connection error
 
         Agentic loop: keeps calling tools until the model produces a pure-text
         response (no more tool calls / DSML bleed-through).
@@ -350,14 +352,14 @@ class Agent:
 
         self._stream_lock.acquire()
         try:
-            self._refresh_memory_context(user_input)
-            self.messages.append({"role": "user", "content": user_input})
-            tools = _select_tools(user_input)
-
             self._cancel.clear()
             self._busy = True
 
             try:
+                self._refresh_memory_context(user_input)
+                self.messages.append({"role": "user", "content": user_input})
+                tools = _select_tools(user_input)
+
                 MAX_ROUNDS = 10  # safety cap
                 for _round in range(MAX_ROUNDS):
                     if self._cancel.is_set():
@@ -371,24 +373,28 @@ class Agent:
                     full = ""
                     _tool_buf: dict[int, dict] = {}
 
-                    for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
-                        if self._cancel.is_set():
-                            yield {"type": "interrupted"}
-                            return
-                        if isinstance(item, dict) and item.get("__tool_chunk__"):
-                            idx = item["index"]
-                            if idx not in _tool_buf:
-                                _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
-                            if item.get("name"):
-                                _tool_buf[idx]["name"] = item["name"]
-                            if item.get("id"):
-                                _tool_buf[idx]["id"] = item["id"]
-                            _tool_buf[idx]["args"] += item.get("args_chunk", "")
-                        else:
-                            token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
-                            if token:
-                                full += token
-                                yield {"type": "text", "token": token}
+                    try:
+                        for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
+                            if self._cancel.is_set():
+                                yield {"type": "interrupted"}
+                                return
+                            if isinstance(item, dict) and item.get("__tool_chunk__"):
+                                idx = item["index"]
+                                if idx not in _tool_buf:
+                                    _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
+                                if item.get("name"):
+                                    _tool_buf[idx]["name"] = item["name"]
+                                if item.get("id"):
+                                    _tool_buf[idx]["id"] = item["id"]
+                                _tool_buf[idx]["args"] += item.get("args_chunk", "")
+                            else:
+                                token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                                if token:
+                                    full += token
+                                    yield {"type": "text", "token": token}
+                    except Exception as e:
+                        yield {"type": "error", "message": str(e)}
+                        return
 
                     # ── No tool calls → pure text response, done ─────────────────────
                     if not _tool_buf:
@@ -447,15 +453,21 @@ class Agent:
                     if permanent_failure:
                         # Tell the model once, then stop — do not retry
                         self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
-                        response = self.provider.chat(self._trim_messages(), tools=[])
-                        final = (response.get("content") or "").strip()
-                        if final:
-                            for tok in final:
-                                yield {"type": "text", "token": tok}
-                            self.messages.append({"role": "assistant", "content": final})
+                        try:
+                            response = self.provider.chat(self._trim_messages(), tools=[])
+                            final = (response.get("content") or "").strip()
+                            if final:
+                                for tok in final:
+                                    yield {"type": "text", "token": tok}
+                                self.messages.append({"role": "assistant", "content": final})
+                        except Exception as e:
+                            yield {"type": "error", "message": str(e)}
                         return
                     # loop → ask model again with tool results
 
+            except Exception as e:
+                # Catch any unexpected error not already handled above
+                yield {"type": "error", "message": str(e)}
             finally:
                 self._busy = False
                 self._cancel.clear()

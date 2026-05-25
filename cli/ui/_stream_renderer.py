@@ -192,9 +192,35 @@ class StreamRenderer:
 
         elif etype == "tool_denied":
             name = event.get("name", "")
+            self._spinner.stop()
             self.layout.append_output(
-                _C(f"  ✗  {name} denied", "red") + "\n"
+                _C("  │ ", self._current_box_color)
+                + _C(f"✗ {name} (denied)", "red") + "\n"
             )
+
+        elif etype == "error":
+            message = event.get("message", "Unknown error")
+            self._spinner.stop()
+            self._flush_line_buf()
+            if self._text_started:
+                # Error inside an open response box — show error and close
+                self.layout.append_output(
+                    "\n" + _C("  │ ", self._current_box_color)
+                    + _C(f"Error: {message}", "red") + "\n"
+                )
+                self._close_response_box("error")
+            else:
+                # Error before any text — open a minimal error box
+                self.layout.append_output(
+                    "\n" + _C("  ╭─ ", "red")
+                    + _C("Error ", "red", "bold")
+                    + _C("─" * 40, "red") + "\n"
+                    + _C("  │ ", "red")
+                    + _C(message, "red") + "\n"
+                    + _C("  ╰─", "red")
+                    + _C("─" * 42, "red") + "\n\n"
+                )
+            self._reset()
 
         # ── Coding mode events ────────────────────────────────────────────
 

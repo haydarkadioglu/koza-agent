@@ -51,11 +51,13 @@ class DeepSeekProvider(LLMProvider):
         # accumulated text for DSML bleed-through and yield corrections.
         text_buf = ""  # accumulate for post-stream DSML check
         tool_chunks: dict[int, dict] = {}
+        cancelled = False
 
         for chunk in resp:
             # ── Cancel support ────────────────────────────────────────────
             if cancel_event and cancel_event.is_set():
                 resp.close()
+                cancelled = True
                 break
 
             choice = chunk.choices[0]
@@ -81,6 +83,10 @@ class DeepSeekProvider(LLMProvider):
             if token:
                 text_buf += token
                 yield token
+
+        # If cancelled, stop immediately — don't yield tool chunks or DSML
+        if cancelled:
+            return
 
         # ── Yield structured tool chunks (from proper API tool_calls) ─────────
         for idx, stc in sorted(tool_chunks.items()):

@@ -1,5 +1,6 @@
 """Anthropic (Claude) provider."""
 import json
+import threading
 from typing import Generator
 import anthropic
 from .base import LLMProvider
@@ -45,7 +46,26 @@ class AnthropicProvider(LLMProvider):
                 tool_calls.append({"id": block.id, "name": block.name, "arguments": block.input})
         return {"content": content_text, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
+    def stream_chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> Generator[str | dict, None, None]:
+        """Stream response tokens from Anthropic's API.
+
+        Yields:
+            str — text token (immediate, unbuffered)
+            dict — tool chunk: {"__tool_chunk__": True, "index": int,
+                    "id": str, "name": str, "args_chunk": str}
+
+        Cancellation:
+            Checks cancel_event.is_set() on each event. When set, closes
+            the stream and returns immediately.
+
+        Errors:
+            Connection errors propagate as exceptions (not caught).
+        """
         system = next((m["content"] for m in messages if m["role"] == "system"), None)
         msgs = [m for m in messages if m["role"] != "system"]
         kwargs = {"model": self._model, "max_tokens": 4096, "messages": msgs}
@@ -67,8 +87,10 @@ class AnthropicProvider(LLMProvider):
 
         with self._client.messages.stream(**kwargs) as stream:
             for event in stream:
+                # Check cancellation on each event iteration
                 if cancel_event and cancel_event.is_set():
-                    break
+                    stream.close()
+                    return
 
                 # content_block_start: begins a new content block (text or tool_use)
                 if event.type == "content_block_start":
