@@ -18,7 +18,7 @@
 ### Windows — one-liner (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex
+powershell -c "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex"
 ```
 
 ### Linux / macOS — one-liner

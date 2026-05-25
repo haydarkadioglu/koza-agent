@@ -1,10 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #  Koza Agent — Windows installer (PowerShell)
 #  Usage:
-#    irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex
+#    powershell -c "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex"
 #  Or locally:
 #    .\install.ps1
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Force TLS 1.2 — Windows PowerShell 5.1 defaults to TLS 1.0 which GitHub rejects
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $ErrorActionPreference = "Stop"
 
 # Prevent window from closing on error when run via irm | iex
