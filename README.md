@@ -28,15 +28,15 @@ curl -fsSL https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/inst
 ```
 
 Her iki script de:
-- Repo'yu `~/.koza-agent/` altına klonlar
+- Repo'yu `~/.koza-agent/` altına indirir (git varsa clone, yoksa ZIP)
 - Otomatik virtualenv oluşturur
 - Tüm bağımlılıkları kurar
 - `koza` komutunu PATH'e ekler
-- Tekrar çalıştırılırsa mevcut kurulumu günceller (`git pull`)
+- Tekrar çalıştırılırsa mevcut kurulumu günceller
 
-> **Gereksinimler:** Python 3.11+, git  
-> Windows: [python.org](https://python.org/downloads) + [git-scm.com](https://git-scm.com/downloads)  
-> macOS: `brew install python@3.12 git` · Debian/Ubuntu: `sudo apt install python3.12 git`
+> **Gereksinimler:** Python 3.11+ (git opsiyonel — yoksa ZIP ile indirir)  
+> Windows: [python.org](https://python.org/downloads)  
+> macOS: `brew install python@3.12` · Debian/Ubuntu: `sudo apt install python3.12`
 
 
 

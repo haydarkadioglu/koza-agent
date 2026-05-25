@@ -9,6 +9,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/haydarkadioglu/koza-agent.git"
+ZIP_URL="https://github.com/haydarkadioglu/koza-agent/archive/refs/heads/main.zip"
 INSTALL_DIR="${HOME}/.koza-agent"
 BIN_LINK="/usr/local/bin/koza"
 VENV_DIR="${INSTALL_DIR}/.venv"
@@ -60,19 +61,46 @@ done
 [[ -z "$PYTHON" ]] && error "Python 3.11+ not found. Install it first:\n      sudo apt install python3.12  (Debian/Ubuntu)\n      brew install python@3.12     (macOS)"
 success "Python found: $($PYTHON --version)"
 
-# ── Check git ────────────────────────────────────────────────────────────────
-command -v git &>/dev/null || error "git not found. Install: sudo apt install git"
-success "git found: $(git --version)"
-
-# ── Clone or update ──────────────────────────────────────────────────────────
-if [[ -d "${INSTALL_DIR}/.git" ]]; then
-    info "Updating existing install at ${INSTALL_DIR} …"
-    git -C "${INSTALL_DIR}" pull --ff-only --quiet
-    success "Repository updated."
+# ── Check git (optional) ─────────────────────────────────────────────────────
+HAS_GIT=false
+if command -v git &>/dev/null; then
+    HAS_GIT=true
+    success "git found: $(git --version)"
 else
-    info "Cloning koza-agent into ${INSTALL_DIR} …"
-    git clone --depth=1 "${REPO_URL}" "${INSTALL_DIR}"
-    success "Repository cloned."
+    warn "git not found — will use ZIP download instead."
+fi
+
+# ── Clone, update, or download ZIP ───────────────────────────────────────────
+if [[ "$HAS_GIT" == true ]]; then
+    if [[ -d "${INSTALL_DIR}/.git" ]]; then
+        info "Updating existing install at ${INSTALL_DIR} …"
+        git -C "${INSTALL_DIR}" pull --ff-only --quiet
+        success "Repository updated."
+    else
+        [[ -d "${INSTALL_DIR}" ]] && rm -rf "${INSTALL_DIR}"
+        info "Cloning koza-agent into ${INSTALL_DIR} …"
+        git clone --depth=1 "${REPO_URL}" "${INSTALL_DIR}"
+        success "Repository cloned."
+    fi
+else
+    info "Downloading koza-agent as ZIP …"
+    TMP_ZIP="/tmp/koza-agent.zip"
+    TMP_EXTRACT="/tmp/koza-agent-extract"
+    if command -v curl &>/dev/null; then
+        curl -fsSL "${ZIP_URL}" -o "${TMP_ZIP}"
+    elif command -v wget &>/dev/null; then
+        wget -q "${ZIP_URL}" -O "${TMP_ZIP}"
+    else
+        error "Neither curl nor wget found. Install one of them first."
+    fi
+    rm -rf "${TMP_EXTRACT}"
+    mkdir -p "${TMP_EXTRACT}"
+    unzip -q "${TMP_ZIP}" -d "${TMP_EXTRACT}"
+    [[ -d "${INSTALL_DIR}" ]] && rm -rf "${INSTALL_DIR}"
+    mv "${TMP_EXTRACT}"/koza-agent-main "${INSTALL_DIR}"
+    rm -f "${TMP_ZIP}"
+    rm -rf "${TMP_EXTRACT}"
+    success "Downloaded and extracted to ${INSTALL_DIR}"
 fi
 
 # ── Create virtual environment ───────────────────────────────────────────────

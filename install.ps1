@@ -22,6 +22,7 @@ trap {
 }
 
 $RepoUrl    = "https://github.com/haydarkadioglu/koza-agent.git"
+$ZipUrl     = "https://github.com/haydarkadioglu/koza-agent/archive/refs/heads/main.zip"
 $InstallDir = "$env:USERPROFILE\.koza-agent"
 $VenvDir    = "$InstallDir\.venv"
 
@@ -85,24 +86,44 @@ $PythonArgs = if ($PythonCmd -eq "py -3") { @("-3") } else { @() }
 $pyVer = & $PythonExe @PythonArgs --version 2>&1
 Write-Ok "Python found: $pyVer"
 
-# ── 3. Git check ────────────────────────────────────────────────────────────
+# ── 3. Git check (optional) ──────────────────────────────────────────────────
 
+$HasGit = $false
 $gitPath = Get-Command git -ErrorAction SilentlyContinue
-if (-not $gitPath) {
-    Write-Err "git not found. Install from https://git-scm.com/downloads"
-}
-Write-Ok "git found: $($gitPath.Source)"
-
-# ── 4. Clone or update ──────────────────────────────────────────────────────
-
-if (Test-Path "$InstallDir\.git") {
-    Write-Info "Updating existing install at $InstallDir ..."
-    git -C $InstallDir pull --ff-only --quiet
-    Write-Ok "Repository updated."
+if ($gitPath) {
+    $HasGit = $true
+    Write-Ok "git found: $($gitPath.Source)"
 } else {
-    Write-Info "Cloning koza-agent into $InstallDir ..."
-    git clone --depth=1 $RepoUrl $InstallDir
-    Write-Ok "Repository cloned."
+    Write-Warn "git not found — will use ZIP download instead."
+}
+
+# ── 4. Clone, update, or download ZIP ───────────────────────────────────────
+
+if ($HasGit) {
+    if (Test-Path "$InstallDir\.git") {
+        Write-Info "Updating existing install at $InstallDir ..."
+        git -C $InstallDir pull --ff-only --quiet
+        Write-Ok "Repository updated."
+    } else {
+        if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
+        Write-Info "Cloning koza-agent into $InstallDir ..."
+        git clone --depth=1 $RepoUrl $InstallDir
+        Write-Ok "Repository cloned."
+    }
+} else {
+    Write-Info "Downloading koza-agent as ZIP ..."
+    $TempZip = "$env:TEMP\koza-agent.zip"
+    $TempExtract = "$env:TEMP\koza-agent-extract"
+    Invoke-WebRequest -Uri $ZipUrl -OutFile $TempZip -UseBasicParsing
+    if (Test-Path $TempExtract) { Remove-Item -Recurse -Force $TempExtract }
+    Expand-Archive -Path $TempZip -DestinationPath $TempExtract -Force
+    # GitHub ZIP extracts to koza-agent-main/
+    $ExtractedDir = Get-ChildItem $TempExtract | Select-Object -First 1
+    if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
+    Move-Item -Path $ExtractedDir.FullName -Destination $InstallDir
+    Remove-Item -Force $TempZip
+    Remove-Item -Recurse -Force $TempExtract -ErrorAction SilentlyContinue
+    Write-Ok "Downloaded and extracted to $InstallDir"
 }
 
 # ── 5. Virtual environment ───────────────────────────────────────────────────
