@@ -7,6 +7,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 $ErrorActionPreference = "Stop"
 
+# Prevent window from closing on error when run via irm | iex
+trap {
+    Write-Host ""
+    Write-Host "  ✗  Installation failed: $_" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Press any key to close ..." -ForegroundColor DarkGray
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
+}
+
 $RepoUrl    = "https://github.com/haydarkadioglu/koza-agent.git"
 $InstallDir = "$env:USERPROFILE\.koza-agent"
 $VenvDir    = "$InstallDir\.venv"
@@ -34,7 +44,16 @@ function Write-Err($msg)     { Write-Host "  ✗  $msg" -ForegroundColor Red; ex
 
 Write-Banner
 
-# ── 1. Python check ─────────────────────────────────────────────────────────
+# ── 1. Execution Policy check ────────────────────────────────────────────────
+
+$currentPolicy = Get-ExecutionPolicy -Scope Process
+if ($currentPolicy -eq "Restricted") {
+    Write-Info "Setting execution policy for this session ..."
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+    Write-Ok "Execution policy set to Bypass (this session only)."
+}
+
+# ── 2. Python check ─────────────────────────────────────────────────────────
 
 $PythonCmd = $null
 foreach ($cmd in @("python", "python3", "py -3")) {
@@ -62,7 +81,7 @@ $PythonArgs = if ($PythonCmd -eq "py -3") { @("-3") } else { @() }
 $pyVer = & $PythonExe @PythonArgs --version 2>&1
 Write-Ok "Python found: $pyVer"
 
-# ── 2. Git check ────────────────────────────────────────────────────────────
+# ── 3. Git check ────────────────────────────────────────────────────────────
 
 $gitPath = Get-Command git -ErrorAction SilentlyContinue
 if (-not $gitPath) {
@@ -70,7 +89,7 @@ if (-not $gitPath) {
 }
 Write-Ok "git found: $($gitPath.Source)"
 
-# ── 3. Clone or update ──────────────────────────────────────────────────────
+# ── 4. Clone or update ──────────────────────────────────────────────────────
 
 if (Test-Path "$InstallDir\.git") {
     Write-Info "Updating existing install at $InstallDir ..."
@@ -82,7 +101,7 @@ if (Test-Path "$InstallDir\.git") {
     Write-Ok "Repository cloned."
 }
 
-# ── 4. Virtual environment ───────────────────────────────────────────────────
+# ── 5. Virtual environment ───────────────────────────────────────────────────
 
 if (-not (Test-Path $VenvDir)) {
     Write-Info "Creating virtual environment ..."
@@ -97,7 +116,7 @@ $VenvPip     = "$VenvDir\Scripts\pip.exe"
 $VenvKoza    = "$VenvDir\Scripts\koza.exe"
 $ScriptsDir  = "$VenvDir\Scripts"
 
-# ── 5. Install package ───────────────────────────────────────────────────────
+# ── 6. Install package ───────────────────────────────────────────────────────
 
 Write-Info "Installing Koza and dependencies (this may take a minute) ..."
 & $VenvPip install --quiet --upgrade pip
@@ -116,7 +135,7 @@ if (-not (Test-Path $VenvKoza)) {
     Write-Err "pip install did not create '$VenvKoza'. Check pyproject.toml."
 }
 
-# ── 6. Add to PATH (user-level, persistent) ─────────────────────────────────
+# ── 7. Add to PATH (user-level, persistent) ─────────────────────────────────
 
 $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 $pathEntries = $currentPath -split ";" | Where-Object { $_.Trim() -ne "" }
@@ -146,3 +165,9 @@ Write-Host "koza" -ForegroundColor White -NoNewline
 Write-Host " to start."
 Write-Host "  Setup wizard will run on first launch." -ForegroundColor DarkGray
 Write-Host ""
+
+# Keep window open when run via irm | iex so user can see the result
+if ($Host.Name -eq "ConsoleHost") {
+    Write-Host "  Press any key to close ..." -ForegroundColor DarkGray
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}

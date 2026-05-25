@@ -123,13 +123,27 @@ else
     LOCAL_BIN="${HOME}/.local/bin/koza"
     install_bin "${LOCAL_BIN}"
     # Add ~/.local/bin to PATH if missing
+    PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
     for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile"; do
         if [[ -f "$rc" ]] && ! grep -q '\.local/bin' "$rc" 2>/dev/null; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
+            echo "$PATH_LINE" >> "$rc"
             dim "Added ~/.local/bin to PATH in ${rc}"
         fi
     done
-    warn "~/.local/bin/koza created. Restart your shell or run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    # Apply to current session immediately
+    export PATH="$HOME/.local/bin:$PATH"
+    warn "~/.local/bin/koza created. If 'koza' is not found, run:  source ~/.bashrc  (or restart your shell)"
+fi
+
+# ── Verify koza is accessible ────────────────────────────────────────────────
+if command -v koza &>/dev/null; then
+    success "koza command is available: $(command -v koza)"
+else
+    warn "koza is installed but not in current PATH."
+    echo -e "${GREY}      Run one of:${RESET}"
+    echo -e "${GREY}        source ~/.bashrc${RESET}"
+    echo -e "${GREY}        export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}"
+    echo -e "${GREY}      Then try: koza${RESET}"
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
