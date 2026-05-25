@@ -80,7 +80,30 @@ def _plain_cli(agent, cfg: dict) -> None:
 
     _start_background_services()
 
-    # Register atexit hook — ensures background services survive terminal close
+    # ── Sub-agent completion notifier (CLI) ───────────────────────────────────
+    def _cli_subagent_notify(agent_id: str, status: str, goal: str, result: str) -> None:
+        """Called by SubAgentNotifier when a background sub-agent finishes."""
+        icon = "✅" if status == "done" else "❌"
+        msg = (
+            f"\n{icon} Alt-agent tamamlandı [{agent_id}] ({status})\n"
+            f"   Görev: {goal}\n"
+            f"   Özet:  {result[:200]}\n"
+            f"   Detay için: get_subagent_status('{agent_id}')\n"
+        )
+        layout = _ui_layout[0]
+        if layout is not None:
+            layout.append_output(msg)
+        else:
+            print(msg)
+
+    try:
+        from skills.agents.notifier import SubAgentNotifier
+        SubAgentNotifier.register(_cli_subagent_notify)
+        SubAgentNotifier.start()
+    except Exception:
+        pass
+
+
     def _atexit_spawn_services():
         if _active_services:
             try:
@@ -113,7 +136,8 @@ def _plain_cli(agent, cfg: dict) -> None:
         "wm_list", "wm_clear", "wm_get_context",
         "memory_recall", "memory_search", "memory_list", "memory_store",
         "recall_sessions", "list_sessions", "list_tasks", "list_crons", "list_subagents",
-        "get_subagent_status", "github_search_code", "github_list_prs",
+        "get_subagent_status", "subagent_get_result", "subagent_delete", "subagent_update",
+        "github_search_code", "github_list_prs",
         "github_repo_info", "pandas_query", "matplotlib_plot",
         "list_projects", "list_capabilities", "get_weather", "get_time",
         "calculator", "search_files", "get_cwd",

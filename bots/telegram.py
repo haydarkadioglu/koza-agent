@@ -380,6 +380,32 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             notifier.initialize(application.bot, loop, chat_id)
             notifier.schedule_daily_summary()
 
+            # ── Sub-agent completion notifications via SubAgentNotifier ──────
+            _tg_loop = loop
+            _tg_bot  = application.bot
+            _tg_chat = chat_id
+
+            def _tg_subagent_notify(agent_id: str, status: str, goal: str, result: str) -> None:
+                if not _tg_chat:
+                    return
+                icon = "✅" if status == "done" else "❌"
+                text = (
+                    f"{icon} *Alt-agent tamamlandı* `{agent_id}`\n"
+                    f"📋 Görev: {goal}\n"
+                    f"💬 Özet: {result[:300] or '(sonuç yok)'}"
+                )
+                asyncio.run_coroutine_threadsafe(
+                    _tg_bot.send_message(chat_id=_tg_chat, text=text, parse_mode="Markdown"),
+                    _tg_loop,
+                )
+
+            try:
+                from skills.agents.notifier import SubAgentNotifier
+                SubAgentNotifier.register(_tg_subagent_notify)
+                SubAgentNotifier.start()
+            except Exception:
+                pass
+
         app.post_init = _post_init
 
         # ── Callback query handler for inline buttons ────────────────────────

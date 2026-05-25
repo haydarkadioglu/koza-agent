@@ -138,6 +138,41 @@ def list_projects() -> str:
     return "Projects:\n" + "\n".join(lines)
 
 
+def subagent_get_result(agent_id: str) -> str:
+    """Get the full result/output of a completed sub-agent."""
+    ag = _subagents.get(agent_id)
+    if not ag:
+        return f"No sub-agent found with id '{agent_id}'."
+    if ag["status"] not in ("done", "error"):
+        return f"Sub-agent {agent_id} is still running (status: {ag['status']})."
+    result = ag.get("result", "") or "(no output)"
+    return f"[Sub-agent {agent_id} — {ag['status']}]\n{result}"
+
+
+def subagent_delete(agent_id: str) -> str:
+    """Remove a sub-agent from the registry. The thread continues running if not done."""
+    if agent_id not in _subagents:
+        return f"No sub-agent found with id '{agent_id}'."
+    ag = _subagents.pop(agent_id)
+    from .notifier import SubAgentNotifier
+    SubAgentNotifier._notified.discard(agent_id)
+    return f"Sub-agent {agent_id} removed from registry (was: {ag['status']})."
+
+
+def subagent_update(agent_id: str, new_goal: str, provider: str = "",
+                    model: str = "", tools: str = "", capabilities: str = "") -> str:
+    """Cancel the current sub-agent and spawn a new one with an updated goal."""
+    if agent_id in _subagents:
+        old = _subagents.pop(agent_id)
+        from .notifier import SubAgentNotifier
+        SubAgentNotifier._notified.discard(agent_id)
+        old_goal = old.get("goal", "")
+    else:
+        old_goal = ""
+    new_id_info = spawn_subagent(new_goal, provider, model, tools, capabilities, wait=False)
+    return f"Old agent {agent_id} ('{old_goal}') replaced.\n{new_id_info}"
+
+
 def clean_workspace(scope: str = "all") -> str:
     """
     Remove empty files and empty folders from the workspace.
@@ -255,6 +290,44 @@ TOOL_DEFINITIONS = [
         "parameters": {"type": "object", "properties": {}},
     },
     {
+        "name": "subagent_get_result",
+        "description": "Retrieve the full output of a completed sub-agent.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Sub-agent ID"},
+            },
+            "required": ["agent_id"],
+        },
+    },
+    {
+        "name": "subagent_delete",
+        "description": "Remove a finished or failed sub-agent from the registry.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Sub-agent ID"},
+            },
+            "required": ["agent_id"],
+        },
+    },
+    {
+        "name": "subagent_update",
+        "description": "Cancel a sub-agent and re-spawn it with a new goal (effectively an update).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_id":     {"type": "string", "description": "Existing sub-agent ID to replace"},
+                "new_goal":     {"type": "string", "description": "New goal for the replacement agent"},
+                "provider":     {"type": "string", "default": ""},
+                "model":        {"type": "string", "default": ""},
+                "tools":        {"type": "string", "default": ""},
+                "capabilities": {"type": "string", "default": ""},
+            },
+            "required": ["agent_id", "new_goal"],
+        },
+    },
+    {
         "name": "clean_workspace",
         "description": (
             "Remove empty files and empty folders from the workspace. "
@@ -278,6 +351,10 @@ HANDLERS: dict = {
     "get_subagent_status": lambda agent_id: get_subagent_status(agent_id),
     "list_subagents":      lambda **_: list_subagents(),
     "list_capabilities":   lambda **_: list_capabilities(),
+    "subagent_get_result": lambda agent_id: subagent_get_result(agent_id),
+    "subagent_delete":     lambda agent_id: subagent_delete(agent_id),
+    "subagent_update":     lambda agent_id, new_goal, provider="", model="", tools="", capabilities="":
+                               subagent_update(agent_id, new_goal, provider, model, tools, capabilities),
     "create_project":      lambda name, description="": create_project(name, description),
     "list_projects":       lambda **_: list_projects(),
     "clean_workspace":     lambda scope="all": clean_workspace(scope),
