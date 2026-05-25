@@ -498,7 +498,8 @@ def _plain_cli(agent, cfg: dict) -> None:
             token_limit=token_limit,
             session_start=session_start,
         )
-        dispatcher = InputDispatcher(agent, layout, renderer)
+        coding_enabled = cfg.get("coding_mode", {}).get("enabled", False)
+        dispatcher = InputDispatcher(agent, layout, renderer, coding_enabled=coding_enabled)
 
         # Expose layout/renderer/dispatcher to _handle_inline for slash commands
         _ui_layout[0] = layout

@@ -1,33 +1,20 @@
 # Changelog
 
-## v1.4.5
-
-### New Features
-
-- **Response Streaming**: Standardized streaming pipeline across all LLM providers (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, Groq, OpenRouter) with unified `stream_chat` generator interface
-- **Real-time CLI rendering**: Token-by-token output with box-framed display, spinner widgets for tool execution, and elapsed time tracking
-- **Interrupt support**: Ctrl+C cancellation during streaming with cooperative `threading.Event`-based cancellation (< 500ms response)
-- **Fallback mechanism**: Graceful degradation for providers without native streaming support (e.g., Gemini cookie-mode)
-- **Thread safety**: Per-agent stream lock and `_busy` flag to prevent concurrent streaming corruption
-
-### Improvements
-
-- Structured event system (`text`, `tool_start`, `tool_done`, `interrupted`, `error`) decouples streaming engine from CLI renderer
-- Property-based tests (Hypothesis) for 10 correctness properties covering cancel responsiveness, token type invariants, cleanup guarantees, and lock exclusivity
-
-### Bug Fixes
-
-- Stream lock is now always released in `finally` block to prevent deadlocks on error paths
-- New requests properly interrupt in-progress streams before starting
-
----
-
-## v1.4.4
-
-- Prompt externalization support
-- Initial `stream_chat` method with basic interrupt handling
-
-## v1.4.3
-
-- Added interrupt support for streaming responses
-- Background task improvements
+| Version | Notes |
+|---------|-------|
+| v1.4.51 | [changelog/v1.4.51.md](changelog/v1.4.51.md) |
+| v1.4.5 | [changelog/v1.4.5.md](changelog/v1.4.5.md) |
+| v1.4.4 | [changelog/v1.4.4.md](changelog/v1.4.4.md) |
+| v1.4.3 | [changelog/v1.4.3.md](changelog/v1.4.3.md) |
+| v1.4.2 | [changelog/v1.4.2.md](changelog/v1.4.2.md) |
+| v1.4.1 | [changelog/v1.4.1.md](changelog/v1.4.1.md) |
+| v1.4.0 | [changelog/v1.4.0.md](changelog/v1.4.0.md) |
+| v1.3.42 | [changelog/v1.3.42.md](changelog/v1.3.42.md) |
+| v1.3.4 | [changelog/v1.3.4.md](changelog/v1.3.4.md) |
+| v1.3.3 | [changelog/v1.3.3.md](changelog/v1.3.3.md) |
+| v1.3.2 | [changelog/v1.3.2.md](changelog/v1.3.2.md) |
+| v1.3.1 | [changelog/v1.3.1.md](changelog/v1.3.1.md) |
+| v1.3.0 | [changelog/v1.3.0.md](changelog/v1.3.0.md) |
+| v1.2.0 | [changelog/v1.2.0.md](changelog/v1.2.0.md) |
+| v1.1.0 | [changelog/v1.1.0.md](changelog/v1.1.0.md) |
+| v1.0.0 | [changelog/v1.0.0.md](changelog/v1.0.0.md) |

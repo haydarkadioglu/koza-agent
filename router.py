@@ -63,8 +63,9 @@ def _validate_groups(groups: list) -> list[str]:
 class IntentRouter:
     """Classifies user messages via a single LLM call returning structured JSON."""
 
-    def __init__(self, provider: "LLMProvider") -> None:
+    def __init__(self, provider: "LLMProvider", coding_enabled: bool = False) -> None:
         self._provider = provider
+        self._coding_enabled = coding_enabled
 
     def classify(self, message: str) -> RoutingDecision:
         """Classify user message into a routing decision.
@@ -96,7 +97,10 @@ class IntentRouter:
 
         return RoutingDecision(
             delegate_to_background=bool(data.get("delegate_to_background", False)),
-            activate_coding_mode=bool(data.get("activate_coding_mode", False)),
+            activate_coding_mode=(
+                bool(data.get("activate_coding_mode", False))
+                and self._coding_enabled
+            ),
             tool_groups=_validate_groups(data.get("tool_groups", [])),
             prompt_sections=[s for s in data.get("prompt_sections", []) if isinstance(s, str)],
         )

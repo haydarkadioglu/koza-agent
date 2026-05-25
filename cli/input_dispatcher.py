@@ -17,10 +17,11 @@ if TYPE_CHECKING:
 class InputDispatcher:
     """Routes user input: interrupts agent if busy, submits otherwise."""
 
-    def __init__(self, agent, layout: ChatLayout, renderer: StreamRenderer) -> None:
+    def __init__(self, agent, layout: ChatLayout, renderer: StreamRenderer, coding_enabled: bool = False) -> None:
         self.agent = agent
         self.layout: ChatLayout = layout
         self.renderer: StreamRenderer = renderer
+        self._coding_enabled = coding_enabled
         self._processing: threading.Event = threading.Event()
         self._proc_thread: Optional[threading.Thread] = None
         self._coding_mode: bool = False
@@ -30,6 +31,8 @@ class InputDispatcher:
 
     def enable_coding_mode(self) -> None:
         """Activate coding mode — subsequent messages use CodingSession."""
+        if not self._coding_enabled:
+            return  # silently ignore when feature gate is off
         from skills.agents.coding_mode import CodingSession
         cfg = self.agent.cfg if hasattr(self.agent, 'cfg') else {}
         db_path = self.agent.db_path if hasattr(self.agent, 'db_path') else ""
@@ -82,7 +85,7 @@ class InputDispatcher:
                     self.agent._busy = False
 
         # LLM-driven coding mode detection (replaces keyword matching)
-        if not self._coding_mode:
+        if not self._coding_mode and self._coding_enabled:
             try:
                 decision = self.agent._router.classify(user_input)
                 if decision.activate_coding_mode:

@@ -67,6 +67,11 @@ class BackgroundTaskManager:
     @staticmethod
     def create_task(goal: str, cfg: dict, db_path: str) -> str:
         """Create and start a new background task. Returns task_id."""
+        if not cfg.get("coding_mode", {}).get("enabled", False):
+            raise RuntimeError(
+                "Coding session is disabled. Use spawn_subagent() for background coding tasks."
+            )
+
         from skills.agents.coding_mode import CodingSession
 
         task_id = uuid.uuid4().hex[:8]

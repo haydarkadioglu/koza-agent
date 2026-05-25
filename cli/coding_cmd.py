@@ -196,6 +196,12 @@ def cmd_coding(args: list) -> None:
 
     cfg = load_config()
 
+    # ── Feature gate: coding_mode.enabled ──────────────────────────────────────
+    if not cfg.get("coding_mode", {}).get("enabled", False):
+        print(_C("  ℹ  Coding session is currently disabled.", "yellow"))
+        print(_C("  Koza handles coding directly. Use spawn_subagent() for delegation.", "grey"))
+        return
+
     try:
         from skills.agents.coding_mode import CodingSession
     except ImportError as e:
