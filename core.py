@@ -4,11 +4,9 @@ from typing import Callable
 
 from providers.base import LLMProvider
 from prompt import build_system_prompt
-from router import IntentRouter, RoutingDecision
 from skills import (
     kanban, cron, session_memory, messaging, shared_memory, working_memory,
     email_skill, media, smarthome, social, productivity, notes, github_skill,
-    user_profile,
 )
 from tools.registry import ALL_TOOLS, ALL_HANDLERS
 
@@ -28,8 +26,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "kanban":     ["create_task", "list_tasks", "move_task", "update_task", "delete_task"],
     "cron":       ["create_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
-                   "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions",
-                   "user_rule_add", "user_note_add", "user_profile_list", "user_profile_delete"],
+                   "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents"],
     "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
                    "discord_send", "discord_get_messages", "whatsapp_send"],
@@ -52,7 +49,6 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "gaming":     ["minecraft_command", "pokemon_lookup"],
     "mcp":        ["mcp_list_tools", "mcp_call_tool"],
     "productivity": ["google_calendar_list", "google_calendar_create", "google_sheets_read", "airtable_query"],
-    "background": ["start_background_task", "get_background_status", "list_background_tasks", "cancel_background_task"],
 }
 
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -71,11 +67,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "task": ["kanban"], "kanban": ["kanban"], "todo": ["kanban"], "doing": ["kanban"],
     # cron / schedule
     "schedule": ["cron"], "cron": ["cron"], "every day": ["cron"], "recurring": ["cron"],
-    "remind": ["cron"], "alarm": ["cron"],
     # memory
     "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
-    "session": ["memory"], "rule": ["memory"], "kural": ["memory"], "note about": ["memory"],
-    "always": ["memory"], "never do": ["memory"], "from now on": ["memory"],
+    "session": ["memory"],
     # agents
     "agent": ["agent"], "subagent": ["agent"], "parallel": ["agent"],
     # messaging
@@ -119,9 +113,6 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "minecraft": ["gaming"], "pokemon": ["gaming"],
     # productivity
     "calendar": ["productivity"], "sheets": ["productivity"], "airtable": ["productivity"],
-    # background
-    "background": ["background"], "background task": ["background"],
-    "coding task": ["background"], "in the background": ["background"],
 }
 
 def _tool_name(t: dict) -> str:
@@ -163,45 +154,20 @@ def _select_tools(user_input: str) -> list[dict]:
 
 class Agent:
     def __init__(self, provider: LLMProvider, db_path: str, cfg: dict = None,
-                 on_token: Callable[[str], None] | None = None,
-                 channel: str = ""):
+                 on_token: Callable[[str], None] | None = None):
         self.provider = provider
         self.on_token = on_token
-        self.channel = channel
-        self.cfg = cfg or {}
-        self.db_path = db_path
-        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt(channel=channel)}]
-        # Try to restore last session's conversation history
-        self._restore_last_session = True  # flag for lazy restore
+        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt()}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
-        # Prevents concurrent stream_chat calls (message list corruption)
-        self._stream_lock: threading.Lock = threading.Lock()
-        # LLM-driven intent router (replaces keyword-based routing)
-        coding_enabled = (self.cfg.get("coding_mode", {}).get("enabled", False))
-        self._router = IntentRouter(provider, coding_enabled=coding_enabled)
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
         working_memory.init_db(db_path)
-        # Clear stale working memory from previous sessions
-        working_memory.wm_clear()
-        # Restore last session's conversation history
-        if self._restore_last_session:
-            prev_msgs = session_memory.load_last_session()
-            if prev_msgs:
-                # Keep system prompt, append previous messages
-                for m in prev_msgs:
-                    if m.get("role") in ("user", "assistant"):
-                        self.messages.append(m)
-        # Inject user rules & notes into system prompt
-        user_ctx = user_profile.get_user_context(db_path)
-        if user_ctx:
-            self.messages[0]["content"] += "\n\n" + user_ctx
         if cfg:
             email_skill.init_email(cfg)
             media.init_media(cfg)
@@ -350,137 +316,121 @@ class Agent:
           {"type": "tool_done",  "name": ..., "result": ..., "elapsed": float}
           {"type": "tool_denied", "name": ...}
           {"type": "text", "token": ...}               — streamed response token
-          {"type": "interrupted"}                      — cancelled by user
-          {"type": "error", "message": ...}            — provider/connection error
 
         Agentic loop: keeps calling tools until the model produces a pure-text
         response (no more tool calls / DSML bleed-through).
         """
         import time, json as _json
 
-        self._stream_lock.acquire()
+        self._refresh_memory_context(user_input)
+        self.messages.append({"role": "user", "content": user_input})
+        tools = _select_tools(user_input)
+
+        self._cancel.clear()
+        self._busy = True
+
         try:
-            self._cancel.clear()
-            self._busy = True
+            MAX_ROUNDS = 10  # safety cap
+            for _round in range(MAX_ROUNDS):
+                if self._cancel.is_set():
+                    yield {"type": "interrupted"}
+                    return
 
-            try:
-                self._refresh_memory_context(user_input)
-                self.messages.append({"role": "user", "content": user_input})
-                tools = _select_tools(user_input)
+                if self.provider.supports_thinking:
+                    yield {"type": "thinking"}
 
-                MAX_ROUNDS = 10  # safety cap
-                for _round in range(MAX_ROUNDS):
+                # ── Collect the streaming response ──────────────────────────────
+                full = ""
+                _tool_buf: dict[int, dict] = {}
+
+                for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
                     if self._cancel.is_set():
                         yield {"type": "interrupted"}
                         return
+                    if isinstance(item, dict) and item.get("__tool_chunk__"):
+                        idx = item["index"]
+                        if idx not in _tool_buf:
+                            _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
+                        if item.get("name"):
+                            _tool_buf[idx]["name"] = item["name"]
+                        if item.get("id"):
+                            _tool_buf[idx]["id"] = item["id"]
+                        _tool_buf[idx]["args"] += item.get("args_chunk", "")
+                    else:
+                        token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                        if token:
+                            full += token
+                            yield {"type": "text", "token": token}
 
-                    if self.provider.supports_thinking:
-                        yield {"type": "thinking"}
+                # ── No tool calls → pure text response, done ─────────────────────
+                if not _tool_buf:
+                    self.messages.append({"role": "assistant", "content": full})
+                    return
 
-                    # ── Collect the streaming response ──────────────────────────────
-                    full = ""
-                    _tool_buf: dict[int, dict] = {}
-
+                # ── Build call list from buffered chunks ─────────────────────────
+                calls = []
+                for idx, stc in sorted(_tool_buf.items()):
                     try:
-                        for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
-                            if self._cancel.is_set():
-                                yield {"type": "interrupted"}
-                                return
-                            if isinstance(item, dict) and item.get("__tool_chunk__"):
-                                idx = item["index"]
-                                if idx not in _tool_buf:
-                                    _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
-                                if item.get("name"):
-                                    _tool_buf[idx]["name"] = item["name"]
-                                if item.get("id"):
-                                    _tool_buf[idx]["id"] = item["id"]
-                                _tool_buf[idx]["args"] += item.get("args_chunk", "")
-                            else:
-                                token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
-                                if token:
-                                    full += token
-                                    yield {"type": "text", "token": token}
-                    except Exception as e:
-                        yield {"type": "error", "message": str(e)}
-                        return
-
-                    # ── No tool calls → pure text response, done ─────────────────────
-                    if not _tool_buf:
-                        self.messages.append({"role": "assistant", "content": full})
-                        return
-
-                    # ── Build call list from buffered chunks ─────────────────────────
-                    calls = []
-                    for idx, stc in sorted(_tool_buf.items()):
-                        try:
-                            args_parsed = _json.loads(stc["args"] or "{}")
-                        except Exception:
-                            args_parsed = {}
-                        calls.append({
-                            "id": stc["id"] or stc["name"],
-                            "name": stc["name"],
-                            "arguments": args_parsed,
-                        })
-
-                    self.messages.append({
-                        "role": "assistant",
-                        "content": full or None,
-                        "tool_calls": calls,
+                        args_parsed = _json.loads(stc["args"] or "{}")
+                    except Exception:
+                        args_parsed = {}
+                    calls.append({
+                        "id": stc["id"] or stc["name"],
+                        "name": stc["name"],
+                        "arguments": args_parsed,
                     })
 
-                    # ── Execute each tool call ────────────────────────────────────────
-                    permanent_failure = False
-                    for call in calls:
-                        if self._cancel.is_set():
-                            yield {"type": "interrupted"}
-                            return
-                        name, args = call["name"], call["arguments"]
-                        if self.permission_callback and not self.permission_callback(name, args):
-                            yield {"type": "tool_denied", "name": name}
-                            self.messages.append({
-                                "role": "tool",
-                                "tool_call_id": call["id"],
-                                "name": name,
-                                "content": "Permission denied by user.",
-                            })
-                            continue
-                        yield {"type": "tool_start", "name": name, "args": args}
-                        t0 = time.time()
-                        result = self._execute_tool(name, args)
-                        yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
-                        result_str = str(result)
+                self.messages.append({
+                    "role": "assistant",
+                    "content": full or None,
+                    "tool_calls": calls,
+                })
+
+                # ── Execute each tool call ────────────────────────────────────────
+                permanent_failure = False
+                for call in calls:
+                    if self._cancel.is_set():
+                        yield {"type": "interrupted"}
+                        return
+                    name, args = call["name"], call["arguments"]
+                    if self.permission_callback and not self.permission_callback(name, args):
+                        yield {"type": "tool_denied", "name": name}
                         self.messages.append({
                             "role": "tool",
                             "tool_call_id": call["id"],
                             "name": name,
-                            "content": result_str,
+                            "content": "Permission denied by user.",
                         })
-                        if "PERMANENT FAILURE" in result_str:
-                            permanent_failure = True
+                        continue
+                    yield {"type": "tool_start", "name": name, "args": args}
+                    t0 = time.time()
+                    result = self._execute_tool(name, args)
+                    yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
+                    result_str = str(result)
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "name": name,
+                        "content": result_str,
+                    })
+                    if "PERMANENT FAILURE" in result_str:
+                        permanent_failure = True
 
-                    if permanent_failure:
-                        # Tell the model once, then stop — do not retry
-                        self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
-                        try:
-                            response = self.provider.chat(self._trim_messages(), tools=[])
-                            final = (response.get("content") or "").strip()
-                            if final:
-                                for tok in final:
-                                    yield {"type": "text", "token": tok}
-                                self.messages.append({"role": "assistant", "content": final})
-                        except Exception as e:
-                            yield {"type": "error", "message": str(e)}
-                        return
-                    # loop → ask model again with tool results
+                if permanent_failure:
+                    # Tell the model once, then stop — do not retry
+                    self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
+                    response = self.provider.chat(self._trim_messages(), tools=[])
+                    final = (response.get("content") or "").strip()
+                    if final:
+                        for tok in final:
+                            yield {"type": "text", "token": tok}
+                        self.messages.append({"role": "assistant", "content": final})
+                    return
+                # loop → ask model again with tool results
 
-            except Exception as e:
-                # Catch any unexpected error not already handled above
-                yield {"type": "error", "message": str(e)}
-            finally:
-                self._busy = False
-                self._cancel.clear()
         finally:
-            self._stream_lock.release()
+            self._busy = False
+            self._cancel.clear()
 
     def _refresh_memory_context(self, user_input: str) -> None:
         """

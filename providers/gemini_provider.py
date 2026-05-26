@@ -522,69 +522,35 @@ class GeminiProvider(LLMProvider):
                 })
         return {"content": content_text, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str | dict, None, None]:
+    def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
         if self._auth_mode == "cookie":
-            # Cookie-mode fallback: no native streaming available.
-            # Uses the base class _fallback_stream helper which calls self.chat()
-            # and yields tool chunks first, then the complete text response.
-            yield from self._fallback_stream(messages, tools=tools, cancel_event=cancel_event)
+            import json as _json
+            result = self.chat(messages, tools=tools)
+            # Yield tool chunks first so core.py's _tool_buf is populated
+            for idx, tc in enumerate(result.get("tool_calls") or []):
+                yield {
+                    "__tool_chunk__": True,
+                    "index": idx,
+                    "id":   tc.get("id") or tc.get("name"),
+                    "name": tc.get("name"),
+                    "args_chunk": _json.dumps(tc.get("arguments", {})),
+                }
+            if result.get("content"):
+                yield result["content"]
             return
 
-        # api_key streaming mode
-        import json as _json
+        # api_key streaming
         from google.genai import types
-
-        contents = []
-        system_text = None
-        for m in messages:
-            if m["role"] == "system":
-                system_text = m["content"]
-            elif m["role"] == "user":
-                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"])]))
-            elif m["role"] == "assistant":
-                contents.append(types.Content(role="model", parts=[types.Part(text=m["content"] or "")]))
-
-        kwargs: dict = {"model": self._model, "contents": contents}
-        if system_text:
-            kwargs["system_instruction"] = system_text
-        if tools:
-            kwargs["tools"] = self._convert_tools(tools)
-
-        stream = self._client.models.generate_content_stream(**kwargs)
-
-        # Buffer tool call data during streaming
-        tool_chunks: dict[int, dict] = {}
-
-        for chunk in stream:
-            if cancel_event and cancel_event.is_set():
-                stream.close()
-                return
-
-            # Process each candidate's parts
-            if chunk.candidates:
-                for part in chunk.candidates[0].content.parts:
-                    if hasattr(part, "function_call") and part.function_call:
-                        fc = part.function_call
-                        idx = len(tool_chunks)
-                        tool_chunks[idx] = {
-                            "id": fc.name,
-                            "name": fc.name,
-                            "args": dict(fc.args) if fc.args else {},
-                        }
-                    elif hasattr(part, "text") and part.text:
-                        yield part.text
-
-        # Yield buffered tool call chunks after text stream completes
-        for idx, tc in sorted(tool_chunks.items()):
-            if cancel_event and cancel_event.is_set():
-                return
-            yield {
-                "__tool_chunk__": True,
-                "index": idx,
-                "id": tc["id"],
-                "name": tc["name"],
-                "args_chunk": _json.dumps(tc["args"]),
-            }
+        contents = [
+            types.Content(
+                role="user" if m["role"] == "user" else "model",
+                parts=[types.Part(text=m["content"] or "")]
+            )
+            for m in messages if m["role"] != "system"
+        ]
+        for chunk in self._client.models.generate_content_stream(model=self._model, contents=contents):
+            if chunk.text:
+                yield chunk.text
 
     def list_models(self) -> list[str]:
         if self._auth_mode == "cookie":

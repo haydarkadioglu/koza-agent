@@ -11,7 +11,7 @@ CONFIG_PATH = Path.home() / ".Koza" / "config.yaml"
 
 def default_config() -> dict:
     return {
-        "provider": "",
+        "provider": "ollama",
         "model": "",
         "fallback_provider": "",
         "fallback_model": "",
@@ -65,7 +65,6 @@ def default_config() -> dict:
             "language":  "",        # force STT language (empty = auto-detect)
         },
         "coding_mode": {
-            "enabled":     False,   # master kill switch for CodingSession
             "max_retries": 3,       # max retry count when tests fail
             "auto_test":   True,    # run Test Engineer after every coding task
         },

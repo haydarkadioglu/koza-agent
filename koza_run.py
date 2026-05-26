@@ -2,34 +2,7 @@
 """Koza Agent — Entry point."""
 import sys
 
-# ── Windows: Enable VT100/ANSI escape sequences in cmd.exe ───────────────────
-if sys.platform == "win32":
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        # Set console title
-        kernel32.SetConsoleTitleW("Koza Agent")
-        # Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004) on stdout
-        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
-        mode = ctypes.c_ulong()
-        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
-        mode.value |= 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
-        kernel32.SetConsoleMode(handle, mode)
-        # Also enable on stderr
-        handle_err = kernel32.GetStdHandle(-12)  # STD_ERROR_HANDLE
-        mode_err = ctypes.c_ulong()
-        kernel32.GetConsoleMode(handle_err, ctypes.byref(mode_err))
-        mode_err.value |= 0x0004
-        kernel32.SetConsoleMode(handle_err, mode_err)
-    except Exception:
-        pass
-try:
-    import setproctitle
-    setproctitle.setproctitle("koza")
-except ImportError:
-    pass
-
-from cli.setup_constants import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER  # noqa: F401
+from cli.setup import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER  # noqa: F401
 from cli.daemon import cmd_start, cmd_status, cmd_quit
 from cli.setup import cmd_setup, cmd_provider
 from cli.commands import cmd_config, cmd_kanban, cmd_uninstall, cmd_telegram, cmd_version, cmd_update, cmd_help, cmd_clean, cmd_sync
@@ -54,7 +27,7 @@ _COMMANDS = {
     "-v":        cmd_version,
     "update":    cmd_update,
     "uninstall": cmd_uninstall,
-    "reset":     cmd_clean,
+    "clean":     cmd_clean,
     "sync":      cmd_sync,
     "voice":     cmd_voice,
     "coding":    cmd_coding,

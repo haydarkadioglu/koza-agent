@@ -122,7 +122,6 @@ class CodingSession:
         self.context    = CodingContext()
         self._cancel    = threading.Event()
         self._em        = ErrorMemory()   # per-session, cleared on new run()
-        self._current_gen: Generator | None = None  # active generator for cleanup on interrupt
 
         self._team_lead    = _make_agent(TEAM_LEAD_PROMPT,    cfg, db_path)
         self._backend_dev  = _make_agent(BACKEND_DEV_PROMPT,  cfg, db_path)
@@ -131,19 +130,9 @@ class CodingSession:
 
     def interrupt(self) -> None:
         self._cancel.set()
-        # Close the active generator to trigger any finally blocks
-        gen = self._current_gen
-        if gen is not None:
-            try:
-                gen.close()
-            except Exception:
-                pass
-            self._current_gen = None
         for agent in (self._team_lead, self._backend_dev,
                       self._frontend_dev, self._test_eng):
             agent.interrupt()
-            # Force-clear busy state to prevent stale locks after interrupt
-            agent._busy = False
 
     def _stream_agent(self, agent: Agent, prompt: str,
                       persona_name: str) -> Generator[dict, None, str]:
@@ -184,7 +173,6 @@ class CodingSession:
         )
         plan_text = ""
         gen = self._stream_agent(self._team_lead, plan_prompt, "Team Lead")
-        self._current_gen = gen
         try:
             while True:
                 ev = next(gen)
@@ -193,8 +181,6 @@ class CodingSession:
                     plan_text += ev["token"]
         except StopIteration:
             pass
-        finally:
-            self._current_gen = None
 
         plan = _extract_json_plan(plan_text)
         if not plan:
@@ -253,7 +239,6 @@ class CodingSession:
                                "message": f"Retry {retries}/{self.max_retries} for [{task_id}]"}
                     code_text = ""
                     gen = self._stream_agent(agent, task_prompt, persona.title())
-                    self._current_gen = gen
                     try:
                         while True:
                             ev = next(gen)
@@ -262,8 +247,6 @@ class CodingSession:
                                 code_text += ev["token"]
                     except StopIteration:
                         pass
-                    finally:
-                        self._current_gen = None
 
                     written = _extract_written_files(code_text)
                     self.context.written_files.extend(written)
@@ -290,7 +273,6 @@ class CodingSession:
                     test_text = ""
                     gen = self._stream_agent(
                         self._test_eng, test_prompt, "Test Engineer")
-                    self._current_gen = gen
                     try:
                         while True:
                             ev = next(gen)
@@ -299,8 +281,6 @@ class CodingSession:
                                 test_text += ev["token"]
                     except StopIteration:
                         pass
-                    finally:
-                        self._current_gen = None
 
                     passed, new_errors = _check_test_result(test_text)
 
@@ -346,7 +326,6 @@ class CodingSession:
                 )
                 test_text = ""
                 gen = self._stream_agent(self._test_eng, test_prompt, "Test Engineer")
-                self._current_gen = gen
                 try:
                     while True:
                         ev = next(gen)
@@ -355,8 +334,6 @@ class CodingSession:
                             test_text += ev["token"]
                 except StopIteration:
                     pass
-                finally:
-                    self._current_gen = None
 
                 passed, new_errors = _check_test_result(test_text)
                 for err in new_errors:
@@ -382,7 +359,6 @@ class CodingSession:
         )
         summary_text = ""
         gen = self._stream_agent(self._team_lead, summary_prompt, "Team Lead")
-        self._current_gen = gen
         try:
             while True:
                 ev = next(gen)
@@ -391,8 +367,6 @@ class CodingSession:
                     summary_text += ev["token"]
         except StopIteration:
             pass
-        finally:
-            self._current_gen = None
 
         yield {"type": "done", "summary": summary_text}
 

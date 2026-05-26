@@ -36,7 +36,7 @@ class DeepSeekProvider(LLMProvider):
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
         import json, re
         kwargs = {"model": self._model, "messages": messages, "stream": True}
         if tools:
@@ -44,26 +44,16 @@ class DeepSeekProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
         resp = self._client.chat.completions.create(**kwargs)
 
-        # ── Stream text incrementally, buffer tool_call chunks ────────────────
-        # Text tokens are yielded immediately as they arrive so that interrupt
-        # can stop token consumption. Tool call deltas are buffered because they
-        # must be complete before yielding. After the stream ends we check the
-        # accumulated text for DSML bleed-through and yield corrections.
-        text_buf = ""  # accumulate for post-stream DSML check
+        # ── Collect full response first, then post-process ────────────────────
+        # DeepSeek sometimes bleeds DSML tool-call XML into the text stream
+        # even when tools are passed. We buffer everything and clean up after.
+        text_buf = ""
         tool_chunks: dict[int, dict] = {}
-        cancelled = False
 
         for chunk in resp:
-            # ── Cancel support ────────────────────────────────────────────
-            if cancel_event and cancel_event.is_set():
-                resp.close()
-                cancelled = True
-                break
-
             choice = chunk.choices[0]
             delta = choice.delta
 
-            # Buffer tool_call deltas (need complete before yielding)
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -78,17 +68,9 @@ class DeepSeekProvider(LLMProvider):
                             tool_chunks[idx]["args"] += tc.function.arguments
                 continue
 
-            # Yield text tokens incrementally as they arrive
-            token = delta.content or ""
-            if token:
-                text_buf += token
-                yield token
+            text_buf += delta.content or ""
 
-        # If cancelled, stop immediately — don't yield tool chunks or DSML
-        if cancelled:
-            return
-
-        # ── Yield structured tool chunks (from proper API tool_calls) ─────────
+        # ── Yield structured tool chunks first (from proper API tool_calls) ───
         for idx, stc in sorted(tool_chunks.items()):
             if stc["name"]:
                 try:
@@ -103,22 +85,20 @@ class DeepSeekProvider(LLMProvider):
                     "args_chunk": json.dumps(args_parsed),
                 }
 
-        # ── Post-stream DSML cleanup ─────────────────────────────────────────
-        # DeepSeek sometimes bleeds DSML tool-call XML into the text stream
-        # even when tools are passed via the API. Since we already yielded the
-        # text incrementally, we check the accumulated buffer for DSML remnants
-        # and yield tool chunks as corrections if found.
-        _SEP = r"\s*[｜|]?\s*[｜|]?\s*"  # 0-2 pipes with optional whitespace
+        # ── Post-process text: extract any DSML blocks as tool calls ──────────
+        # DSML uses fullwidth ｜ (U+FF5C), NOT ASCII |
+        # Patterns must match the actual unicode chars in the bleed-through text
+        _P = "｜"  # U+FF5C fullwidth vertical line
         dsml_pattern = re.compile(
-            rf"<{_SEP}DSML{_SEP}tool_calls\s*>(.*?)<\s*/?{_SEP}DSML{_SEP}tool_calls\s*>",
+            rf"<{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>",
             re.DOTALL
         )
         invoke_pattern = re.compile(
-            rf'<{_SEP}DSML{_SEP}invoke\s+name=["\']([^"\']+)["\']>(.*?)<\s*/?{_SEP}DSML{_SEP}invoke\s*>',
+            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}invoke\s+name=["\']([^"\']+)["\']>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}invoke>',
             re.DOTALL
         )
         param_pattern = re.compile(
-            rf'<{_SEP}DSML{_SEP}parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)<\s*/?{_SEP}DSML{_SEP}parameter\s*>',
+            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}parameter>',
             re.DOTALL
         )
 
@@ -151,12 +131,19 @@ class DeepSeekProvider(LLMProvider):
                 dsml_counter[0] += 1
             return ""
 
-        if dsml_pattern.search(text_buf):
-            dsml_pattern.sub(_collect_dsml, text_buf)
+        clean_text = dsml_pattern.sub(_collect_dsml, text_buf).strip()
 
-            # Yield DSML-extracted tool calls as corrections
-            for tc_event in dsml_tool_yields:
-                yield tc_event
+        # Yield DSML-extracted tool calls
+        for tc_event in dsml_tool_yields:
+            yield tc_event
+
+        # ── Finally yield clean text ──────────────────────────────────────────
+        if clean_text and not tool_chunks and not dsml_tool_yields:
+            # Pure text response — yield in chunks for a natural feel
+            for i in range(0, len(clean_text), 8):
+                yield clean_text[i:i+8]
+        elif clean_text:
+            yield clean_text
 
     def list_models(self) -> list[str]:
         try:

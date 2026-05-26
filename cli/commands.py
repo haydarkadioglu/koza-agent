@@ -7,109 +7,41 @@ from cli.update_cmd import cmd_version, cmd_update  # noqa: F401
 from cli.cmd_sync import cmd_sync             # noqa: F401
 
 def cmd_config(args: list) -> None:
-    """Show current configuration and allow quick provider switching.
-
-    Usage:
-      koza config          — show config + interactive switch menu
-      koza config show     — just show config (no menu)
-    """
-    from config import load_config, save_config, config_exists
+    """Show current configuration (API keys masked)."""
+    from config import load_config, config_exists
     if not config_exists():
         print(_C("  ✗  No config file found.", "red") + _C("  Run:  koza setup", "grey"))
         return
 
     cfg = load_config()
-
-    # Show current config
     _hr()
     print(_C("  KOZA  ·  Current Configuration", "bold", "yellow"))
     _hr()
     print(f"\n  {_C('Config file', 'grey')}  :  {_C(_config_path(), 'white')}")
+    print(f"  {_C('DB path    ', 'grey')}  :  {_C(str(cfg.get('db_path', '?')), 'white')}")
+    print(f"  {_C('Workspace  ', 'grey')}  :  {_C(str(cfg.get('workspace_path', '~/.Koza/workspace')), 'white')}")
     print(f"  {_C('Provider   ', 'grey')}  :  {_C(str(cfg.get('provider', '?')), 'cyan')}")
     print(f"  {_C('Model      ', 'grey')}  :  {_C(str(cfg.get('model') or '(default)'), 'cyan')}")
     fallback = cfg.get("fallback_provider", "")
     if fallback:
         print(f"  {_C('Fallback   ', 'grey')}  :  {_C(fallback, 'cyan')} / {cfg.get('fallback_model') or 'default'}")
+    print(f"  {_C('Vault path ', 'grey')}  :  {_C(str(cfg.get('vault_path', '?')), 'white')}")
 
-    # Show configured providers with key status
-    print(_C("\n  ┌ Configured Providers ───────────────────────────┐", "grey"))
-    active_provider = cfg.get("provider", "")
-    configured_with_key = []
+    print(_C("\n  ┌ Providers ─────────────────────────────────────┐", "grey"))
     for name, vals in cfg.get("providers", {}).items():
         key = vals.get("api_key") or vals.get("token", "")
-        auth = vals.get("auth", "api_key")
-        is_active = (name == active_provider)
-        marker = _C("◉", "teal") if is_active else _C("○", "grey")
-
-        if auth == "playwright" or auth == "cookie":
-            status = _C("cookie/browser", "green")
-            configured_with_key.append(name)
-        elif key:
-            masked = "*" * 4 + key[-4:]
-            status = _C(masked, "green")
-            configured_with_key.append(name)
-        elif name == "ollama":
-            status = _C("local", "green")
-            configured_with_key.append(name)
-        else:
-            status = _C("no key", "red")
-
-        print(f"  │  {marker}  {_C(f'{name:<16}', 'cyan')}  {status}")
+        masked = ("*" * 6 + key[-4:]) if len(key) > 6 else (_C("set", "green") if key else _C("—", "red"))
+        base = vals.get("base_url", "")
+        print(f"  │  {_C(f'{name:<12}', 'cyan')}  key={masked:<16}  {_C(base, 'grey')}")
     print(_C("  └────────────────────────────────────────────────┘", "grey"))
 
-    # If just showing, stop here
-    if args and args[0] in ("show", "list"):
-        print()
-        return
-
-    # Interactive: offer quick switch between configured providers
-    if len(configured_with_key) <= 1:
-        print(_C(f"\n  Only 1 provider configured. Use 'koza setup' to add more.\n", "grey"))
-        return
-
+    print(_C("\n  ┌ Messaging ──────────────────────────────────────┐", "grey"))
+    for plat, vals in cfg.get("messaging", {}).items():
+        tok = vals.get("token") or vals.get("webhook_url") or vals.get("account_sid", "")
+        status = _C("configured", "green") if tok else _C("—", "red")
+        print(f"  │  {_C(f'{plat:<12}', 'cyan')}  {status}")
+    print(_C("  └────────────────────────────────────────────────┘", "grey"))
     print()
-    try:
-        action = _select_menu(
-            "Quick action",
-            ["Switch active provider", "Done — no changes"],
-            default_idx=1,
-        )
-    except (KeyboardInterrupt, EOFError):
-        return
-
-    if "Done" in action:
-        return
-
-    # Switch provider
-    from cli.setup_constants import PROVIDER_MODELS, _OTHER
-
-    labels = []
-    for name in configured_with_key:
-        marker = "◉ " if name == active_provider else "  "
-        labels.append(f"{marker}{name}")
-
-    try:
-        chosen_label = _select_menu(
-            "Select provider",
-            labels,
-            default_idx=configured_with_key.index(active_provider) if active_provider in configured_with_key else 0,
-        )
-    except (KeyboardInterrupt, EOFError):
-        return
-
-    chosen = configured_with_key[labels.index(chosen_label)]
-    models = PROVIDER_MODELS.get(chosen, [""]) + [_OTHER]
-    try:
-        model_choice = _select_menu("Select model", models, default_idx=0)
-    except (KeyboardInterrupt, EOFError):
-        return
-    new_model = _prompt("Enter model name") if model_choice == _OTHER else model_choice
-
-    cfg["provider"] = chosen
-    cfg["model"]    = new_model
-    save_config(cfg)
-    print(_C(f"\n  ✅  Active provider → {chosen} / {new_model}\n", "green"))
-    print(_C("  Restart koza for changes to take effect.\n", "grey"))
 
 
 def cmd_kanban(args: list) -> None:
@@ -218,8 +150,6 @@ def _clean_empty(root) -> tuple[int, int]:
 def cmd_clean(args: list) -> None:
     """Reset Koza to factory state — removes config, database, and daemon files."""
     import shutil
-    import time
-    import os
     from pathlib import Path
     from koza_daemon import get_daemon_port, PID_FILE, PORT_FILE, _cleanup
 
@@ -230,7 +160,7 @@ def cmd_clean(args: list) -> None:
     print(_C("    • ~/.Koza/koza.db             (tasks, memory, cron jobs)", "grey"))
     print(_C("    • ~/.Koza/daemon.*            (daemon PID / port files)", "grey"))
     print(_C("    • ~/.Koza/workspace/**        (empty files & empty folders)\n", "grey"))
-    print(_C("  All Koza services will be stopped.\n", "grey"))
+    print(_C("  The daemon will be stopped if running.\n", "grey"))
 
     try:
         answer = input(_C("  Type 'reset' to confirm: ", "red")).strip().lower()
@@ -242,52 +172,26 @@ def cmd_clean(args: list) -> None:
         print(_C("  Cancelled.\n", "grey"))
         return
 
-    # Stop ALL koza services (same logic as cmd_quit)
-    current_pid = os.getpid()
-
-    # Kill registered daemon
+    # Stop daemon and wait a moment for it to release file handles
     port = get_daemon_port()
-    if port is not None:
+    if port:
         try:
             pid = int(PID_FILE.read_text().strip())
-            if pid != current_pid:
-                if sys.platform == "win32":
-                    os.system(f"taskkill /F /PID {pid} >nul 2>&1")
-                else:
-                    import signal as _sig
-                    os.kill(pid, _sig.SIGTERM)
-                print(_C("  ✓  Daemon stopped.", "green"))
+            if sys.platform == "win32":
+                import ctypes
+                ctypes.windll.kernel32.TerminateProcess(
+                    ctypes.windll.kernel32.OpenProcess(1, False, pid), 1
+                )
+            else:
+                import signal as _sig
+                import os as _os
+                _os.kill(pid, _sig.SIGTERM)
+            print(_C("  ✓  Daemon stopped.", "green"))
         except Exception:
             pass
         _cleanup()
-
-    # Kill all remaining koza processes
-    try:
-        import psutil
-        koza_keywords = ["koza_daemon", "koza_run", "services-only",
-                         "telegram", ".koza-agent"]
-        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-            try:
-                pid = proc.info["pid"]
-                if pid == current_pid:
-                    continue
-                name = (proc.info["name"] or "").lower()
-                cmdline = " ".join(proc.info["cmdline"] or []).lower()
-                if "python" not in name and "koza" not in name:
-                    continue
-                if not any(kw in cmdline for kw in koza_keywords):
-                    continue
-                proc.kill()
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-        print(_C("  ✓  All Koza services stopped.", "green"))
-    except ImportError:
-        # Fallback without psutil
-        if sys.platform == "win32":
-            os.system('taskkill /F /FI "WINDOWTITLE eq Koza*" >nul 2>&1')
-        pass
-
-    time.sleep(1)  # allow OS to release file handles
+        import time
+        time.sleep(1)  # allow OS to release file handles before deletion
 
     # Remove files
     koza_dir = Path.home() / ".Koza"

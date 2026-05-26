@@ -14,7 +14,8 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         sys.path.insert(0, ".")
         from config import load_config
         from providers.factory import get_provider
-        from core import ALL_TOOLS, ALL_HANDLERS, SYSTEM_PROMPT
+        from core import ALL_TOOLS, ALL_HANDLERS
+        from prompt import SYSTEM_PROMPT
         from skills.shared_memory import init_db as sm_init, get_relevant_context
         from skills.working_memory import init_db as wm_init, wm_get_context
         from skills import shell as _shell
