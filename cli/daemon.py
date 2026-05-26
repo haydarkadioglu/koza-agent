@@ -94,6 +94,26 @@ def cmd_start(args: list) -> None:
                 _t = threading.Thread(target=_periodic_sync_loop, daemon=True, name="koza-cli-sync")
                 _t.start()
 
+    # ── Auto-start Telegram bot if token is configured ─────────────────────────
+    _tg_token = (
+        cfg.get("telegram_token", "").strip()
+        or cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
+    )
+    if _tg_token:
+        try:
+            from bots.telegram import start_bot_thread
+            from providers.factory import get_provider as _get_prov
+
+            def _tg_agent_factory(channel="telegram"):
+                from core import Agent
+                _cfg = cfg
+                return Agent(_get_prov(_cfg), db_path=_cfg["db_path"], cfg=_cfg, channel=channel)
+
+            if start_bot_thread(_tg_agent_factory, cfg):
+                print(_C("  ✓  Telegram bot started\n", "teal"))
+        except Exception as _e:
+            print(_C(f"  ✗  Telegram bot failed to start: {_e}\n", "yellow"))
+
     _plain_cli(agent, cfg)
 
 
