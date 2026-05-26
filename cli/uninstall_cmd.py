@@ -45,7 +45,9 @@ def cmd_uninstall(args: list) -> None:
     if IS_WIN and scripts_dir:
         print(f"    {_C('Windows PATH entry', 'cyan')}  {scripts_dir}")
     if not IS_WIN:
-        print(_C("\n  PATH lines in .bashrc/.zshrc/.profile will also be removed.", "grey"))
+        print(_C("\n  PATH and API token exports in .bashrc/.zshrc/.profile will also be removed.", "grey"))
+    else:
+        print(_C("\n  Koza-related env vars in Windows Registry will also be removed.", "grey"))
     print()
 
     try:
@@ -64,12 +66,29 @@ def cmd_uninstall(args: list) -> None:
         if get_daemon_port() is not None:
             pid = int(PID_FILE.read_text().strip())
             if IS_WIN:
-                os.system(f"taskkill /F /PID {pid} >nul 2>&1")
+                import ctypes
+                handle = ctypes.windll.kernel32.OpenProcess(1, False, pid)
+                if handle:
+                    ctypes.windll.kernel32.TerminateProcess(handle, 1)
+                    ctypes.windll.kernel32.CloseHandle(handle)
             else:
                 import signal as _sig
                 os.kill(pid, _sig.SIGTERM)
             _cleanup()
-            time.sleep(1.0)
+            # Wait up to 5s for the process to actually exit
+            for _ in range(10):
+                time.sleep(0.5)
+                try:
+                    if IS_WIN:
+                        import ctypes
+                        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+                        if not h:
+                            break   # process is gone
+                        ctypes.windll.kernel32.CloseHandle(h)
+                    else:
+                        os.kill(pid, 0)  # raises if not running
+                except (ProcessLookupError, OSError):
+                    break
     except Exception:
         pass
 
@@ -85,22 +104,41 @@ def cmd_uninstall(args: list) -> None:
 
     removed, failed = [], []
 
-    # Windows: remove Scripts dir from user PATH registry FIRST (before deleting files)
+    # Windows: remove Scripts dir AND Koza env vars from user PATH registry
     if IS_WIN and scripts_dir:
         try:
             import winreg
+            _ENV_VARS_TO_PURGE = [
+                "TELEGRAM_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                "DEEPSEEK_API_KEY", "GEMINI_API_KEY", "GITHUB_TOKEN",
+                "DISCORD_TOKEN", "DISCORD_WEBHOOK_URL", "TWILIO_ACCOUNT_SID",
+                "TWILIO_AUTH_TOKEN",
+            ]
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment",
                                 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
                 current, _ = winreg.QueryValueEx(key, "PATH")
                 paths = [p for p in current.split(";")
                          if p.strip() and p.strip().lower() != scripts_dir.lower()]
                 winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, ";".join(paths))
+                # Remove Koza-related env vars from Windows Registry
+                for var in _ENV_VARS_TO_PURGE:
+                    try:
+                        winreg.DeleteValue(key, var)
+                        removed.append(f"Registry env var: {var}")
+                    except FileNotFoundError:
+                        pass
             removed.append(f"PATH entry: {scripts_dir}")
         except Exception as e:
             failed.append((f"PATH entry ({scripts_dir})", str(e)))
 
-    # Linux/macOS: clean PATH lines from shell rc files
+    # Linux/macOS: clean PATH lines AND token export lines from shell rc files
     if not IS_WIN:
+        _TOKEN_PATTERNS = [
+            "koza-agent",
+            "TELEGRAM_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+            "DEEPSEEK_API_KEY", "GEMINI_API_KEY", "GITHUB_TOKEN",
+            "DISCORD_TOKEN", "DISCORD_WEBHOOK_URL", "TWILIO_ACCOUNT_SID",
+        ]
         for rc in [
             Path.home() / ".bashrc",
             Path.home() / ".zshrc",
@@ -109,10 +147,10 @@ def cmd_uninstall(args: list) -> None:
             if not rc.exists():
                 continue
             lines = rc.read_text().splitlines(keepends=True)
-            clean = [l for l in lines if "koza-agent" not in l]
+            clean = [l for l in lines if not any(pat in l for pat in _TOKEN_PATTERNS)]
             if len(clean) != len(lines):
                 rc.write_text("".join(clean))
-                removed.append(f"PATH line in {rc}")
+                removed.append(f"Env/PATH lines in {rc}")
 
     # Delete directories with retry logic for locked files (Windows)
     for label, path in targets:
