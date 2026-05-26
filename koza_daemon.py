@@ -157,6 +157,11 @@ class ClientSession:
         "github_repo_info", "pandas_query", "matplotlib_plot", "get_config",
         "list_projects", "list_capabilities", "get_weather", "get_time",
         "calculator", "search_files", "get_cwd",
+        "get_env_var", "set_env_var", "list_env_vars",
+        "send_message", "get_messages",
+        "telegram_send", "telegram_get_updates", "telegram_send_photo",
+        "set_config", "delete_config",
+        "run_command", "write_file", "create_dir",
     }
 
     def _permission_callback(self, name: str, args: dict) -> bool:

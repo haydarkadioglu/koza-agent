@@ -166,6 +166,7 @@ def _plain_cli(agent, cfg: dict) -> None:
         "pandas_query", "matplotlib_plot",
         # ── Utilities ─────────────────────────────────────────────────────────
         "get_weather", "get_time", "calculator",
+        "get_env_var", "set_env_var", "list_env_vars",
         # ── Multi-host sync ───────────────────────────────────────────────────
         "sync_status", "sync_now", "list_hosts",
         # ── Image gen ────────────────────────────────────────────────────────
