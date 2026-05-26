@@ -5,6 +5,29 @@ from pathlib import Path
 _db_path: str = ""
 
 
+def _reload_jobs_into_scheduler() -> None:
+    """Load all existing cron jobs from DB into APScheduler (called on startup)."""
+    if not _db_path:
+        return
+    try:
+        from skills.cron_scheduler import schedule_job
+        with sqlite3.connect(_db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, name, command, cron_expr FROM cron_jobs"
+            ).fetchall()
+        for job_id, name, command, cron_expr in rows:
+            try:
+                schedule_job(command, name, cron_expr, job_id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Could not reload cron job {job_id} ('{name}'): {e}"
+                )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Cron job reload failed: {e}")
+
+
 def init_db(db_path: str) -> None:
     global _db_path
     _db_path = db_path
@@ -20,6 +43,7 @@ def init_db(db_path: str) -> None:
                 created_at  TEXT
             )
         """)
+    _reload_jobs_into_scheduler()
 
 
 def get_conn() -> sqlite3.Connection:

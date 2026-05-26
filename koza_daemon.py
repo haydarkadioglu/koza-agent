@@ -510,26 +510,6 @@ def start_services_background(cfg: dict = None) -> bool:
     (Telegram bot, cron, sync). Called when CLI exits but services should persist.
     """
     return start_as_background()
-    devnull = open(os.devnull, "wb")
-    kwargs = {"stdout": devnull, "stderr": devnull, "stdin": devnull}
-
-    if os.name == "nt":
-        DETACHED    = 0x00000008
-        NEW_GROUP   = 0x00000200
-        kwargs["creationflags"] = DETACHED | NEW_GROUP
-    else:
-        kwargs["start_new_session"] = True
-
-    try:
-        subprocess.Popen([python_exe, this_file, "--daemon"], **kwargs)
-        for _ in range(30):      # wait up to 6 s
-            time.sleep(0.2)
-            if get_daemon_port() is not None:
-                return True
-        return False
-    except Exception as e:
-        _log(f"start_as_background failed: {e}")
-        return False
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
