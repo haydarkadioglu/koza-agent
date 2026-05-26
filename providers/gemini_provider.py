@@ -438,6 +438,97 @@ class GeminiProvider(LLMProvider):
             ))
         return [types.Tool(function_declarations=decls)]
 
+    def _messages_to_contents(self, messages):
+        """Convert OpenAI-style messages list to Gemini contents + system_text.
+
+        Gemini rules:
+        - system → extracted separately as system_instruction
+        - user/assistant turns alternate; consecutive same-role turns are merged
+        - tool results (role=tool) MUST be grouped into the single user Content
+          that immediately follows the assistant's function_call Content
+        """
+        from google.genai import types
+        system_text = None
+        contents = []
+
+        i = 0
+        while i < len(messages):
+            m = messages[i]
+            role = m.get("role", "")
+
+            if role == "system":
+                system_text = m.get("content") or system_text
+                i += 1
+                continue
+
+            if role == "user":
+                # Collect consecutive tool results that immediately follow as one Content
+                parts = []
+                if m.get("content"):
+                    parts.append(types.Part(text=m["content"]))
+                i += 1
+                # Peek: collect any consecutive tool turns right after
+                while i < len(messages) and messages[i].get("role") == "tool":
+                    t = messages[i]
+                    try:
+                        parts.append(types.Part(
+                            function_response=types.FunctionResponse(
+                                name=t.get("name", "tool"),
+                                response={"result": t.get("content", "")},
+                            )
+                        ))
+                    except Exception:
+                        parts.append(types.Part(
+                            text=f"Tool result ({t.get('name','tool')}): {t.get('content','')}"
+                        ))
+                    i += 1
+                if parts:
+                    contents.append(types.Content(role="user", parts=parts))
+                continue
+
+            if role == "tool":
+                # Orphan tool messages (no preceding user turn) — group them
+                parts = []
+                while i < len(messages) and messages[i].get("role") == "tool":
+                    t = messages[i]
+                    try:
+                        parts.append(types.Part(
+                            function_response=types.FunctionResponse(
+                                name=t.get("name", "tool"),
+                                response={"result": t.get("content", "")},
+                            )
+                        ))
+                    except Exception:
+                        parts.append(types.Part(
+                            text=f"Tool result ({t.get('name','tool')}): {t.get('content','')}"
+                        ))
+                    i += 1
+                if parts:
+                    contents.append(types.Content(role="user", parts=parts))
+                continue
+
+            if role == "assistant":
+                text = m.get("content") or ""
+                parts = [types.Part(text=text)] if text else []
+                for tc in (m.get("tool_calls") or []):
+                    try:
+                        parts.append(types.Part(
+                            function_call=types.FunctionCall(
+                                name=tc["name"],
+                                args=tc.get("arguments", {}),
+                            )
+                        ))
+                    except Exception:
+                        pass
+                if parts:
+                    contents.append(types.Content(role="model", parts=parts))
+                i += 1
+                continue
+
+            i += 1
+
+        return contents, system_text
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     @property
@@ -499,48 +590,7 @@ class GeminiProvider(LLMProvider):
             }
 
         # api_key mode
-        from google.genai import types
-        contents = []
-        system_text = None
-        for m in messages:
-            if m["role"] == "system":
-                system_text = m["content"]
-            elif m["role"] == "user":
-                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"] or "")]))
-            elif m["role"] == "assistant":
-                text = m.get("content") or ""
-                parts_list = [types.Part(text=text)] if text else []
-                # Re-attach tool_calls as function_call parts if present
-                for tc in (m.get("tool_calls") or []):
-                    try:
-                        parts_list.append(types.Part(
-                            function_call=types.FunctionCall(
-                                name=tc["name"],
-                                args=tc.get("arguments", {}),
-                            )
-                        ))
-                    except Exception:
-                        pass
-                if parts_list:
-                    contents.append(types.Content(role="model", parts=parts_list))
-            elif m["role"] == "tool":
-                # Tool result must follow a model function_call turn
-                try:
-                    contents.append(types.Content(
-                        role="user",
-                        parts=[types.Part(
-                            function_response=types.FunctionResponse(
-                                name=m.get("name", "tool"),
-                                response={"result": m.get("content", "")},
-                            )
-                        )]
-                    ))
-                except Exception:
-                    # Fallback: inject as plain text
-                    contents.append(types.Content(
-                        role="user",
-                        parts=[types.Part(text=f"Tool result ({m.get('name','tool')}): {m.get('content','')}")]
-                    ))
+        contents, system_text = self._messages_to_contents(messages)
 
         from google.genai import types as _types
         cfg_kwargs: dict = {}
@@ -586,43 +636,8 @@ class GeminiProvider(LLMProvider):
                 yield result["content"]
             return
 
-        # api_key streaming — reuse chat() message conversion logic
-        from google.genai import types
-        contents = []
-        system_text = None
-        for m in messages:
-            if m["role"] == "system":
-                system_text = m["content"]
-            elif m["role"] == "user":
-                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"] or "")]))
-            elif m["role"] == "assistant":
-                text = m.get("content") or ""
-                parts_list = [types.Part(text=text)] if text else []
-                for tc in (m.get("tool_calls") or []):
-                    try:
-                        parts_list.append(types.Part(
-                            function_call=types.FunctionCall(name=tc["name"], args=tc.get("arguments", {}))
-                        ))
-                    except Exception:
-                        pass
-                if parts_list:
-                    contents.append(types.Content(role="model", parts=parts_list))
-            elif m["role"] == "tool":
-                try:
-                    contents.append(types.Content(
-                        role="user",
-                        parts=[types.Part(
-                            function_response=types.FunctionResponse(
-                                name=m.get("name", "tool"),
-                                response={"result": m.get("content", "")},
-                            )
-                        )]
-                    ))
-                except Exception:
-                    contents.append(types.Content(
-                        role="user",
-                        parts=[types.Part(text=f"Tool result ({m.get('name','tool')}): {m.get('content','')}")]
-                    ))
+        # api_key streaming — use shared message converter
+        contents, system_text = self._messages_to_contents(messages)
 
         from google.genai import types as _types
         cfg_kwargs: dict = {}
