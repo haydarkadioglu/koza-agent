@@ -153,7 +153,7 @@ def _get_or_create_agent(chat_id: int, agent_factory: Callable, permission_cb=No
 
 
 async def _process_message(update, context, agent_factory: Callable,
-                           kb_manager=None, bot_loop=None):
+                           kb_manager=None, bot_loop=None, override_text: str = ""):
     """Process one Telegram message: stream agent response back in real time."""
     import time as _time
     import queue as _queue
@@ -161,26 +161,27 @@ async def _process_message(update, context, agent_factory: Callable,
     from telegram.error import BadRequest as _BadRequest
 
     msg = update.message or update.edited_message
-    if not msg:
+    if not msg and not override_text:
         return
 
-    chat_id = msg.chat_id
-    user_text = msg.text or msg.caption or ""
+    chat_id = msg.chat_id if msg else update.callback_query.message.chat_id
+    user_text = override_text or (msg.text if msg else "") or (msg.caption if msg else "") or ""
     image_path = None
 
-    # React with 👀 to acknowledge the message immediately
-    try:
-        from telegram import ReactionTypeEmoji
-        await context.bot.set_message_reaction(
-            chat_id=chat_id,
-            message_id=msg.message_id,
-            reaction=[ReactionTypeEmoji(emoji="👀")],
-        )
-    except Exception:
-        pass  # Reactions not available in all chat types — ignore
+    if not override_text:
+        # React with 👀 to acknowledge the message immediately
+        try:
+            from telegram import ReactionTypeEmoji
+            await context.bot.set_message_reaction(
+                chat_id=chat_id,
+                message_id=msg.message_id,
+                reaction=[ReactionTypeEmoji(emoji="👀")],
+            )
+        except Exception:
+            pass  # Reactions not available in all chat types — ignore
 
     # Photo support
-    if msg.photo:
+    if msg and msg.photo:
         photo = msg.photo[-1]
         file = await context.bot.get_file(photo.file_id)
         import tempfile
@@ -234,17 +235,22 @@ async def _process_message(update, context, agent_factory: Callable,
     threading.Thread(target=_stream_worker, daemon=True).start()
 
     # ── Single-message streaming with throttled edits ────────────────────────
-    # Strategy: maintain ONE message. Accumulate text + status lines.
-    # Edit at most once per 1.5s to stay within Telegram rate limits (~20 edits/min).
-    # Only create a new message when current exceeds 4000 chars.
+    # Strategy: stream into one message; after each "turn" (tool_done or new
+    # text following a tool cycle), start a FRESH message so the chat stays
+    # readable and users aren't scrolling through a single edited wall.
+    # Inline [CHOICE: A | B | C] patterns are auto-converted to buttons.
 
-    text_buf  = ""          # accumulated response text
-    status    = ""          # ephemeral status line (tool activity)
-    sent_msg  = None        # current Telegram message object
-    last_edit = 0.0         # timestamp of last edit
+    text_buf    = ""       # accumulated response text for current message
+    status      = ""       # ephemeral status line (tool activity)
+    sent_msg    = None     # current Telegram message object
+    last_edit   = 0.0      # timestamp of last edit
+    edit_count  = 0        # edits on current message
+    _MAX_EDITS  = 12       # after this many edits, next text starts a new msg
+
+    _bg_task_ids: list[str] = []  # task IDs started in this turn (for watcher)
 
     async def _flush(force: bool = False):
-        nonlocal sent_msg, last_edit, status
+        nonlocal sent_msg, last_edit, status, edit_count
         now = _time.time()
         if not force and (now - last_edit) < 1.5:
             return
@@ -267,10 +273,12 @@ async def _process_message(update, context, agent_factory: Callable,
             sent_msg = await context.bot.send_message(
                 chat_id=chat_id, text=overflow[:4000],
             )
+            edit_count = 0
             last_edit = now
             return
         if sent_msg is None:
             sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
+            edit_count = 0
         else:
             try:
                 await context.bot.edit_message_text(
@@ -278,11 +286,38 @@ async def _process_message(update, context, agent_factory: Callable,
                     message_id=sent_msg.message_id,
                     text=display,
                 )
+                edit_count += 1
             except _BadRequest:
                 pass   # "message not modified" — ignore
             except Exception:
                 sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
+                edit_count = 0
         last_edit = now
+
+    async def _finalize_msg_and_start_fresh(new_text: str = ""):
+        """Lock current message (finalize) and start a new one."""
+        nonlocal text_buf, sent_msg, edit_count, status
+        status = ""
+        await _flush(force=True)
+        text_buf = new_text
+        sent_msg = None
+        edit_count = 0
+
+    async def _send_choice_buttons(choices: list[str]) -> None:
+        """Send inline keyboard for [CHOICE: A | B | C] patterns."""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        buttons = [[InlineKeyboardButton(c.strip(), callback_data=f"choice::{c.strip()}")]
+                   for c in choices if c.strip()]
+        if not buttons:
+            return
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Nasıl devam edelim?",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    import re as _re
+    _CHOICE_RE = _re.compile(r"\[CHOICE:\s*([^\]]+)\]", _re.IGNORECASE)
 
     while True:
         try:
@@ -301,32 +336,65 @@ async def _process_message(update, context, agent_factory: Callable,
         etype = event.get("type")
 
         if etype == "text":
-            text_buf += event.get("token", "")
-            await _flush()
+            tok = event.get("token", "")
+            text_buf += tok
+
+            # Detect [CHOICE: A | B | C] in accumulated text
+            choice_match = _CHOICE_RE.search(text_buf)
+            if choice_match:
+                # Remove the choice directive from text_buf
+                before = text_buf[:choice_match.start()].strip()
+                text_buf = before
+                await _flush(force=True)
+                options = choice_match.group(1).split("|")
+                await _send_choice_buttons(options)
+            else:
+                await _flush()
 
         elif etype == "tool_start":
-            status = f"⚙️ `{event.get('name', '')}` running…"
+            name = event.get("name", "")
+            status = f"⚙️ {name}…"
+            # After enough edits on current message, start fresh for next block
+            if edit_count >= _MAX_EDITS and text_buf.strip():
+                await _finalize_msg_and_start_fresh()
             await _flush(force=True)
 
         elif etype == "tool_done":
-            status = f"✅ `{event.get('name', '')}` done."
+            name = event.get("name", "")
+            status = f"✅ {name}"
             await _flush(force=True)
+
+            # Track background task IDs so we can register watchers
+            if name == "start_background_task":
+                result_str = str(event.get("result", ""))
+                # Extract task_id (format: "Background task started: {id}")
+                m = _re.search(r"started:\s*([a-f0-9]{8})", result_str)
+                if m:
+                    _bg_task_ids.append(m.group(1))
+
+            # New tool cycle starts fresh if current message is getting long
+            if edit_count >= _MAX_EDITS:
+                await _finalize_msg_and_start_fresh()
 
         elif etype == "interrupted":
             status = ""
-            text_buf += "\n\n⏹ *Kesildi.*"
+            text_buf += "\n\n⏹ Kesildi."
             await _flush(force=True)
             return
 
         elif etype == "error":
             err = event.get('message', 'Hata')
-            text_buf += f"\n\n❌ `{err}`"
+            text_buf += f"\n\n❌ {err}"
             await _flush(force=True)
             return
 
     # Final flush: clear status, show clean response
     status = ""
     await _flush(force=True)
+
+    # Register completion watchers for any background tasks started this turn
+    for task_id in _bg_task_ids:
+        _register_completion_watcher(task_id, chat_id, context.bot, bot_loop)
 
     # Change reaction to ✅ after response is complete
     try:
@@ -419,6 +487,19 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 return
 
             parts = data.split(":", 2)
+
+            # Handle choice buttons (format: "choice::{selected_option}")
+            if data.startswith("choice::"):
+                selected = data[len("choice::"):]
+                await query.edit_message_reply_markup(reply_markup=None)
+                await query.message.reply_text(f"✅ {selected}")
+                await _process_message(
+                    update, context, agent_factory,
+                    kb_manager=_kb_manager, bot_loop=loop,
+                    override_text=selected,
+                )
+                return
+
             if len(parts) != 3:
                 return
 

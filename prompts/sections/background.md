@@ -18,6 +18,9 @@
 - If the fix doesn't work after 3 attempts, cancel the task and restart it fresh.
 - NEVER say "Sub-agent hatasını düzeltmemi ister misin?" — just fix it silently.
 - The user should only see the final working result, not intermediate errors.
+- When launching a background task (Telegram), say ONLY: "Başlıyorum 🚀 (task_id: {id})" — nothing else.
+- NEVER describe what you're about to do in detail. Just do it.
+- After completion: 1 sentence summary + file list if any.
 
 When NOT to delegate:
 - Simple questions, explanations, or conceptual discussions about code (no actual code writing).
