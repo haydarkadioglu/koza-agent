@@ -245,6 +245,7 @@ async def _process_message(update, context, agent_factory: Callable,
 
     ev_queue: _queue.Queue = _queue.Queue()
     _DONE = object()
+    _STREAM_TIMEOUT_SEC = 300  # 5 minutes — give up if LLM/network hangs
 
     def _stream_worker():
         try:
@@ -342,7 +343,26 @@ async def _process_message(update, context, agent_factory: Callable,
     import re as _re
     _CHOICE_RE = _re.compile(r"\[CHOICE:\s*([^\]]+)\]", _re.IGNORECASE)
 
+    stream_start = _time.monotonic()
+    last_typing = 0.0
+
     while True:
+        now_mono = _time.monotonic()
+
+        # Periodic TYPING action — Telegram expires it every ~5s
+        if now_mono - last_typing > 4.5:
+            try:
+                await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except Exception:
+                pass
+            last_typing = now_mono
+
+        # Hard timeout: bail out if LLM/network freezes (common on Linux)
+        if now_mono - stream_start > _STREAM_TIMEOUT_SEC:
+            text_buf += "\n\n⏱ Zaman aşımı: yanıt çok uzun sürdü."
+            await _flush(force=True)
+            return
+
         try:
             event = ev_queue.get_nowait()
         except _queue.Empty:
