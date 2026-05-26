@@ -542,13 +542,19 @@ class GeminiProvider(LLMProvider):
                         parts=[types.Part(text=f"Tool result ({m.get('name','tool')}): {m.get('content','')}")]
                     ))
 
-        kwargs: dict = {"contents": contents}
+        from google.genai import types as _types
+        cfg_kwargs: dict = {}
         if system_text:
-            kwargs["system_instruction"] = system_text
+            cfg_kwargs["system_instruction"] = system_text
         if tools:
-            kwargs["tools"] = self._convert_tools(tools)
+            cfg_kwargs["tools"] = self._convert_tools(tools)
+        config = _types.GenerateContentConfig(**cfg_kwargs) if cfg_kwargs else None
 
-        resp = self._client.models.generate_content(model=self._model, **kwargs)
+        gen_kwargs: dict = {"model": self._model, "contents": contents}
+        if config:
+            gen_kwargs["config"] = config
+
+        resp = self._client.models.generate_content(**gen_kwargs)
         tool_calls = None
         content_text = None
         for part in resp.candidates[0].content.parts:
@@ -618,13 +624,19 @@ class GeminiProvider(LLMProvider):
                         parts=[types.Part(text=f"Tool result ({m.get('name','tool')}): {m.get('content','')}")]
                     ))
 
-        stream_kwargs: dict = {"contents": contents}
+        from google.genai import types as _types
+        cfg_kwargs: dict = {}
         if system_text:
-            stream_kwargs["system_instruction"] = system_text
+            cfg_kwargs["system_instruction"] = system_text
         if tools:
-            stream_kwargs["tools"] = self._convert_tools(tools)
+            cfg_kwargs["tools"] = self._convert_tools(tools)
+        stream_config = _types.GenerateContentConfig(**cfg_kwargs) if cfg_kwargs else None
 
-        for chunk in self._client.models.generate_content_stream(model=self._model, **stream_kwargs):
+        gen_stream_kwargs: dict = {"model": self._model, "contents": contents}
+        if stream_config:
+            gen_stream_kwargs["config"] = stream_config
+
+        for chunk in self._client.models.generate_content_stream(**gen_stream_kwargs):
             if chunk.text:
                 yield chunk.text
             # Handle streaming tool calls
