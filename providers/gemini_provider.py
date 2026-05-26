@@ -454,17 +454,26 @@ class GeminiProvider(LLMProvider):
         if self._auth_mode == "cookie":
             import re, json as _json
             parts = []
+            # Prepend system message (Koza persona) if present
+            for m in messages:
+                if m.get("role") == "system" and m.get("content"):
+                    parts.append(f"SYSTEM INSTRUCTION:\n{m['content']}")
+                    break
             # Prepend tools prompt if tools provided
             if tools:
                 parts.append(self._build_react_tools_prompt(tools))
             for m in messages:
                 if not m.get("content"):
                     continue
-                role = m["role"].upper()
-                if role == "TOOL":
+                role = m["role"]
+                if role == "system":
+                    continue  # already prepended above
+                if role == "tool":
                     parts.append(f"TOOL_RESULT ({m.get('name', 'tool')}): {m['content']}")
-                else:
-                    parts.append(f"{role}: {m['content']}")
+                elif role == "user":
+                    parts.append(f"USER: {m['content']}")
+                elif role == "assistant":
+                    parts.append(f"ASSISTANT: {m['content']}")
             prompt = "\n\n".join(parts)
             raw = self._cookie_generate(prompt)
 
@@ -497,9 +506,41 @@ class GeminiProvider(LLMProvider):
             if m["role"] == "system":
                 system_text = m["content"]
             elif m["role"] == "user":
-                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"])]))
+                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"] or "")]))
             elif m["role"] == "assistant":
-                contents.append(types.Content(role="model", parts=[types.Part(text=m["content"] or "")]))
+                text = m.get("content") or ""
+                parts_list = [types.Part(text=text)] if text else []
+                # Re-attach tool_calls as function_call parts if present
+                for tc in (m.get("tool_calls") or []):
+                    try:
+                        parts_list.append(types.Part(
+                            function_call=types.FunctionCall(
+                                name=tc["name"],
+                                args=tc.get("arguments", {}),
+                            )
+                        ))
+                    except Exception:
+                        pass
+                if parts_list:
+                    contents.append(types.Content(role="model", parts=parts_list))
+            elif m["role"] == "tool":
+                # Tool result must follow a model function_call turn
+                try:
+                    contents.append(types.Content(
+                        role="user",
+                        parts=[types.Part(
+                            function_response=types.FunctionResponse(
+                                name=m.get("name", "tool"),
+                                response={"result": m.get("content", "")},
+                            )
+                        )]
+                    ))
+                except Exception:
+                    # Fallback: inject as plain text
+                    contents.append(types.Content(
+                        role="user",
+                        parts=[types.Part(text=f"Tool result ({m.get('name','tool')}): {m.get('content','')}")]
+                    ))
 
         kwargs: dict = {"contents": contents}
         if system_text:
@@ -539,18 +580,65 @@ class GeminiProvider(LLMProvider):
                 yield result["content"]
             return
 
-        # api_key streaming
+        # api_key streaming — reuse chat() message conversion logic
         from google.genai import types
-        contents = [
-            types.Content(
-                role="user" if m["role"] == "user" else "model",
-                parts=[types.Part(text=m["content"] or "")]
-            )
-            for m in messages if m["role"] != "system"
-        ]
-        for chunk in self._client.models.generate_content_stream(model=self._model, contents=contents):
+        contents = []
+        system_text = None
+        for m in messages:
+            if m["role"] == "system":
+                system_text = m["content"]
+            elif m["role"] == "user":
+                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"] or "")]))
+            elif m["role"] == "assistant":
+                text = m.get("content") or ""
+                parts_list = [types.Part(text=text)] if text else []
+                for tc in (m.get("tool_calls") or []):
+                    try:
+                        parts_list.append(types.Part(
+                            function_call=types.FunctionCall(name=tc["name"], args=tc.get("arguments", {}))
+                        ))
+                    except Exception:
+                        pass
+                if parts_list:
+                    contents.append(types.Content(role="model", parts=parts_list))
+            elif m["role"] == "tool":
+                try:
+                    contents.append(types.Content(
+                        role="user",
+                        parts=[types.Part(
+                            function_response=types.FunctionResponse(
+                                name=m.get("name", "tool"),
+                                response={"result": m.get("content", "")},
+                            )
+                        )]
+                    ))
+                except Exception:
+                    contents.append(types.Content(
+                        role="user",
+                        parts=[types.Part(text=f"Tool result ({m.get('name','tool')}): {m.get('content','')}")]
+                    ))
+
+        stream_kwargs: dict = {"contents": contents}
+        if system_text:
+            stream_kwargs["system_instruction"] = system_text
+        if tools:
+            stream_kwargs["tools"] = self._convert_tools(tools)
+
+        for chunk in self._client.models.generate_content_stream(model=self._model, **stream_kwargs):
             if chunk.text:
                 yield chunk.text
+            # Handle streaming tool calls
+            if chunk.candidates:
+                for part in (chunk.candidates[0].content.parts if chunk.candidates[0].content else []):
+                    if hasattr(part, "function_call") and part.function_call:
+                        import json as _json
+                        yield {
+                            "__tool_chunk__": True,
+                            "index": 0,
+                            "id":   part.function_call.name,
+                            "name": part.function_call.name,
+                            "args_chunk": _json.dumps(dict(part.function_call.args)),
+                        }
 
     def list_models(self) -> list[str]:
         if self._auth_mode == "cookie":
