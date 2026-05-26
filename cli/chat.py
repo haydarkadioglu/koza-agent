@@ -250,19 +250,20 @@ def _plain_cli(agent, cfg: dict) -> None:
                     future = asyncio.run_coroutine_threadsafe(coro, pt_app.loop)
                 except Exception:
                     coro.close()
-                    return False
+                    # Scheduling failed — fall back to direct terminal UI
+                    return _show_permission_ui(name, args)
                 # Block the background thread until the permission UI finishes.
                 # Timeout prevents permanent hang if the app exits mid-prompt.
                 future.result(timeout=300)  # 5 min timeout for user response
             except (asyncio.CancelledError, asyncio.InvalidStateError):
-                # App was closed while waiting for permission — deny by default
-                return False
+                # App closed mid-prompt — ask directly
+                return _show_permission_ui(name, args)
             except TimeoutError:
                 # User didn't respond within timeout — deny by default
                 return False
             except Exception:
-                # Event loop closed or other unexpected error — deny safely
-                return False
+                # Any other error — fall back to direct terminal UI instead of silent deny
+                return _show_permission_ui(name, args)
             return result[0]
         # No prompt_toolkit app running — call permission UI directly (plain CLI)
         return _show_permission_ui(name, args)
