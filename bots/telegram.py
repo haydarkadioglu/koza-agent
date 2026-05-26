@@ -191,6 +191,8 @@ async def _process_message(update, context, agent_factory: Callable,
     user_text = override_text or (msg.text if msg else "") or (msg.caption if msg else "") or ""
     image_path = None
 
+    logger.debug(f"_process_message: chat_id={chat_id} text={user_text!r:.60}")
+
     if not override_text:
         # React with 👀 to acknowledge the message immediately
         try:
@@ -228,6 +230,7 @@ async def _process_message(update, context, agent_factory: Callable,
             chat_id, context.bot, bot_loop, kb_manager
         )
     agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
+    logger.debug(f"_process_message: agent created/fetched, busy={agent._busy}")
 
     if agent._busy:
         agent.interrupt()
@@ -249,11 +252,14 @@ async def _process_message(update, context, agent_factory: Callable,
 
     def _stream_worker():
         try:
+            logger.debug(f"_stream_worker: starting for chat_id={chat_id}")
             for event in agent.stream_chat(user_text):
                 ev_queue.put(event)
         except Exception as e:
+            logger.error(f"_stream_worker: exception: {e}", exc_info=True)
             ev_queue.put({"type": "error", "message": str(e)})
         finally:
+            logger.debug(f"_stream_worker: done for chat_id={chat_id}")
             ev_queue.put(_DONE)
 
     threading.Thread(target=_stream_worker, daemon=True).start()
@@ -434,6 +440,16 @@ async def _process_message(update, context, agent_factory: Callable,
     # Final flush: clear status, show clean response
     status = ""
     await _flush(force=True)
+
+    # If nothing was ever sent (empty stream / no text tokens), send a fallback
+    if sent_msg is None:
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ Yanıt alınamadı. Lütfen tekrar deneyin veya `koza status` ile servisleri kontrol edin.",
+            )
+        except Exception:
+            pass
 
     # Register completion watchers for any background tasks started this turn
     for task_id in _bg_task_ids:
@@ -640,11 +656,24 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 )
             except Exception as e:
                 logger.error(f"Telegram handler error: {e}", exc_info=True)
+                # Always try to surface the error in chat
+                _cid = None
                 try:
-                    chat_id = (update.message or update.edited_message).chat_id
-                    await context.bot.send_message(chat_id=chat_id, text=f"❌ Hata: {e}")
+                    msg_obj = update.message or update.edited_message
+                    _cid = msg_obj.chat_id if msg_obj else update.callback_query.message.chat_id
                 except Exception:
                     pass
+                if _cid is not None:
+                    for _attempt in range(2):
+                        try:
+                            await context.bot.send_message(
+                                chat_id=_cid,
+                                text=f"❌ Hata: {type(e).__name__}: {e}",
+                            )
+                            break
+                        except Exception:
+                            import asyncio as _aio
+                            await _aio.sleep(1)
 
         async def on_error(update, context):
             """Handle errors silently — especially Conflict errors."""
