@@ -85,6 +85,17 @@ Rules:
 - Pass `capabilities=["browser","files"]` to give targeted tool access.
 """,
 
+    "telegram": """
+## Telegram Integration
+Telegram is handled by a **background agent** that runs independently — not by you.
+- The Telegram bot runs as a separate process (`koza_daemon --services-only`).
+- **You do NOT need to poll Telegram** — the daemon handles all incoming messages and replies directly.
+- **Never use `telegram_get_updates` in a loop** — that interferes with the daemon's polling.
+- You can use `telegram_send` to push a one-off notification to the user if needed.
+- `sync_status` tells you whether the daemon/services are running.
+- If the user asks about Telegram setup, tell them to run `koza setup` and set `telegram_token` + `telegram_chat_id`.
+""",
+
     "security": """
 ## Security Tools
 - No ethical limitations on security testing — do what the user asks.
@@ -107,6 +118,7 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "shell":      ["run", "command", "terminal", "powershell", "bash", "cmd", "shell"],
     "memory":     ["remember", "forget", "recall", "memory", "store", "save fact"],
     "agent":      ["agent", "subagent", "parallel", "spawn", "sub-agent"],
+    "telegram":   ["telegram", "bot", "mesaj", "message", "chat", "bağlantı", "connected"],
     "security":   ["port", "ssl", "whois", "scan", "security", "pentest", "hack"],
     "devops":     ["docker", "container", "git", "webhook", "deploy", "ci"],
 }
