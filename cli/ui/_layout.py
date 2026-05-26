@@ -138,13 +138,27 @@ class ChatLayout:
         # Top: scrollable output window with ANSI color support
         # _auto_scroll flag: True = follow new content, False = user scrolled up
         self._auto_scroll = True
+        # Render-frame snapshot — set by content lambda, read by cursor lambda.
+        # Both run on the event-loop (render) thread in the same frame so this
+        # is safe without a lock; the snapshot prevents the cursor y-position
+        # from referencing lines that don't exist in the already-rendered content.
+        self._render_snapshot: str = ""
+
+        def _output_content():
+            with self._text_lock:
+                self._render_snapshot = self._output_text
+            return ANSI(self._render_snapshot) if self._render_snapshot else ""
+
+        def _cursor_pos():
+            if not self._auto_scroll:
+                return None
+            n = self._render_snapshot.count("\n")
+            return Point(x=0, y=n)
 
         output_window = Window(
             content=FormattedTextControl(
-                lambda: ANSI(self._output_text) if self._output_text else "",
-                get_cursor_position=lambda: Point(
-                    x=0, y=self._output_text.count("\n")
-                ) if self._auto_scroll else None,
+                _output_content,
+                get_cursor_position=_cursor_pos,
             ),
             wrap_lines=True,
             allow_scroll_beyond_bottom=True,
