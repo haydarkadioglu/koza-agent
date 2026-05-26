@@ -41,16 +41,24 @@ def cmd_setup(args: list) -> None:
         cur_model    = cfg.get("model", "")
         cur_media    = cfg.get("media_provider", "")
         cur_fallback = cfg.get("fallback_provider", "")
+        # Messaging status label
+        tg_token  = cfg.get("telegram_token", "") or cfg.get("providers", {}).get("telegram", {}).get("token", "")
+        tg_chat   = cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
+        msg_status = ""
+        if tg_token:
+            msg_status = f"Telegram ✓" + (f"  chat:{tg_chat}" if tg_chat else "  (no chat_id)")
+
         sections = [
             f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
             f"Fallback Provider   {_status(cur_fallback)}",
             f"Media (Image/Video) {_status(cur_media or cur_provider)}",
+            f"Messaging Channels  {_status(msg_status)}",
             f"Multi-host Sync     {_status(cfg.get('multi_host', {}).get('mode', 'single') if cfg.get('multi_host', {}).get('mode', 'single') != 'single' else '')}",
             f"Voice Mode          {_status('enabled' if cfg.get('voice', {}).get('enabled') else 'disabled')}",
             "Done — save & exit",
         ]
         try:
-            section = _select_menu("Configure section", sections, default_idx=5)
+            section = _select_menu("Configure section", sections, default_idx=6)
         except (KeyboardInterrupt, EOFError):
             print(_C("\n  Cancelled.\n", "grey"))
             return
@@ -70,6 +78,10 @@ def cmd_setup(args: list) -> None:
         # ── Media Provider ────────────────────────────────────────────────────
         elif section.startswith("Media"):
             _setup_media_provider(cfg)
+
+        # ── Messaging Channels ────────────────────────────────────────────────
+        elif section.startswith("Messaging"):
+            _setup_messaging(cfg)
 
         # ── Multi-host Sync ───────────────────────────────────────────────────
         elif section.startswith("Multi"):
@@ -356,6 +368,142 @@ def _setup_media_provider(cfg: dict) -> None:
         save_config(cfg)
         display = media_action.split("(")[0].strip()
         print(_C(f"\n  ✓  Media provider set to {display}\n", "green"))
+
+
+def _setup_messaging(cfg: dict) -> None:
+    """Configure messaging channels (Telegram, Discord, etc.)."""
+    from config import save_config
+
+    _hr("·", "grey")
+    print(_C("  Messaging Channels", "cyan", "bold"))
+    _hr("·", "grey")
+
+    while True:
+        tg_token = cfg.get("telegram_token", "") or cfg.get("providers", {}).get("telegram", {}).get("token", "")
+        tg_chat  = cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
+        tg_label = f"✓ token set  chat_id:{tg_chat}" if tg_token else "not configured"
+
+        try:
+            channel = _select_menu(
+                "Select channel to configure",
+                [
+                    f"Telegram   {_C(f'({tg_label})', 'teal' if tg_token else 'grey')}",
+                    "Done — back to main menu",
+                ],
+                default_idx=1,
+            )
+        except (KeyboardInterrupt, EOFError):
+            return
+
+        if channel.startswith("Done"):
+            break
+        elif channel.startswith("Telegram"):
+            _setup_telegram_channel(cfg)
+            save_config(cfg)
+
+
+def _setup_telegram_channel(cfg: dict) -> None:
+    """Interactive Telegram bot setup."""
+    from config import save_config
+
+    _hr("·", "grey")
+    print(_C("  Telegram Bot Setup", "cyan", "bold"))
+    print(_C("  Create a bot via @BotFather on Telegram and paste the token below.\n", "grey"))
+
+    cur_token = cfg.get("telegram_token", "")
+
+    # ── Token ─────────────────────────────────────────────────────────────────
+    if cur_token:
+        try:
+            action = _select_menu(
+                f"Token already set ({cur_token[:12]}…)",
+                ["Keep existing token", "Replace token", "Remove Telegram integration"],
+                default_idx=0,
+            )
+        except (KeyboardInterrupt, EOFError):
+            return
+        if action.startswith("Remove"):
+            cfg.pop("telegram_token", None)
+            cfg.get("messaging", {}).get("telegram", {}).pop("chat_id", None)
+            print(_C("  ✓  Telegram integration removed.\n", "green"))
+            return
+        elif action.startswith("Replace"):
+            cur_token = ""
+
+    if not cur_token:
+        try:
+            token = _prompt_secret("  Bot token (from @BotFather): ").strip()
+        except (KeyboardInterrupt, EOFError):
+            return
+        if not token:
+            print(_C("  Cancelled — token not changed.\n", "grey"))
+            return
+        cfg["telegram_token"] = token
+        cur_token = token
+        print(_C("  ✓  Token saved.\n", "green"))
+
+    # ── Verify token & get bot info ───────────────────────────────────────────
+    print(_C("  Verifying token with Telegram API…", "grey"))
+    try:
+        import requests as _req
+        r = _req.get(f"https://api.telegram.org/bot{cur_token}/getMe", timeout=8)
+        if r.ok and r.json().get("ok"):
+            bot = r.json()["result"]
+            print(_C(f"  ✓  Bot: @{bot.get('username', '?')}  ({bot.get('first_name', '')})\n", "green"))
+        else:
+            print(_C(f"  ⚠  Token invalid: {r.text[:120]}\n", "yellow"))
+    except Exception as e:
+        print(_C(f"  ⚠  Could not verify: {e}\n", "yellow"))
+
+    # ── Chat ID ───────────────────────────────────────────────────────────────
+    cur_chat = cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
+    print(_C("  To get your Chat ID: send any message to your bot on Telegram,", "grey"))
+    print(_C("  then press Enter and we'll fetch it automatically — or enter it manually.\n", "grey"))
+
+    try:
+        chat_input = _prompt(f"  Chat ID [{cur_chat or 'auto-detect'}]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    if not chat_input:
+        # Auto-detect from getUpdates
+        try:
+            import requests as _req
+            r = _req.get(f"https://api.telegram.org/bot{cur_token}/getUpdates", timeout=8)
+            if r.ok:
+                updates = r.json().get("result", [])
+                if updates:
+                    chat_input = str(updates[-1]["message"]["chat"]["id"])
+                    print(_C(f"  ✓  Auto-detected Chat ID: {chat_input}\n", "green"))
+                else:
+                    print(_C("  ⚠  No messages found. Send a message to your bot first, then re-run setup.\n", "yellow"))
+        except Exception as e:
+            print(_C(f"  ⚠  Could not auto-detect: {e}\n", "yellow"))
+
+    if chat_input:
+        cfg.setdefault("messaging", {}).setdefault("telegram", {})["chat_id"] = chat_input
+
+    # ── Auto-start option ─────────────────────────────────────────────────────
+    try:
+        start_now = _select_menu(
+            "Start Telegram bot in background now?",
+            ["Yes — start daemon now", "No — I'll start it manually"],
+            default_idx=0,
+        )
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    if start_now.startswith("Yes"):
+        save_config(cfg)
+        print(_C("  Starting Telegram daemon…\n", "grey"))
+        try:
+            from skills.telegram_daemon import start_telegram_daemon
+            result = start_telegram_daemon()
+            print(_C(f"  {result}\n", "green"))
+        except Exception as e:
+            print(_C(f"  ⚠  Could not start daemon: {e}\n  Run: koza telegram start\n", "yellow"))
+    else:
+        print(_C("  ✓  Telegram configured. Run: koza telegram start\n", "teal"))
 
 
 def _setup_voice_mode(cfg: dict) -> None:
