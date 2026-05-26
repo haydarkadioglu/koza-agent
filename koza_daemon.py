@@ -165,6 +165,7 @@ class ClientSession:
         "send_message", "get_messages",
         "telegram_send", "telegram_get_updates", "telegram_send_photo",
         "set_config", "delete_config",
+        "telegram_status", "start_telegram_daemon",
         "run_command", "write_file", "create_dir",
     }
 

@@ -160,6 +160,7 @@ def _plain_cli(agent, cfg: dict) -> None:
         "send_message", "get_messages",
         "telegram_send", "telegram_get_updates", "telegram_send_photo",
         "telegram_send_video", "telegram_set_webhook",
+        "telegram_status", "start_telegram_daemon",
         "discord_send", "discord_get_messages",
         "whatsapp_send",
         # ── GitHub ────────────────────────────────────────────────────────────

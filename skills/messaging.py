@@ -34,6 +34,27 @@ TOOL_DEFINITIONS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "start_telegram_daemon",
+            "description": (
+                "Start the Telegram bot as a persistent background service. "
+                "Call this when the user wants to use Telegram or says 'Telegram'dan konuşalım'. "
+                "Requires telegram_token in config. Will set the token if provided."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "token": {
+                        "type": "string",
+                        "description": "Telegram bot token (optional — only needed if not already configured)",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -60,7 +81,34 @@ def telegram_status() -> str:
     return "Telegram bot is running." if _bot_running else "Telegram bot is not running. Start with: koza telegram"
 
 
+def start_telegram_daemon(token: str = "") -> str:
+    """Start the Telegram background service (koza_daemon --services-only)."""
+    try:
+        from config import load_config, save_config
+        cfg = load_config()
+        if token:
+            cfg["telegram_token"] = token.strip()
+            save_config(cfg)
+
+        tok = cfg.get("telegram_token", "").strip()
+        if not tok:
+            return "ERROR: telegram_token not set. Please provide the bot token."
+
+        from koza_daemon import start_services_background, get_daemon_port
+        port = get_daemon_port()
+        if port is not None:
+            return "✅ Telegram daemon already running."
+
+        ok = start_services_background(cfg)
+        if ok:
+            return "✅ Telegram bot başlatıldı (arka planda çalışıyor)."
+        return "⚠️ Daemon zaten çalışıyor veya başlatılamadı. `telegram_status` ile kontrol et."
+    except Exception as e:
+        return f"ERROR starting Telegram daemon: {e}"
+
+
 HANDLERS = {
-    "telegram_send": telegram_send,
+    "telegram_send":   telegram_send,
     "telegram_status": telegram_status,
+    "start_telegram_daemon": start_telegram_daemon,
 }

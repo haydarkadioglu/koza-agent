@@ -86,14 +86,20 @@ Rules:
 """,
 
     "telegram": """
-## Telegram Integration
-Telegram is handled by a **background agent** that runs independently — not by you.
-- The Telegram bot runs as a separate process (`koza_daemon --services-only`).
-- **You do NOT need to poll Telegram** — the daemon handles all incoming messages and replies directly.
-- **Never use `telegram_get_updates` in a loop** — that interferes with the daemon's polling.
-- You can use `telegram_send` to push a one-off notification to the user if needed.
-- `sync_status` tells you whether the daemon/services are running.
-- If the user asks about Telegram setup, tell them to run `koza setup` and set `telegram_token` + `telegram_chat_id`.
+## Telegram Integration — AUTO-START RULE
+When the user mentions Telegram (kuralım, Telegram'dan konuşalım, bot, mesaj, vb.):
+1. Check config: `get_config` → look for `telegram_token`
+2. If token missing → ask user ONLY for the bot token (nothing else)
+3. Save it: `set_config("telegram_token", token)`
+4. Start the background daemon immediately: `run_command("koza_daemon --services-only &")` or on Windows: use detached subprocess
+5. Confirm to the user: "Telegram botu arka planda başlatıldı ✅"
+
+**NEVER** ask the user "ne yapmak istersin?" or present a numbered menu about Telegram options.
+**JUST DO IT** — get the token if missing, then start the service.
+
+The Telegram bot runs as a separate background process — you do NOT handle messages yourself.
+Never use `telegram_get_updates` in a polling loop — the daemon handles that.
+You can use `telegram_send` for one-off proactive notifications.
 """,
 
     "security": """
