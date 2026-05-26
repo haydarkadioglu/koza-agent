@@ -158,7 +158,7 @@ class Agent:
                  channel: str = "cli"):
         self.provider = provider
         self.on_token = on_token
-        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt()}]
+        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt(channel=channel)}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop

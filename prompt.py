@@ -130,7 +130,7 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
 }
 
 
-def build_system_prompt(user_input: str = "", extra_context: str = "") -> str:
+def build_system_prompt(user_input: str = "", extra_context: str = "", channel: str = "cli") -> str:
     """
     Build the system prompt by combining CORE_PROMPT with only the sections
     relevant to the user's message. Falls back to all sections if input is empty.
@@ -138,6 +138,7 @@ def build_system_prompt(user_input: str = "", extra_context: str = "") -> str:
     Args:
         user_input:     The user's latest message (used for keyword matching).
         extra_context:  Working memory / cwd context injected by the agent.
+        channel:        'cli', 'telegram', 'discord', etc.
     """
     lower = user_input.lower()
     matched: set[str] = set()
@@ -152,6 +153,18 @@ def build_system_prompt(user_input: str = "", extra_context: str = "") -> str:
 
     sections = "".join(PROMPT_SECTIONS[s] for s in matched if s in PROMPT_SECTIONS)
     base = CORE_PROMPT + sections
+
+    # Channel-specific additions
+    if channel == "telegram":
+        base += """
+## Telegram Context — CRITICAL
+You are running as a Telegram bot. The user is messaging you via Telegram.
+- **Respond naturally and directly** — like a helpful assistant, NOT like a dispatcher.
+- **NEVER say** "Mesajını aldım", "Siz: X", "Ne yapmamı istersiniz?" — these are NOT acceptable responses.
+- Just answer the user's question or complete the task directly.
+- Keep responses concise (Telegram messages have limits).
+- Do NOT ask for clarification unless absolutely necessary — infer intent and act.
+"""
 
     if extra_context:
         base = base + "\n\n" + extra_context
