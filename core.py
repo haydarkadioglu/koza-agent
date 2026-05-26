@@ -154,7 +154,8 @@ def _select_tools(user_input: str) -> list[dict]:
 
 class Agent:
     def __init__(self, provider: LLMProvider, db_path: str, cfg: dict = None,
-                 on_token: Callable[[str], None] | None = None):
+                 on_token: Callable[[str], None] | None = None,
+                 channel: str = "cli"):
         self.provider = provider
         self.on_token = on_token
         self.messages: list[dict] = [{"role": "system", "content": build_system_prompt()}]
