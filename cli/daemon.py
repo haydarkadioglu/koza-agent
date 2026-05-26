@@ -37,6 +37,63 @@ def cmd_start(args: list) -> None:
         _print_error(exc, fatal=True)
         return
 
+    # ── Multi-host sync (CLI mode) ─────────────────────────────────────────────
+    mh = cfg.get("multi_host", {})
+    mh_mode = mh.get("mode", "single")
+    if mh_mode == "master":
+        try:
+            from skills.sync.server import start_sync_server
+            port  = int(mh.get("sync_port", 7420))
+            token = mh.get("sync_token", "")
+            hname = mh.get("host_name", "")
+            if token:
+                ok = start_sync_server(cfg["db_path"], token, port=port, host_name=hname)
+                if ok:
+                    print(_C(f"  ✓  Sync server listening on port {port}\n", "teal"))
+        except Exception:
+            pass
+    elif mh_mode in ("client", "demo"):
+        master = mh.get("master_url", "").strip()
+        token  = mh.get("sync_token", "").strip()
+        hname  = mh.get("host_name", "")
+        if master and token:
+            # Register with master
+            try:
+                from skills.sync.client import register_with_master
+                register_with_master(master, token, cfg["db_path"], host_name=hname)
+            except Exception:
+                pass
+            # Startup sync
+            if mh.get("sync_on_startup", True):
+                try:
+                    from skills.sync.client import sync_bidirectional_safe
+                    since = float(mh.get("last_sync_at", 0) or 0)
+                    msg = sync_bidirectional_safe(master, token, cfg["db_path"], since=since)
+                    print(_C(f"  ✓  Startup sync: {msg}\n", "teal"))
+                except Exception:
+                    pass
+            # Periodic sync background thread
+            interval = int(mh.get("sync_interval_minutes", 5))
+            if interval > 0:
+                import threading
+                _cli_sync_stop = threading.Event()
+
+                def _periodic_sync_loop():
+                    while not _cli_sync_stop.wait(timeout=interval * 60):
+                        try:
+                            from config import load_config as _lc
+                            _cfg = _lc()
+                            _mh  = _cfg.get("multi_host", {})
+                            _since = float(_mh.get("last_sync_at", 0) or 0)
+                            from skills.sync.client import sync_bidirectional_safe as _sbs
+                            _sbs(_mh.get("master_url", master), _mh.get("sync_token", token),
+                                 _cfg.get("db_path", cfg["db_path"]), since=_since)
+                        except Exception:
+                            pass
+
+                _t = threading.Thread(target=_periodic_sync_loop, daemon=True, name="koza-cli-sync")
+                _t.start()
+
     _plain_cli(agent, cfg)
 
 

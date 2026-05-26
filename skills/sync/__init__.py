@@ -18,11 +18,12 @@ def sync_now(direction: str = "both") -> str:
     master = mh.get("master_url", "").strip()
     token  = mh.get("sync_token", "").strip()
     dbpath = cfg.get("db_path", "")
+    since  = float(mh.get("last_sync_at", 0) or 0)
 
     if mode == "single":
         return "⚠ Multi-host is not enabled (mode=single). Run: koza sync setup"
     if mode == "master":
-        return "ℹ This is the master host. Other clients sync to you. Use 'pull' if you want to receive from a remote master."
+        return "ℹ This is the master host. Other clients sync to you."
     if not master:
         return "✗ master_url not configured. Run: koza sync setup"
     if not token:
@@ -33,22 +34,22 @@ def sync_now(direction: str = "both") -> str:
     try:
         if direction == "pull":
             from .client import sync_pull
-            counts = sync_pull(master, token, dbpath)
+            counts = sync_pull(master, token, dbpath, since=since)
             total  = sum(counts.values())
             return f"✅ Pull complete — {total} rows merged\n{counts}"
         elif direction == "push":
             from .client import sync_push
-            counts = sync_push(master, token, dbpath)
+            counts = sync_push(master, token, dbpath, since=since)
             total  = sum(counts.values())
             return f"✅ Push complete — {total} rows sent\n{counts}"
         else:
-            return sync_bidirectional_safe(master, token, dbpath)
+            return sync_bidirectional_safe(master, token, dbpath, since=since)
     except Exception as e:
         return f"✗ Sync error: {e}"
 
 
 def sync_status() -> str:
-    """Show current multi-host sync configuration and last sync info."""
+    """Show current multi-host sync configuration, registered clients, and recent log."""
     from config import load_config
     cfg = load_config()
     mh  = cfg.get("multi_host", {})
@@ -60,16 +61,41 @@ def sync_status() -> str:
     on_start  = mh.get("sync_on_startup", True)
     on_exit   = mh.get("sync_on_exit",    True)
     interval  = int(mh.get("sync_interval_minutes", 5))
+    last_sync = mh.get("last_sync_at", 0)
+    dbpath    = cfg.get("db_path", "")
 
     lines = [
         f"Multi-Host Sync Status",
         f"  Mode          : {mode}",
         f"  Host name     : {name}",
     ]
+    if last_sync:
+        import datetime
+        dt = datetime.datetime.fromtimestamp(last_sync).strftime("%Y-%m-%d %H:%M:%S")
+        lines.append(f"  Last sync     : {dt}")
+
     if mode == "master":
         tok_display = ("*" * 8 + token[-4:]) if len(token) > 6 else (token or "—")
-        lines.append(f"  Sync port     : {port}  (listening on 0.0.0.0:{port})")
+        from .server import is_running
+        server_status = "✅ running" if is_running() else "❌ not running"
+        lines.append(f"  Sync server   : {server_status} on 0.0.0.0:{port}")
         lines.append(f"  Token         : {tok_display}")
+
+        # Registered clients
+        try:
+            from .server import get_registered_clients
+            clients = get_registered_clients(dbpath)
+            if clients:
+                lines.append(f"  Clients ({len(clients)})   :")
+                for c in clients:
+                    import datetime
+                    last = datetime.datetime.fromtimestamp(c["last_seen"]).strftime("%m-%d %H:%M")
+                    lines.append(f"    • {c['host_name'] or c['id'][:8]}  {c['ip_addr']}  last:{last}")
+            else:
+                lines.append("  Clients       : none registered yet")
+        except Exception:
+            pass
+
     elif mode in ("client", "demo"):
         lines.append(f"  Master URL    : {master}")
         tok_display = ("*" * 8 + token[-4:]) if len(token) > 6 else (token or "—")
@@ -87,23 +113,58 @@ def sync_status() -> str:
         status_icon = "✅" if ok else "⚠"
         lines.append(f"  Master status : {status_icon} {msg}")
 
+    # Recent sync log
+    try:
+        from .server import get_sync_log
+        log_entries = get_sync_log(dbpath, limit=5)
+        if log_entries:
+            lines.append("")
+            lines.append("  Recent sync log:")
+            for entry in log_entries:
+                import datetime
+                dt = datetime.datetime.fromtimestamp(entry["ts"]).strftime("%m-%d %H:%M")
+                icon = "✅" if entry["status"] == "ok" else "❌"
+                lines.append(f"    {icon} [{dt}] {entry['direction']:5} {entry['rows_synced']} rows — {entry['host_name']}")
+    except Exception:
+        pass
+
     return "\n".join(lines)
 
 
 def list_hosts() -> str:
-    """List configured hosts in multi-host mode."""
+    """List configured hosts and registered clients in multi-host mode."""
     from config import load_config
     cfg  = load_config()
     mh   = cfg.get("multi_host", {})
     mode = mh.get("mode", "single")
+    dbpath = cfg.get("db_path", "")
 
     if mode == "single":
         return "Single-host mode. Enable multi-host with: koza sync setup"
+
     if mode == "master":
-        return (f"This is the MASTER host.\n"
-                f"  Port   : {mh.get('sync_port', 7420)}\n"
-                f"  Clients can connect by setting master_url in their config.\n"
-                f"  Share your IP:port + token with clients.")
+        lines = [
+            f"MASTER host — port {mh.get('sync_port', 7420)}",
+            f"  Share your IP:port + token with clients.",
+            "",
+        ]
+        try:
+            from .server import get_registered_clients
+            clients = get_registered_clients(dbpath)
+            if clients:
+                lines.append(f"  Registered clients ({len(clients)}):")
+                for c in clients:
+                    import datetime
+                    last = datetime.datetime.fromtimestamp(c["last_seen"]).strftime("%Y-%m-%d %H:%M:%S")
+                    first = datetime.datetime.fromtimestamp(c["first_seen"]).strftime("%Y-%m-%d")
+                    lines.append(f"    • {c['host_name'] or c['id'][:8]}  IP:{c['ip_addr']}  last:{last}  since:{first}")
+            else:
+                lines.append("  No clients registered yet.")
+                lines.append("  Clients register automatically on their first sync.")
+        except Exception as e:
+            lines.append(f"  (Could not read client list: {e})")
+        return "\n".join(lines)
+
     master = mh.get("master_url", "")
     return (f"CLIENT mode — master: {master or '(not set)'}\n"
             f"Run sync_status() to check connectivity.")
@@ -132,12 +193,12 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "sync_status",
-        "description": "Show current multi-host sync configuration and connectivity status.",
+        "description": "Show current multi-host sync configuration, registered clients, server status, and recent sync log.",
         "parameters": {"type": "object", "properties": {}},
     },
     {
         "name": "list_hosts",
-        "description": "List configured hosts in multi-host mode.",
+        "description": "List configured hosts and registered clients in multi-host mode.",
         "parameters": {"type": "object", "properties": {}},
     },
 ]

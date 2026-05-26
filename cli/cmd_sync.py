@@ -30,6 +30,9 @@ def cmd_sync(args: list) -> None:
         _hr()
         print(_C("\n  🔄  Koza Multi-Host Sync\n", "bold", "cyan"))
         print(sync_status())
+        mh = cfg.get("multi_host", {})
+        if mh.get("mode", "single") == "single":
+            print(_C("\n  Run  koza sync setup  to configure.\n", "grey"))
         print()
         _hr()
         return
@@ -40,15 +43,17 @@ def cmd_sync(args: list) -> None:
         master = mh.get("master_url", "").strip()
         token  = mh.get("sync_token", "").strip()
         db     = cfg.get("db_path", "")
+        since  = float(mh.get("last_sync_at", 0) or 0)
         if not master or not token:
             print(_C("  ✗  master_url or sync_token not set. Run: koza sync setup", "red"))
             return
         try:
             from skills.sync.client import sync_pull
-            counts = sync_pull(master, token, db)
+            counts = sync_pull(master, token, db, since=since)
             total  = sum(counts.values())
+            mode_str = "(delta)" if since > 0 else "(full)"
             _hr()
-            print(_C(f"\n  ✅  Pull complete — {total} rows merged\n", "green"))
+            print(_C(f"\n  ✅  Pull complete {mode_str} — {total} rows merged\n", "green"))
             for tbl, cnt in counts.items():
                 print(f"  {_C(f'{tbl:<20}', 'cyan')}  {cnt} rows")
             print()
@@ -63,15 +68,17 @@ def cmd_sync(args: list) -> None:
         master = mh.get("master_url", "").strip()
         token  = mh.get("sync_token", "").strip()
         db     = cfg.get("db_path", "")
+        since  = float(mh.get("last_sync_at", 0) or 0)
         if not master or not token:
             print(_C("  ✗  master_url or sync_token not set. Run: koza sync setup", "red"))
             return
         try:
             from skills.sync.client import sync_push
-            counts = sync_push(master, token, db)
+            counts = sync_push(master, token, db, since=since)
             total  = sum(counts.values())
+            mode_str = "(delta)" if since > 0 else "(full)"
             _hr()
-            print(_C(f"\n  ✅  Push complete — {total} rows sent\n", "green"))
+            print(_C(f"\n  ✅  Push complete {mode_str} — {total} rows sent\n", "green"))
             for tbl, cnt in counts.items():
                 print(f"  {_C(f'{tbl:<20}', 'cyan')}  {cnt} rows")
             print()
@@ -86,11 +93,12 @@ def cmd_sync(args: list) -> None:
         master = mh.get("master_url", "").strip()
         token  = mh.get("sync_token", "").strip()
         db     = cfg.get("db_path", "")
+        since  = float(mh.get("last_sync_at", 0) or 0)
         if not master or not token:
             print(_C("  ✗  master_url or sync_token not set. Run: koza sync setup", "red"))
             return
         from skills.sync.client import sync_bidirectional_safe
-        msg  = sync_bidirectional_safe(master, token, db)
+        msg  = sync_bidirectional_safe(master, token, db, since=since)
         icon = "✅" if msg.startswith("Sync OK") else "⚠"
         print(_C(f"\n  {icon}  {msg}\n", "green" if icon == "✅" else "yellow"))
         return

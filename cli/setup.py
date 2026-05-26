@@ -45,7 +45,7 @@ def cmd_setup(args: list) -> None:
             f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
             f"Fallback Provider   {_status(cur_fallback)}",
             f"Media (Image/Video) {_status(cur_media or cur_provider)}",
-            f"Multi-host Sync     {_status('enabled' if cfg.get('sync') else '')}",
+            f"Multi-host Sync     {_status(cfg.get('multi_host', {}).get('mode', 'single') if cfg.get('multi_host', {}).get('mode', 'single') != 'single' else '')}",
             f"Voice Mode          {_status('enabled' if cfg.get('voice', {}).get('enabled') else 'disabled')}",
             "Done — save & exit",
         ]
@@ -74,7 +74,10 @@ def cmd_setup(args: list) -> None:
         # ── Multi-host Sync ───────────────────────────────────────────────────
         elif section.startswith("Multi"):
             from cli.commands import cmd_sync
+            from config import load_config
             cmd_sync(["setup"])
+            # Reload multi_host from disk — cmd_sync saves its own copy
+            cfg["multi_host"] = load_config().get("multi_host", cfg.get("multi_host", {}))
 
         # ── Voice Mode ────────────────────────────────────────────────────────
         elif section.startswith("Voice"):

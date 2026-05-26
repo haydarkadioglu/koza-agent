@@ -18,8 +18,13 @@
 ### Windows — one-liner (PowerShell)
 
 ```powershell
-powershell -c "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex"
+irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex
 ```
+
+> PowerShell 5.1 (Windows built-in) kullanıyorsan TLS hatasına karşı:
+> ```powershell
+> [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex
+> ```
 
 ### Linux / macOS — one-liner
 

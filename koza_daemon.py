@@ -355,13 +355,16 @@ class DaemonServer:
             return
         master  = mh.get("master_url", "").strip()
         token   = mh.get("sync_token", "").strip()
+        hname   = mh.get("host_name", "")
         db_path = self.cfg.get("db_path", "")
         if not master or not token:
             _log("Multi-host: client mode but master_url/token not set, skipping startup sync.")
             return
         try:
-            from skills.sync.client import sync_bidirectional_safe
-            msg = sync_bidirectional_safe(master, token, db_path)
+            from skills.sync.client import register_with_master, sync_bidirectional_safe
+            register_with_master(master, token, db_path, host_name=hname)
+            since = float(mh.get("last_sync_at", 0) or 0)
+            msg = sync_bidirectional_safe(master, token, db_path, since=since)
             _log(f"Multi-host startup sync: {msg}")
         except Exception as e:
             _log(f"Multi-host startup sync error: {e}")
@@ -383,8 +386,12 @@ class DaemonServer:
         def _loop():
             while not shutdown.wait(timeout=interval * 60):
                 try:
+                    from config import load_config as _lc
+                    _cfg   = _lc()
+                    _mh    = _cfg.get("multi_host", {})
+                    _since = float(_mh.get("last_sync_at", 0) or 0)
                     from skills.sync.client import sync_bidirectional_safe
-                    msg = sync_bidirectional_safe(master, token, db_path)
+                    msg = sync_bidirectional_safe(master, token, db_path, since=_since)
                     _log(f"Multi-host periodic sync: {msg}")
                 except Exception as e:
                     _log(f"Multi-host periodic sync error: {e}")
@@ -406,8 +413,9 @@ class DaemonServer:
         if not master or not token:
             return
         try:
+            since = float(mh.get("last_sync_at", 0) or 0)
             from skills.sync.client import sync_push
-            counts = sync_push(master, token, db_path)
+            counts = sync_push(master, token, db_path, since=since)
             total  = sum(counts.values())
             _log(f"Multi-host exit sync: pushed {total} rows to master")
         except Exception as e:

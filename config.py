@@ -57,6 +57,7 @@ def default_config() -> dict:
             "sync_on_exit":           True,
             "sync_interval_minutes":  5,          # periodic background sync (0 = disabled)
             "host_name":              "",         # optional display name
+            "last_sync_at":           0.0,        # unix timestamp of last successful sync
         },
         "voice": {
             "enabled":   False,

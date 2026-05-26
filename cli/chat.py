@@ -145,6 +145,7 @@ def _plain_cli(agent, cfg: dict) -> None:
         "write_file", "create_dir", "create_project",
         "spawn_subagent", "start_background_task", "get_background_status",
         "list_background_tasks", "cancel_background_task",
+        "sync_status", "sync_now", "list_hosts",
     }
     _session_allowed:  set = set()
     _permanent_allowed: set = set(cfg.get("allowed_tools", []))
@@ -216,10 +217,12 @@ def _plain_cli(agent, cfg: dict) -> None:
             # This bridges the background thread (where the agent runs) to the
             # main event loop thread (where prompt_toolkit UI lives).
             try:
-                future = asyncio.run_coroutine_threadsafe(
-                    run_in_terminal(_permission_in_terminal, render_cli_done=False),
-                    pt_app.loop,
-                )
+                coro = run_in_terminal(_permission_in_terminal, render_cli_done=False)
+                try:
+                    future = asyncio.run_coroutine_threadsafe(coro, pt_app.loop)
+                except Exception:
+                    coro.close()
+                    return False
                 # Block the background thread until the permission UI finishes.
                 # Timeout prevents permanent hang if the app exits mid-prompt.
                 future.result(timeout=300)  # 5 min timeout for user response
