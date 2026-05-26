@@ -229,10 +229,10 @@ TOOL_DEFINITIONS = [
     {
         "name": "spawn_subagent",
         "description": (
-            "Spawn an autonomous sub-agent with its own tool-calling loop to handle a sub-task. "
-            "Runs in the background and returns its result. "
-            "Use for parallel work, research tasks, or delegating complex sub-problems. "
-            "Use 'capabilities' to give named skill bundles (e.g. 'browser,files') instead of listing individual tools."
+            "Spawn an autonomous background sub-agent to handle a user-requested task. "
+            "ONLY use for tasks explicitly requested by the user that benefit from parallelism or isolation. "
+            "DO NOT use for: Telegram (use start_telegram_daemon), Cron (use create_cron), Sync (use sync_now). "
+            "Use 'capabilities' for named skill bundles (e.g. 'browser,files') instead of listing individual tools."
         ),
         "parameters": {
             "type": "object",
@@ -272,8 +272,8 @@ TOOL_DEFINITIONS = [
         "name": "create_project",
         "description": (
             "Create a new named project folder under workspace/projects/ and switch the working directory into it. "
-            "Use this whenever the user asks you to build an app, start a new project, or create a new codebase. "
-            "All subsequent files will be created inside this project folder."
+            "ONLY use when the user EXPLICITLY asks to create a new project, app, or codebase. "
+            "DO NOT call this spontaneously, for telegram setup, or for any built-in service configuration."
         ),
         "parameters": {
             "type": "object",

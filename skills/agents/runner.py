@@ -15,7 +15,7 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         from config import load_config
         from providers.factory import get_provider
         from core import ALL_TOOLS, ALL_HANDLERS
-        from prompt import SYSTEM_PROMPT
+        from prompt import build_system_prompt
         from skills.shared_memory import init_db as sm_init, get_relevant_context
         from skills.working_memory import init_db as wm_init, wm_get_context
         from skills import shell as _shell
@@ -51,7 +51,7 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
 
         wm_ctx  = wm_get_context()
         mem_ctx = get_relevant_context(goal, limit=6)
-        system_content = SYSTEM_PROMPT
+        system_content = build_system_prompt(user_input=goal, channel="subagent")
         if wm_ctx:
             system_content += f"\n\n{wm_ctx}"
         if mem_ctx:
