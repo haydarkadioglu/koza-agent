@@ -448,6 +448,20 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             notifier.initialize(application.bot, loop, chat_id)
             notifier.schedule_daily_summary()
 
+            # ── Send startup welcome if chat_id is configured ─────────────────
+            if chat_id:
+                try:
+                    await application.bot.send_message(
+                        chat_id=chat_id,
+                        text=(
+                            "🟢 *Koza bağlantısı kuruldu!*\n\n"
+                            "Telegram üzerinden bana mesaj yazabilirsin. Hazırım! 🚀"
+                        ),
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    pass  # chat_id geçersiz veya bot henüz başlatılmamış olabilir
+
             # ── Sub-agent completion notifications via SubAgentNotifier ──────
             _tg_loop = loop
             _tg_bot  = application.bot
@@ -603,6 +617,29 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
         ))
         app.add_handler(CallbackQueryHandler(on_callback_query))
         app.add_error_handler(on_error)
+
+        # ── /start command: save chat_id and send welcome ─────────────────────
+        from telegram.ext import CommandHandler as _CmdHandler
+
+        async def on_start(update, context):
+            cid = update.effective_chat.id
+            uname = update.effective_user.username or update.effective_user.first_name or str(cid)
+            # Persist chat_id to config so future startups can message proactively
+            try:
+                from config import load_config, save_config
+                c = load_config()
+                c.setdefault("messaging", {}).setdefault("telegram", {})["chat_id"] = str(cid)
+                save_config(c)
+            except Exception:
+                pass
+            await update.message.reply_text(
+                f"👋 Merhaba @{uname}!\n\n"
+                "Ben *Koza*, senin yapay zeka asistanın. Telegram bağlantımız başarıyla kuruldu! 🎉\n\n"
+                "Artık buradan bana istediğini yazabilirsin. Sana nasıl yardımcı olabilirim?",
+                parse_mode="Markdown",
+            )
+
+        app.add_handler(_CmdHandler("start", on_start))
 
         try:
             app.run_polling(
