@@ -133,5 +133,9 @@ def cmd_update(args: list) -> None:
             print(_C(f"  ⚠  pip reinstall skipped: {e}\n", "yellow"))
 
     new_ver = _get_version()
-    print(_C(f"  ✅  Koza is now v{new_ver}. Restart Koza to apply changes.\n", "green"))
+    print(_C(f"  ✅  Koza is now v{new_ver}. Restarting…\n", "green"))
     _hr()
+
+    import os, sys
+    # Re-exec the current process with the same arguments — replaces this process
+    os.execv(sys.executable, [sys.executable] + sys.argv)
