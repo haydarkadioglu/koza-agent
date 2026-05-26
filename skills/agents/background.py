@@ -111,73 +111,102 @@ class BackgroundTaskManager:
 
     @staticmethod
     def get_status(task_id: str) -> dict | None:
-        """Return status report for a task."""
+        """Return status report for a task (checks both CodingSession and subagent registries)."""
         with _tasks_lock:
             task = _background_tasks.get(task_id)
-        if not task:
-            return None
+        if task:
+            elapsed = 0.0
+            if task.started_at:
+                end = task.finished_at or time.time()
+                elapsed = end - task.started_at
+            return {
+                "id": task.id,
+                "goal": task.goal,
+                "status": task.status.value,
+                "elapsed_seconds": round(elapsed, 1),
+                "current_persona": task.current_persona,
+                "completed_subtasks": task.completed_subtasks,
+                "total_subtasks": task.total_subtasks,
+            }
 
-        elapsed = 0.0
-        if task.started_at:
-            end = task.finished_at or time.time()
-            elapsed = end - task.started_at
-
-        return {
-            "id": task.id,
-            "goal": task.goal,
-            "status": task.status.value,
-            "elapsed_seconds": round(elapsed, 1),
-            "current_persona": task.current_persona,
-            "completed_subtasks": task.completed_subtasks,
-            "total_subtasks": task.total_subtasks,
-        }
+        # Fallback: task may be a spawn_subagent sub-agent
+        from ._registry import _subagents
+        ag = _subagents.get(task_id)
+        if ag:
+            elapsed = round(time.time() - ag.get("started", time.time()), 1)
+            return {
+                "id": task_id,
+                "goal": ag.get("goal", ""),
+                "status": ag.get("status", "pending"),
+                "elapsed_seconds": elapsed,
+                "current_persona": "",
+                "completed_subtasks": 0,
+                "total_subtasks": 0,
+            }
+        return None
 
     @staticmethod
     def get_summary(task_id: str, n: int = 10) -> str | None:
-        """Return condensed summary of last N events."""
+        """Return condensed summary of last N events (checks both registries)."""
         with _tasks_lock:
             task = _background_tasks.get(task_id)
-        if not task:
-            return None
+        if task:
+            if task.status == TaskStatus.DONE and task.summary:
+                return task.summary
+            events = task.event_queue.get_last_n(n)
+            lines = []
+            for ev in events:
+                etype = ev.get("type", "")
+                if etype == "status":
+                    lines.append(f"[{ev.get('persona', '')}] {ev.get('message', '')}")
+                elif etype == "persona_tool":
+                    phase = ev.get("phase", "")
+                    lines.append(f"  Tool: {ev.get('tool', '')} ({phase})")
+                elif etype == "done":
+                    lines.append(f"✓ Done: {ev.get('summary', '')[:100]}")
+                elif etype == "error_recorded":
+                    lines.append(f"⚠ Error: {ev.get('error', {}).get('description', '')[:80]}")
+            return "\n".join(lines) if lines else "(no events yet)"
 
-        if task.status == TaskStatus.DONE and task.summary:
-            return task.summary
-
-        events = task.event_queue.get_last_n(n)
-        lines = []
-        for ev in events:
-            etype = ev.get("type", "")
-            if etype == "status":
-                lines.append(f"[{ev.get('persona', '')}] {ev.get('message', '')}")
-            elif etype == "persona_tool":
-                phase = ev.get("phase", "")
-                lines.append(f"  Tool: {ev.get('tool', '')} ({phase})")
-            elif etype == "done":
-                lines.append(f"✓ Done: {ev.get('summary', '')[:100]}")
-            elif etype == "error_recorded":
-                lines.append(f"⚠ Error: {ev.get('error', {}).get('description', '')[:80]}")
-        return "\n".join(lines) if lines else "(no events yet)"
+        # Fallback: spawn_subagent sub-agent result
+        from ._registry import _subagents
+        ag = _subagents.get(task_id)
+        if ag:
+            return ag.get("result", "") or "(no output yet)"
+        return None
 
     @staticmethod
     def list_tasks() -> list[dict]:
-        """Return all tasks with id, goal, and status."""
+        """Return all tasks with id, goal, and status (both registries)."""
         with _tasks_lock:
-            return [
+            result = [
                 {"id": t.id, "goal": t.goal, "status": t.status.value}
                 for t in _background_tasks.values()
             ]
+        from ._registry import _subagents
+        bg_ids = {entry["id"] for entry in result}
+        for ag in _subagents.values():
+            if ag["id"] not in bg_ids:
+                result.append({"id": ag["id"], "goal": ag.get("goal", ""), "status": ag.get("status", "pending")})
+        return result
 
     @staticmethod
     def cancel_task(task_id: str) -> bool:
         """Cancel a running task. Returns True if cancellation was initiated."""
         with _tasks_lock:
             task = _background_tasks.get(task_id)
-        if not task:
-            return False
-        if task.status != TaskStatus.RUNNING:
-            return False
+        if task:
+            if task.status != TaskStatus.RUNNING:
+                return False
+            task.session.interrupt()
+            task.status = TaskStatus.CANCELLED
+            task.finished_at = time.time()
+            return True
 
-        task.session.interrupt()
-        task.status = TaskStatus.CANCELLED
-        task.finished_at = time.time()
-        return True
+        # Fallback: spawn_subagent sub-agent (no interrupt mechanism, mark cancelled)
+        from ._registry import _subagents
+        ag = _subagents.get(task_id)
+        if ag and ag.get("status") == "running":
+            ag["status"] = "cancelled"
+            return True
+        return False

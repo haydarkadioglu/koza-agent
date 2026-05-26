@@ -63,10 +63,10 @@ def _sanitize_response(text: str) -> str:
 
 def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> None:
     """Poll task status and send notification on completion."""
+    assert loop is not None, "_register_completion_watcher requires a running event loop"
 
     def _watcher():
         import time
-        _loop = loop or asyncio.new_event_loop()
         while True:
             time.sleep(5)
             status = BackgroundTaskManager.get_status(task_id)
@@ -77,16 +77,21 @@ def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> 
                 msg_text = f"✅ Task {task_id} done:\n{summary}"
                 asyncio.run_coroutine_threadsafe(
                     bot.send_message(chat_id=chat_id, text=msg_text),
-                    _loop,
+                    loop,
                 )
                 break
             elif status["status"] == "error":
-                task = _background_tasks.get(task_id)
-                err = task.error_message if task else "Unknown error"
+                from skills.agents._registry import _subagents
+                task_reg = _background_tasks.get(task_id) or _subagents.get(task_id)
+                err = (
+                    getattr(task_reg, "error_message", None)
+                    or (task_reg.get("result", "") if isinstance(task_reg, dict) else "")
+                    or "Unknown error"
+                )
                 msg_text = f"❌ Task {task_id} failed:\n{err}"
                 asyncio.run_coroutine_threadsafe(
                     bot.send_message(chat_id=chat_id, text=msg_text),
-                    _loop,
+                    loop,
                 )
                 break
             elif status["status"] == "cancelled":
@@ -383,10 +388,10 @@ async def _process_message(update, context, agent_factory: Callable,
             await _flush(force=True)
 
             # Track background task IDs so we can register watchers
-            if name == "start_background_task":
+            if name == "spawn_subagent":
                 result_str = str(event.get("result", ""))
-                # Extract task_id (format: "Background task started: {id}")
-                m = _re.search(r"started:\s*([a-f0-9]{8})", result_str)
+                # spawn_subagent returns "Sub-agent {id} launched (background)..."
+                m = _re.search(r"Sub-agent\s+([a-f0-9]{8})", result_str)
                 if m:
                     _bg_task_ids.append(m.group(1))
 
