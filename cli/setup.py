@@ -497,11 +497,11 @@ def _setup_telegram_channel(cfg: dict) -> None:
         save_config(cfg)
         print(_C("  Starting Telegram daemon…\n", "grey"))
         try:
-            from skills.telegram_daemon import start_telegram_daemon
+            from skills.messaging import start_telegram_daemon
             result = start_telegram_daemon()
             print(_C(f"  {result}\n", "green"))
         except Exception as e:
-            print(_C(f"  ⚠  Could not start daemon: {e}\n  Run: koza telegram start\n", "yellow"))
+            print(_C(f"  ⚠  Could not start daemon: {e}\n  Run: koza\n", "yellow"))
     else:
         print(_C("  ✓  Telegram configured. Run: koza telegram start\n", "teal"))
 

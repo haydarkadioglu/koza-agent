@@ -38,6 +38,24 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+# Patterns that the LLM should never generate but sometimes does — strip them out
+_ECHO_PATTERNS = re.compile(
+    r"(?:"
+    r"[✅🔄]\s*Mesajın[ıi]z?\s+alındı[:\s].*?(?:\n|$)"
+    r"|Koza\s+AI['']?ya\s+yönlendiriyorum.*?(?:\n|$)"
+    r"|Chat\s+ID\s*:\s*\d+\s*(?:\n|$)"
+    r"|[✅☑]\s*Mesajını[z]?\s+aldım.*?(?:\n|$)"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _sanitize_response(text: str) -> str:
+    """Strip any LLM-generated echo/routing messages before sending to Telegram."""
+    cleaned = _ECHO_PATTERNS.sub("", text).strip()
+    return cleaned if cleaned else text  # if all stripped, return original (shouldn't happen)
+
+
 # ── LLM-driven routing (replaces keyword-based detection) ────────────────────
 # The router is accessed via the agent instance: agent._router.classify(text)
 # No more keyword lists here — the LLM decides what's a coding task.
@@ -255,7 +273,7 @@ async def _process_message(update, context, agent_factory: Callable,
         if not force and (now - last_edit) < 1.5:
             return
         display = text_buf + (f"\n\n{status}" if status else "")
-        display = _strip_markdown(display)
+        display = _sanitize_response(_strip_markdown(display))
         if not display.strip():
             return
         # Overflow: start new message
