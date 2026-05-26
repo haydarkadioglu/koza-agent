@@ -94,27 +94,48 @@ def cmd_start(args: list) -> None:
                 _t = threading.Thread(target=_periodic_sync_loop, daemon=True, name="koza-cli-sync")
                 _t.start()
 
-    # ── Auto-start Telegram bot if token is configured ─────────────────────────
+    # ── Telegram + background services ────────────────────────────────────────
     _tg_token = (
         cfg.get("telegram_token", "").strip()
         or cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
     )
     if _tg_token:
+        # Check if a services-only background daemon is already running
         try:
-            from bots.telegram import start_bot_thread
-            from providers.factory import get_provider as _get_prov
-
-            def _tg_agent_factory(channel="telegram"):
-                from core import Agent
-                _cfg = cfg
-                return Agent(_get_prov(_cfg), db_path=_cfg["db_path"], cfg=_cfg, channel=channel)
-
-            if start_bot_thread(_tg_agent_factory, cfg):
-                print(_C("  ✓  Telegram bot started\n", "teal"))
+            from koza_daemon import get_daemon_port, start_as_background
+            _daemon_port = get_daemon_port()
+            if _daemon_port is None:
+                # Spawn a detached background process for Telegram + services
+                if start_as_background(python_exe=__import__("sys").executable):
+                    print(_C("  ✓  Background services started (Telegram bot running in background)\n", "teal"))
+                else:
+                    # Fallback: run in-process (will stop when console closes)
+                    _start_telegram_inprocess(cfg)
+                    print(_C("  ✓  Telegram bot started (in-process — will stop when console closes)\n", "yellow"))
+            else:
+                print(_C("  ✓  Background services already running (Telegram bot active)\n", "teal"))
         except Exception as _e:
-            print(_C(f"  ✗  Telegram bot failed to start: {_e}\n", "yellow"))
+            # Fallback: in-process
+            _start_telegram_inprocess(cfg)
+            print(_C("  ✓  Telegram bot started (in-process)\n", "teal"))
 
     _plain_cli(agent, cfg)
+
+
+def _start_telegram_inprocess(cfg: dict) -> None:
+    """Start Telegram bot in-process as a daemon thread (stops when process exits)."""
+    try:
+        from bots.telegram import start_bot_thread
+        from providers.factory import get_provider as _get_prov
+
+        def _tg_agent_factory(channel="telegram"):
+            from core import Agent
+            return Agent(_get_prov(cfg), db_path=cfg["db_path"], cfg=cfg, channel=channel)
+
+        start_bot_thread(_tg_agent_factory, cfg)
+    except Exception:
+        pass
+
 
 
 def cmd_status(args: list) -> None:
