@@ -87,6 +87,22 @@ fi
 VENV_PYTHON="${VENV_DIR}/bin/python"
 VENV_PIP="${VENV_DIR}/bin/pip"
 
+# ── Ensure pip is available in the venv ──────────────────────────────────────
+if [[ ! -f "${VENV_PIP}" ]]; then
+    warn "pip not found in venv — attempting to bootstrap with ensurepip …"
+    "${VENV_PYTHON}" -m ensurepip --upgrade 2>/dev/null || true
+fi
+
+# If still missing, recreate the venv from scratch
+if [[ ! -f "${VENV_PIP}" ]]; then
+    warn "Bootstrapping failed — recreating virtualenv …"
+    rm -rf "${VENV_DIR}"
+    "$PYTHON" -m venv --copies "${VENV_DIR}"
+    success "Virtualenv recreated."
+fi
+
+[[ ! -f "${VENV_PIP}" ]] && error "Cannot create a virtualenv with pip.\n      Try: sudo apt install python3-venv python3-pip"
+
 # ── Install package ──────────────────────────────────────────────────────────
 info "Installing Koza and dependencies (this may take a minute) …"
 "${VENV_PIP}" install --quiet --upgrade pip
