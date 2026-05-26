@@ -128,7 +128,12 @@ def cmd_update(args: list) -> None:
             if result.returncode == 0:
                 print(_C("  ✓  Package reinstalled.\n", "green"))
             else:
-                print(_C(f"  ⚠  pip install warning:\n    {result.stderr.strip()}\n", "yellow"))
+                stderr = result.stderr.strip()
+                # On Windows the .exe is locked while running — code is already updated via git pull
+                if "WinError 32" in stderr or "being used by another process" in stderr:
+                    print(_C("  ⚠  Skipped package reinstall (koza.exe in use — will apply on next start).\n", "yellow"))
+                else:
+                    print(_C(f"  ⚠  pip install warning:\n    {stderr}\n", "yellow"))
         except Exception as e:
             print(_C(f"  ⚠  pip reinstall skipped: {e}\n", "yellow"))
 
@@ -137,5 +142,28 @@ def cmd_update(args: list) -> None:
     _hr()
 
     import os, sys
-    # Re-exec the current process with the same arguments — replaces this process
+
+    # Windows: os.execv doesn't work reliably (locked exe, no shebang support).
+    # Spawn a fresh process and exit current one instead.
+    if sys.platform == "win32":
+        import time
+        try:
+            # Find the koza entry point: try .exe first, then script, then module
+            koza_exe = Path(sys.executable).parent / "koza.exe"
+            if not koza_exe.exists():
+                koza_exe = Path(sys.executable).parent / "Scripts" / "koza.exe"
+
+            if koza_exe.exists():
+                subprocess.Popen([str(koza_exe)] + sys.argv[1:],
+                                 creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                # Fallback: run as python module
+                subprocess.Popen([sys.executable, "-m", "koza_run"] + sys.argv[1:],
+                                 creationflags=subprocess.CREATE_NEW_CONSOLE)
+        except Exception:
+            print(_C("  ℹ  Please restart koza manually.\n", "grey"))
+        time.sleep(0.5)
+        os._exit(0)
+
+    # Unix: standard exec-replace
     os.execv(sys.executable, [sys.executable] + sys.argv)
