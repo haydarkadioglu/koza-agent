@@ -145,7 +145,9 @@ def _plain_cli(agent, cfg: dict) -> None:
         "recall_sessions", "list_sessions",
         # ── Kanban & Cron ─────────────────────────────────────────────────────
         "list_tasks", "add_task", "update_task", "delete_task", "move_task",
-        "list_crons", "add_cron", "delete_cron", "run_cron",
+        "list_crons", "create_cron", "add_cron", "delete_cron", "run_cron",
+        # ── Multi-host sync ───────────────────────────────────────────────────
+        "sync_status", "sync_now", "list_hosts",
         # ── Sub-agents ────────────────────────────────────────────────────────
         "list_subagents", "get_subagent_status", "subagent_get_result",
         "subagent_delete", "subagent_update", "spawn_subagent",
