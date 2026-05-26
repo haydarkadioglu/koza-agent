@@ -37,6 +37,12 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "github":
         from .github_provider import GitHubProvider
         return GitHubProvider(pcfg)
+    elif name == "groq":
+        from .groq_provider import GroqProvider
+        return GroqProvider(pcfg)
+    elif name == "openrouter":
+        from .openrouter_provider import OpenRouterProvider
+        return OpenRouterProvider(pcfg)
     else:
         raise ValueError(f"Unknown provider: {name}")
 
