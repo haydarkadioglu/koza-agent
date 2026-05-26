@@ -44,17 +44,50 @@ class DeepSeekProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
         resp = self._client.chat.completions.create(**kwargs)
 
-        # ── Collect full response first, then post-process ────────────────────
-        # DeepSeek sometimes bleeds DSML tool-call XML into the text stream
-        # even when tools are passed. We buffer everything and clean up after.
-        text_buf = ""
+        # ── DSML detection helpers ────────────────────────────────────────────
+        # DeepSeek occasionally bleeds DSML XML into the text stream instead of
+        # using the proper API tool_calls. DSML markers use fullwidth ｜ (U+FF5C).
+        _P = "｜"
+        _DSML_OPEN  = f"<{_P}"          # earliest sign of a DSML block
+        _DSML_CLOSE = f"</{_P}"         # end of a DSML block
+
+        dsml_pattern = re.compile(
+            rf"<{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>",
+            re.DOTALL,
+        )
+        invoke_pattern = re.compile(
+            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}invoke\s+name=["\']([^"\']+)["\']>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}invoke>',
+            re.DOTALL,
+        )
+        param_pattern = re.compile(
+            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}parameter>',
+            re.DOTALL,
+        )
+
         tool_chunks: dict[int, dict] = {}
+        text_buf  = ""   # accumulates ALL emitted text (for DSML post-check)
+        pending   = ""   # look-ahead buffer for DSML detection
+        # Max chars to hold in pending before we give up and treat as plain text
+        _DSML_MAX = 2048
+
+        def _flush_pending_as_text(p: str):
+            """Yield pending string and accumulate into text_buf."""
+            nonlocal text_buf
+            if p:
+                text_buf += p
+                yield p
 
         for chunk in resp:
+            if not chunk.choices:
+                continue
             choice = chunk.choices[0]
-            delta = choice.delta
+            delta  = choice.delta
 
+            # ── Proper API tool call chunks ───────────────────────────────────
             if delta.tool_calls:
+                # Flush any pending plain text before switching to tool mode
+                yield from _flush_pending_as_text(pending)
+                pending = ""
                 for tc in delta.tool_calls:
                     idx = tc.index
                     if idx not in tool_chunks:
@@ -68,9 +101,49 @@ class DeepSeekProvider(LLMProvider):
                             tool_chunks[idx]["args"] += tc.function.arguments
                 continue
 
-            text_buf += delta.content or ""
+            token = delta.content or ""
+            if not token:
+                continue
 
-        # ── Yield structured tool chunks first (from proper API tool_calls) ───
+            pending += token
+
+            # ── DSML look-ahead: only hold back text when we might be in a
+            #    DSML block. If no DSML open-marker visible, flush immediately.
+            while True:
+                dsml_pos = pending.find(_DSML_OPEN)
+
+                if dsml_pos == -1:
+                    # No DSML marker anywhere — safe to flush all
+                    yield from _flush_pending_as_text(pending)
+                    pending = ""
+                    break
+
+                # Yield everything before the potential DSML start
+                if dsml_pos > 0:
+                    safe = pending[:dsml_pos]
+                    text_buf += safe
+                    yield safe
+                    pending = pending[dsml_pos:]
+
+                # Check if the pending buffer already contains a full DSML close
+                if _DSML_CLOSE in pending:
+                    # Full DSML block captured — keep buffering until stream ends
+                    # (we process DSML after the loop)
+                    break
+
+                # Overflow guard: if pending is large but no close tag yet,
+                # it's not a real DSML block — flush it
+                if len(pending) > _DSML_MAX:
+                    yield from _flush_pending_as_text(pending)
+                    pending = ""
+                break
+
+        # ── After stream: flush remaining pending (may contain DSML) ─────────
+        # pending at this point either contains a DSML block or leftover text
+        text_buf += pending
+        pending_remainder = pending
+
+        # ── Yield structured tool chunks from proper API tool_calls ──────────
         for idx, stc in sorted(tool_chunks.items()):
             if stc["name"]:
                 try:
@@ -85,27 +158,10 @@ class DeepSeekProvider(LLMProvider):
                     "args_chunk": json.dumps(args_parsed),
                 }
 
-        # ── Post-process text: extract any DSML blocks as tool calls ──────────
-        # DSML uses fullwidth ｜ (U+FF5C), NOT ASCII |
-        # Patterns must match the actual unicode chars in the bleed-through text
-        _P = "｜"  # U+FF5C fullwidth vertical line
-        dsml_pattern = re.compile(
-            rf"<{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}tool_calls>",
-            re.DOTALL
-        )
-        invoke_pattern = re.compile(
-            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}invoke\s+name=["\']([^"\']+)["\']>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}invoke>',
-            re.DOTALL
-        )
-        param_pattern = re.compile(
-            rf'<{_P}{{1,2}}DSML{_P}{{1,2}}parameter\s+name=["\']([^"\']+)["\'][^>]*>(.*?)</{_P}{{1,2}}DSML{_P}{{1,2}}parameter>',
-            re.DOTALL
-        )
-
-        dsml_counter = [len(tool_chunks)]  # mutable for closure
-
-        # Extract DSML tool calls embedded in text
+        # ── Post-process pending remainder for DSML bleed-through ────────────
+        dsml_counter = [len(tool_chunks)]
         dsml_tool_yields = []
+
         def _collect_dsml(m):
             block = m.group(1)
             for inv in invoke_pattern.finditer(block):
@@ -131,19 +187,15 @@ class DeepSeekProvider(LLMProvider):
                 dsml_counter[0] += 1
             return ""
 
-        clean_text = dsml_pattern.sub(_collect_dsml, text_buf).strip()
+        clean_remainder = dsml_pattern.sub(_collect_dsml, pending_remainder).strip()
 
-        # Yield DSML-extracted tool calls
+        # Yield any DSML-extracted tool calls
         for tc_event in dsml_tool_yields:
             yield tc_event
 
-        # ── Finally yield clean text ──────────────────────────────────────────
-        if clean_text and not tool_chunks and not dsml_tool_yields:
-            # Pure text response — yield in chunks for a natural feel
-            for i in range(0, len(clean_text), 8):
-                yield clean_text[i:i+8]
-        elif clean_text:
-            yield clean_text
+        # Yield any non-DSML text that was held in pending
+        if clean_remainder:
+            yield clean_remainder
 
     def list_models(self) -> list[str]:
         try:
