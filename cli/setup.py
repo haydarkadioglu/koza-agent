@@ -497,9 +497,15 @@ def _setup_telegram_channel(cfg: dict) -> None:
         save_config(cfg)
         print(_C("  Starting Telegram daemon…\n", "grey"))
         try:
-            from skills.messaging import start_telegram_daemon
-            result = start_telegram_daemon()
-            print(_C(f"  {result}\n", "green"))
+            from koza_daemon import start_services_background, get_daemon_port
+            if get_daemon_port() is not None:
+                print(_C("  ✓  Daemon already running.\n", "teal"))
+            else:
+                ok = start_services_background(cfg)
+                if ok:
+                    print(_C("  ✅ Telegram bot started in background.\n", "green"))
+                else:
+                    print(_C("  ⚠  Could not start. Run: koza\n", "yellow"))
         except Exception as e:
             print(_C(f"  ⚠  Could not start daemon: {e}\n  Run: koza\n", "yellow"))
     else:
