@@ -77,7 +77,7 @@ def _select_menu(label: str, options: list, default_idx: int = 0) -> str:
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
-            tty.setraw(fd)
+            tty.setcbreak(fd)
             while True:
                 ch = sys.stdin.read(1)
                 if ch == "\x1b":
