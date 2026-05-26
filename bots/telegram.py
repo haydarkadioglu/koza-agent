@@ -718,6 +718,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 allowed_updates=["message", "edited_message", "callback_query"],
                 drop_pending_updates=True,
                 close_loop=False,
+                stop_signals=(),  # Linux: signal handlers only work in main thread
             )
         except _Conflict:
             logger.warning("Telegram bot stopped: another instance is already running.")
