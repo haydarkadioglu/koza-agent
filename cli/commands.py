@@ -157,9 +157,11 @@ def cmd_clean(args: list) -> None:
     print(_C("  ⚠   koza clean — Factory Reset\n", "red", "bold"))
     print(_C("  This will permanently delete:\n", "grey"))
     print(_C("    • ~/.Koza/config.yaml         (all provider keys & settings)", "grey"))
+    print(_C("    • ~/.Koza/.env                (environment variable overrides)", "grey"))
     print(_C("    • ~/.Koza/koza.db             (tasks, memory, cron jobs)", "grey"))
     print(_C("    • ~/.Koza/daemon.*            (daemon PID / port files)", "grey"))
-    print(_C("    • ~/.Koza/workspace/**        (empty files & empty folders)\n", "grey"))
+    print(_C("    • ~/.Koza/workspace/**        (empty files & empty folders)", "grey"))
+    print(_C("    • ~/.koza-agent/.env          (install dir env overrides)\n", "grey"))
     print(_C("  The daemon will be stopped if running.\n", "grey"))
 
     try:
@@ -195,9 +197,10 @@ def cmd_clean(args: list) -> None:
 
     # Remove files
     koza_dir = Path.home() / ".Koza"
+    install_dir = Path.home() / ".koza-agent"
     removed = []
     skipped = []
-    for name in ["config.yaml", "koza.db", "daemon.pid", "daemon.port", "daemon.log"]:
+    for name in ["config.yaml", "koza.db", "daemon.pid", "daemon.port", "daemon.log", ".env"]:
         f = koza_dir / name
         if f.exists():
             try:
@@ -205,6 +208,14 @@ def cmd_clean(args: list) -> None:
                 removed.append(name)
             except PermissionError:
                 skipped.append(name)
+    # Also clear .env in install dir (load_dotenv picks it up on startup)
+    install_env = install_dir / ".env"
+    if install_env.exists():
+        try:
+            install_env.unlink()
+            removed.append(f".koza-agent/.env")
+        except PermissionError:
+            skipped.append(f".koza-agent/.env")
 
     if removed:
         print(_C(f"  ✓  Removed: {', '.join(removed)}", "green"))
