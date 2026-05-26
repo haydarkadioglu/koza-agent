@@ -71,37 +71,12 @@ class BackgroundTaskManager:
         When coding session is disabled, falls back to spawn_subagent
         which runs the task using the main Agent's tool-calling loop.
         """
-        if not cfg.get("coding_mode", {}).get("enabled", False):
-            # Coding session disabled — use spawn_subagent as fallback
-            from skills.agents import spawn_subagent
-            result = spawn_subagent(goal, wait=False)
-            # Extract agent_id from the result string
-            # Format: "Sub-agent {agent_id} launched (background)..."
-            parts = result.split()
-            agent_id = parts[1] if len(parts) > 1 else "unknown"
-            return agent_id
-
-        from skills.agents.coding_mode import CodingSession
-
-        task_id = uuid.uuid4().hex[:8]
-        task = BackgroundTask(id=task_id, goal=goal)
-
-        session = CodingSession(cfg, db_path)
-        task.session = session
-
-        thread = threading.Thread(
-            target=BackgroundTaskManager._run_task,
-            args=(task,),
-            daemon=True,
-            name=f"bg-task-{task_id}",
-        )
-        task.thread = thread
-
-        with _tasks_lock:
-            _background_tasks[task_id] = task
-
-        thread.start()
-        return task_id
+        # CodingSession disabled — always use spawn_subagent
+        from skills.agents import spawn_subagent
+        result = spawn_subagent(goal, wait=False)
+        parts = result.split()
+        agent_id = parts[1] if len(parts) > 1 else "unknown"
+        return agent_id
 
     @staticmethod
     def _run_task(task: BackgroundTask) -> None:
