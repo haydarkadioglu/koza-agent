@@ -78,11 +78,14 @@ def cmd_update(args: list) -> None:
     if latest:
         try:
             from packaging.version import Version
-            if Version(latest) <= Version(current):
+            if Version(latest) == Version(current):
                 print(_C(f"  ✓  Already on the latest version (v{current}).\n", "green"))
                 _hr()
                 return
-            print(_C(f"  Updating  v{current}  →  v{latest}…\n", "grey"))
+            elif Version(latest) > Version(current):
+                print(_C(f"  Updating  v{current}  →  v{latest}…\n", "grey"))
+            else:
+                print(_C(f"  ℹ  Local version (v{current}) is ahead of release (v{latest}) — pulling latest code…\n", "yellow"))
         except Exception:
             pass
     else:
