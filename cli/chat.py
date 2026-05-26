@@ -132,20 +132,44 @@ def _plain_cli(agent, cfg: dict) -> None:
 
     # ── Tool permission system ────────────────────────────────────────────────
     _SAFE_TOOLS = {
-        "web_search", "fetch_url", "list_dir", "read_file", "wm_add", "wm_get",
-        "wm_list", "wm_clear", "wm_get_context",
-        "memory_recall", "memory_search", "memory_list", "memory_store",
-        "recall_sessions", "list_sessions", "list_tasks", "list_crons", "list_subagents",
-        "get_subagent_status", "subagent_get_result", "subagent_delete", "subagent_update",
-        "github_search_code", "github_list_prs",
-        "github_repo_info", "pandas_query", "matplotlib_plot",
-        "list_projects", "list_capabilities", "get_weather", "get_time",
-        "calculator", "search_files", "get_cwd",
+        # ── Web & search ──────────────────────────────────────────────────────
+        "web_search", "fetch_url",
+        # ── Filesystem ───────────────────────────────────────────────────────
+        "list_dir", "read_file", "write_file", "create_dir", "delete_file",
+        "search_files", "get_cwd", "create_project", "list_projects", "clean_workspace",
+        # ── Shell / code ─────────────────────────────────────────────────────
         "run_command", "run_python", "run_node", "run_script",
-        "write_file", "create_dir", "create_project",
-        "spawn_subagent", "start_background_task", "get_background_status",
+        # ── Memory ───────────────────────────────────────────────────────────
+        "wm_add", "wm_get", "wm_list", "wm_clear", "wm_get_context",
+        "memory_recall", "memory_search", "memory_list", "memory_store",
+        "recall_sessions", "list_sessions",
+        # ── Kanban & Cron ─────────────────────────────────────────────────────
+        "list_tasks", "add_task", "update_task", "delete_task", "move_task",
+        "list_crons", "add_cron", "delete_cron", "run_cron",
+        # ── Sub-agents ────────────────────────────────────────────────────────
+        "list_subagents", "get_subagent_status", "subagent_get_result",
+        "subagent_delete", "subagent_update", "spawn_subagent",
+        "start_background_task", "get_background_status",
         "list_background_tasks", "cancel_background_task",
+        "list_capabilities",
+        # ── Config ───────────────────────────────────────────────────────────
+        "get_config", "set_config", "delete_config",
+        # ── Messaging ────────────────────────────────────────────────────────
+        "send_message", "get_messages",
+        "telegram_send", "telegram_get_updates", "telegram_send_photo",
+        "telegram_send_video", "telegram_set_webhook",
+        "discord_send", "discord_get_messages",
+        "whatsapp_send",
+        # ── GitHub ────────────────────────────────────────────────────────────
+        "github_search_code", "github_list_prs", "github_repo_info",
+        # ── Data science ──────────────────────────────────────────────────────
+        "pandas_query", "matplotlib_plot",
+        # ── Utilities ─────────────────────────────────────────────────────────
+        "get_weather", "get_time", "calculator",
+        # ── Multi-host sync ───────────────────────────────────────────────────
         "sync_status", "sync_now", "list_hosts",
+        # ── Image gen ────────────────────────────────────────────────────────
+        "generate_image",
     }
     _session_allowed:  set = set()
     _permanent_allowed: set = set(cfg.get("allowed_tools", []))
