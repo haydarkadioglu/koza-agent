@@ -147,6 +147,15 @@ def _extract_gemini_cookies() -> tuple:
 
 
 def _prompt_secret(label: str) -> str:
+    # Use prompt_toolkit when available — it handles Ctrl+V paste correctly on
+    # all platforms (getpass on Windows reads char-by-char via msvcrt and drops paste).
+    try:
+        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.formatted_text import ANSI
+        prompt_text = f"  \033[36m{label}\033[0m\033[33m › \033[0m"
+        return pt_prompt(ANSI(prompt_text), is_password=True).strip()
+    except ImportError:
+        pass
     import getpass
     try:
         return getpass.getpass(f"  {_C(label, 'cyan')}{_C(' › ', 'gold')}").strip()
