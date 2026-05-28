@@ -113,3 +113,35 @@ class LLMProvider(ABC):
     def supports_thinking(self) -> bool:
         """True for models with native reasoning/thinking tokens (e.g. o1, Claude extended thinking, DeepSeek-R1)."""
         return False
+
+    @property
+    def supports_vision(self) -> bool:
+        """True if this provider/model can process image content."""
+        return False
+
+    @staticmethod
+    def _extract_text_content(content) -> str:
+        """Flatten list-format vision content to plain text (for non-vision providers)."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    parts.append(item["text"])
+            return " ".join(parts)
+        return str(content) if content else ""
+
+    @staticmethod
+    def _flatten_messages_for_text(messages: list[dict]) -> list[dict]:
+        """Return messages with any list-content (vision) flattened to plain text.
+
+        Use in non-vision providers so they still work when history contains
+        messages that were originally sent with images.
+        """
+        result = []
+        for m in messages:
+            if isinstance(m.get("content"), list):
+                m = {**m, "content": LLMProvider._extract_text_content(m["content"])}
+            result.append(m)
+        return result

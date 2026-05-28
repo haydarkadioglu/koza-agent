@@ -22,6 +22,12 @@ class OpenAIProvider(LLMProvider):
         # o1, o3, o4 series have reasoning/thinking
         return bool(__import__("re").match(r"o[134]", self._model))
 
+    @property
+    def supports_vision(self) -> bool:
+        # gpt-4o, gpt-4-turbo, and o-series support vision
+        m = self._model.lower()
+        return "gpt-4o" in m or "gpt-4-turbo" in m or "gpt-4v" in m or m.startswith("o")
+
     def chat(self, messages, tools=None, stream=False):
         kwargs = {"model": self._model, "messages": messages}
         if tools:

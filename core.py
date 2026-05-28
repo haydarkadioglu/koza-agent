@@ -291,6 +291,11 @@ class Agent:
             elif m.get("role") == "assistant" and "content" not in m:
                 m = {**m, "content": ""}
             normalized.append(m)
+        # ── Pass 4: flatten vision (list) content for non-vision providers ───
+        if not getattr(self.provider, "supports_vision", False):
+            from .providers.base import LLMProvider as _LLMProvider
+            normalized = _LLMProvider._flatten_messages_for_text(normalized)
+
         return normalized
 
     def interrupt(self) -> bool:
@@ -340,7 +345,7 @@ class Agent:
 
         return "Max tool iterations reached."
 
-    def stream_chat(self, user_input: str):
+    def stream_chat(self, user_input: str, image_path: str | None = None):
         """
         Stream chat — yields structured events:
           {"type": "thinking"}                         — waiting for LLM
@@ -349,13 +354,41 @@ class Agent:
           {"type": "tool_denied", "name": ...}
           {"type": "text", "token": ...}               — streamed response token
 
+        Args:
+            user_input: The user's text message.
+            image_path: Optional path to an image file. When provided and the
+                current provider supports vision, the image is encoded as base64
+                and sent alongside the text in a multi-part content message.
+
         Agentic loop: keeps calling tools until the model produces a pure-text
         response (no more tool calls / DSML bleed-through).
         """
         import time, json as _json
 
         self._refresh_memory_context(user_input)
-        self.messages.append({"role": "user", "content": user_input})
+
+        # Build user message — use vision format when image provided and supported
+        if image_path and self.provider.supports_vision:
+            import base64 as _b64, mimetypes as _mime
+            mime_type = _mime.guess_type(image_path)[0] or "image/jpeg"
+            try:
+                with open(image_path, "rb") as _f:
+                    b64_data = _b64.b64encode(_f.read()).decode()
+                user_msg: dict = {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_input},
+                        {"type": "image_url", "image_url": {
+                            "url": f"data:{mime_type};base64,{b64_data}"
+                        }},
+                    ],
+                }
+            except Exception:
+                user_msg = {"role": "user", "content": user_input}
+        else:
+            user_msg = {"role": "user", "content": user_input}
+
+        self.messages.append(user_msg)
         tools = _select_tools(user_input)
 
         self._cancel.clear()

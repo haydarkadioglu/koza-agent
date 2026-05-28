@@ -464,8 +464,24 @@ class GeminiProvider(LLMProvider):
             if role == "user":
                 # Collect consecutive tool results that immediately follow as one Content
                 parts = []
-                if m.get("content"):
-                    parts.append(types.Part(text=m["content"]))
+                content = m.get("content")
+                if isinstance(content, list):
+                    # Vision message: content is a list of text/image_url items
+                    for item in content:
+                        if item.get("type") == "text":
+                            parts.append(types.Part(text=item["text"]))
+                        elif item.get("type") == "image_url":
+                            url = item["image_url"]["url"]
+                            if url.startswith("data:"):
+                                header, b64data = url.split(",", 1)
+                                mime = header.split(":")[1].split(";")[0]
+                                import base64 as _b64
+                                parts.append(types.Part.from_bytes(
+                                    data=_b64.b64decode(b64data),
+                                    mime_type=mime,
+                                ))
+                elif content:
+                    parts.append(types.Part(text=content))
                 i += 1
                 # Peek: collect any consecutive tool turns right after
                 while i < len(messages) and messages[i].get("role") == "tool":
@@ -534,6 +550,11 @@ class GeminiProvider(LLMProvider):
     @property
     def name(self) -> str:
         return "gemini"
+
+    @property
+    def supports_vision(self) -> bool:
+        # All Gemini API-key models support vision; cookie mode doesn't (yet)
+        return self._auth_mode == "api_key"
 
     @property
     def supports_thinking(self) -> bool:

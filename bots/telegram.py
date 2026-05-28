@@ -244,7 +244,9 @@ async def _process_message(update, context, agent_factory: Callable,
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     if image_path:
-        user_text = f"[Photo: {image_path}]\n{user_text}"
+        if not getattr(agent.provider, "supports_vision", False):
+            user_text = f"[Photo: {image_path}]\n{user_text}"
+            image_path = None  # won't be passed as vision — provider doesn't support it
 
     ev_queue: _queue.Queue = _queue.Queue()
     _DONE = object()
@@ -253,7 +255,7 @@ async def _process_message(update, context, agent_factory: Callable,
     def _stream_worker():
         try:
             logger.debug(f"_stream_worker: starting for chat_id={chat_id}")
-            for event in agent.stream_chat(user_text):
+            for event in agent.stream_chat(user_text, image_path=image_path):
                 ev_queue.put(event)
         except Exception as e:
             logger.error(f"_stream_worker: exception: {e}", exc_info=True)
@@ -261,6 +263,13 @@ async def _process_message(update, context, agent_factory: Callable,
         finally:
             logger.debug(f"_stream_worker: done for chat_id={chat_id}")
             ev_queue.put(_DONE)
+            # Clean up temp image file after the stream finishes
+            if image_path:
+                import os as _os
+                try:
+                    _os.unlink(image_path)
+                except Exception:
+                    pass
 
     threading.Thread(target=_stream_worker, daemon=True).start()
 

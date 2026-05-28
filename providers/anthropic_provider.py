@@ -20,7 +20,42 @@ class AnthropicProvider(LLMProvider):
         # claude-3-7+ has extended thinking
         return "claude-3-7" in self._model or "claude-4" in self._model
 
+    @property
+    def supports_vision(self) -> bool:
+        # claude-3 and later all support vision
+        return "claude-3" in self._model or "claude-4" in self._model
+
+    @staticmethod
+    def _adapt_vision_messages(messages: list[dict]) -> list[dict]:
+        """Convert OpenAI-format image_url content blocks to Anthropic's image source format."""
+        adapted = []
+        for m in messages:
+            content = m.get("content")
+            if isinstance(content, list):
+                new_content = []
+                for item in content:
+                    if item.get("type") == "text":
+                        new_content.append({"type": "text", "text": item["text"]})
+                    elif item.get("type") == "image_url":
+                        url = item["image_url"]["url"]
+                        if url.startswith("data:"):
+                            header, data = url.split(",", 1)
+                            media_type = header.split(":")[1].split(";")[0]
+                            new_content.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": data,
+                                },
+                            })
+                adapted.append({**m, "content": new_content})
+            else:
+                adapted.append(m)
+        return adapted
+
     def chat(self, messages, tools=None, stream=False):
+        messages = self._adapt_vision_messages(messages)
         system = next((m["content"] for m in messages if m["role"] == "system"), None)
         msgs = [m for m in messages if m["role"] != "system"]
         kwargs = {"model": self._model, "max_tokens": 4096, "messages": msgs}
@@ -66,6 +101,7 @@ class AnthropicProvider(LLMProvider):
         Errors:
             Connection errors propagate as exceptions (not caught).
         """
+        messages = self._adapt_vision_messages(messages)
         system = next((m["content"] for m in messages if m["role"] == "system"), None)
         msgs = [m for m in messages if m["role"] != "system"]
         kwargs = {"model": self._model, "max_tokens": 4096, "messages": msgs}
