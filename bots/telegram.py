@@ -720,7 +720,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             if ag:
                 ag.reset()
             await update.message.reply_text(
-                "🔄 Sohbet geçmişi sıfırlandı. Yeni bir konuşma başlatabilirsin.",
+                "🔄 Conversation history cleared. You can start a new chat.",
             )
 
         app.add_handler(_CmdHandler("reset", on_reset))
