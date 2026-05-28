@@ -61,6 +61,25 @@ def _sanitize_response(text: str) -> str:
 # No more keyword lists here — the LLM decides what's a coding task.
 
 
+# ── Quick-access keyboard (module level so all handlers can use it) ───────────
+def _make_quick_keyboard():
+    try:
+        from telegram import ReplyKeyboardMarkup, KeyboardButton
+        return ReplyKeyboardMarkup(
+            [[KeyboardButton("📋 Sessions"), KeyboardButton("💾 Save")],
+             [KeyboardButton("📊 Status"),   KeyboardButton("🔄 Reset")]],
+            resize_keyboard=True,
+            is_persistent=True,
+        )
+    except Exception:
+        return None
+
+_QUICK_KB = _make_quick_keyboard()
+
+# Chat IDs that have already seen the quick keyboard (so we only send it once per session)
+_kb_shown_chats: set[int] = set()
+
+
 def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> None:
     """Poll task status and send notification on completion."""
     assert loop is not None, "_register_completion_watcher requires a running event loop"
@@ -316,7 +335,13 @@ async def _process_message(update, context, agent_factory: Callable,
             last_edit = now
             return
         if sent_msg is None:
-            sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
+            kb = None
+            if _QUICK_KB is not None and chat_id not in _kb_shown_chats:
+                kb = _QUICK_KB
+                _kb_shown_chats.add(chat_id)
+            sent_msg = await context.bot.send_message(
+                chat_id=chat_id, text=display, reply_markup=kb,
+            )
             edit_count = 0
         else:
             try:
@@ -741,14 +766,6 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         # ── /start command: save chat_id and send welcome ─────────────────────
         from telegram.ext import CommandHandler as _CmdHandler
-        from telegram import ReplyKeyboardMarkup as _RKM, KeyboardButton as _KB
-
-        _QUICK_KB = _RKM(
-            [[_KB("📋 Sessions"), _KB("💾 Save")],
-             [_KB("📊 Status"),   _KB("🔄 Reset")]],
-            resize_keyboard=True,
-            is_persistent=True,
-        )
 
         async def on_start(update, context):
             cid = update.effective_chat.id
@@ -761,6 +778,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 save_config(c)
             except Exception:
                 pass
+            _kb_shown_chats.discard(cid)  # Reset so keyboard is re-sent on next response
             await update.message.reply_text(
                 f"👋 Hello @{uname}!\n\n"
                 "I'm *Koza*, your AI assistant. Telegram connection established! 🎉\n\n"
