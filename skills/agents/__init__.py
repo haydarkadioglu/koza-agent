@@ -223,6 +223,262 @@ def clean_workspace(scope: str = "all") -> str:
     )
 
 
+def extract_project(source: str, dest: str = "", include_koza_core: bool = True) -> str:
+    """
+    Extract a sub-agent or project folder into a fully standalone, independent project.
+
+    Scans all Python files in the source folder, detects which Koza skills and
+    providers are imported, and copies them alongside the project code so the
+    result can run without the parent Koza installation.
+
+    Args:
+        source: Project/sub-agent name (looked up in workspace/projects/ then
+                workspace/subagents/) or an absolute path.
+        dest:   Destination path. Defaults to workspace/projects/<source>_standalone/
+        include_koza_core: If True (default), copy core Koza framework files
+                           (core.py, config.py, prompt.py, providers/, tools/).
+    """
+    import re
+    import shutil
+    from pathlib import Path
+    from config import load_config
+
+    cfg = load_config()
+    koza_root = Path(__file__).resolve().parent.parent.parent  # repo root
+    ws = Path(cfg.get("workspace_path", str(Path.home() / ".Koza" / "workspace")))
+
+    # ── Resolve source path ───────────────────────────────────────────────────
+    src_path: Path | None = None
+    if Path(source).is_absolute() and Path(source).exists():
+        src_path = Path(source)
+    else:
+        for candidate in [
+            ws / "projects" / source,
+            ws / "subagents" / source,
+        ]:
+            if candidate.exists():
+                src_path = candidate
+                break
+    if src_path is None:
+        return (
+            f"❌ Source not found: '{source}'\n"
+            f"   Checked: workspace/projects/{source}, workspace/subagents/{source}"
+        )
+
+    # ── Resolve destination path ──────────────────────────────────────────────
+    safe_name = re.sub(r"[^\w\-]", "_", src_path.name).strip("_") or "extracted"
+    dest_path = Path(dest) if dest else ws / "projects" / f"{safe_name}_standalone"
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    # ── Copy project source files ─────────────────────────────────────────────
+    proj_dest = dest_path / "app"
+    if proj_dest.exists():
+        shutil.rmtree(proj_dest)
+    shutil.copytree(src_path, proj_dest, dirs_exist_ok=False)
+
+    # ── Scan imports in all project .py files ─────────────────────────────────
+    py_files = list(proj_dest.rglob("*.py"))
+    all_text = "\n".join(f.read_text(encoding="utf-8", errors="ignore") for f in py_files)
+
+    used_skills: set[str] = set()
+    used_providers: set[str] = set()
+
+    # Detect `from skills.X` or `from skills import X` patterns
+    for m in re.finditer(r"from\s+skills[.\s]+(\w+)", all_text):
+        used_skills.add(m.group(1))
+    for m in re.finditer(r"import\s+skills\.(\w+)", all_text):
+        used_skills.add(m.group(1))
+    # Detect provider patterns
+    for m in re.finditer(r"from\s+providers[.\s]+(\w+)", all_text):
+        used_providers.add(m.group(1))
+    for m in re.finditer(r"import\s+providers\.(\w+)", all_text):
+        used_providers.add(m.group(1))
+
+    copied_files: list[str] = []
+
+    if include_koza_core:
+        # ── Copy core framework files ─────────────────────────────────────────
+        core_files = [
+            "core.py", "config.py", "prompt.py", "prompt_loader.py", "router.py",
+        ]
+        for cf in core_files:
+            src_f = koza_root / cf
+            if src_f.exists():
+                shutil.copy2(src_f, dest_path / cf)
+                copied_files.append(cf)
+
+        # ── Copy tools/ directory ─────────────────────────────────────────────
+        tools_src = koza_root / "tools"
+        if tools_src.exists():
+            shutil.copytree(tools_src, dest_path / "tools", dirs_exist_ok=True)
+            copied_files.append("tools/")
+
+        # ── Copy providers/ ───────────────────────────────────────────────────
+        prov_dest = dest_path / "providers"
+        prov_dest.mkdir(exist_ok=True)
+        always_prov = ["__init__.py", "base.py", "factory.py", "fallback_provider.py"]
+        for pf in always_prov:
+            src_f = koza_root / "providers" / pf
+            if src_f.exists():
+                shutil.copy2(src_f, prov_dest / pf)
+        # Copy detected providers
+        for pname in used_providers:
+            src_f = koza_root / "providers" / f"{pname}.py"
+            if src_f.exists():
+                shutil.copy2(src_f, prov_dest / f"{pname}.py")
+                copied_files.append(f"providers/{pname}.py")
+        # Always include all providers if none detected explicitly
+        if not used_providers:
+            for pf in (koza_root / "providers").glob("*.py"):
+                shutil.copy2(pf, prov_dest / pf.name)
+            copied_files.append("providers/ (all)")
+
+        # ── Copy skills/ ──────────────────────────────────────────────────────
+        skills_dest = dest_path / "skills"
+        skills_dest.mkdir(exist_ok=True)
+        shutil.copy2(koza_root / "skills" / "__init__.py", skills_dest / "__init__.py")
+
+        # Always copy these core skill files
+        always_skills = [
+            "shared_memory.py", "working_memory.py", "session_memory.py",
+            "shell.py", "filesystem.py",
+        ]
+        for sf in always_skills:
+            src_f = koza_root / "skills" / sf
+            if src_f.exists():
+                shutil.copy2(src_f, skills_dest / sf)
+
+        # Copy detected skills
+        skills_src_dir = koza_root / "skills"
+        for sname in used_skills:
+            # Could be a file or a package (sub-directory)
+            src_f = skills_src_dir / f"{sname}.py"
+            src_d = skills_src_dir / sname
+            if src_f.exists():
+                shutil.copy2(src_f, skills_dest / f"{sname}.py")
+                copied_files.append(f"skills/{sname}.py")
+            elif src_d.is_dir():
+                shutil.copytree(src_d, skills_dest / sname, dirs_exist_ok=True)
+                copied_files.append(f"skills/{sname}/")
+
+        # ── Copy prompts/ directory ───────────────────────────────────────────
+        prompts_src = koza_root / "prompts"
+        if prompts_src.exists():
+            shutil.copytree(prompts_src, dest_path / "prompts", dirs_exist_ok=True)
+            copied_files.append("prompts/")
+
+    # ── Build requirements.txt ────────────────────────────────────────────────
+    # Map skill/module names → pip packages required
+    _SKILL_REQS: dict[str, list[str]] = {
+        "web":          ["requests", "playwright"],
+        "research":     ["requests"],
+        "datascience":  ["pandas", "matplotlib", "openpyxl"],
+        "media":        ["yt-dlp", "spotipy"],
+        "email_skill":  ["requests"],
+        "github_skill": ["requests"],
+        "security":     ["python-whois"],
+        "smarthome":    ["paho-mqtt"],
+        "voice":        ["requests"],
+        "image_gen":    ["requests", "Pillow"],
+        "notes":        ["requests"],
+        "social":       ["requests"],
+        "finance":      ["requests"],
+        "gaming":       ["requests"],
+        "devops":       ["docker"],
+    }
+    _PROVIDER_REQS: dict[str, list[str]] = {
+        "openai_provider":    ["openai>=1.30.0"],
+        "anthropic_provider": ["anthropic>=0.28.0"],
+        "gemini_provider":    ["google-genai>=0.7.0", "google-auth>=2.29.0", "gemini-webapi>=1.0.0"],
+        "groq_provider":      ["openai>=1.30.0"],
+        "ollama_provider":    ["openai>=1.30.0"],
+        "deepseek_provider":  ["openai>=1.30.0"],
+        "openrouter_provider":["openai>=1.30.0"],
+    }
+
+    base_reqs = ["pyyaml>=6.0.1", "python-dotenv>=1.0.1", "requests>=2.31.0", "psutil>=5.9.8"]
+    extra_reqs: set[str] = set()
+    for sname in used_skills:
+        for req in _SKILL_REQS.get(sname, []):
+            extra_reqs.add(req)
+    for pname in used_providers:
+        key = f"{pname}_provider" if not pname.endswith("_provider") else pname
+        for req in _PROVIDER_REQS.get(key, _PROVIDER_REQS.get(pname, [])):
+            extra_reqs.add(req)
+    if not used_providers:
+        # Include all provider deps
+        for reqs in _PROVIDER_REQS.values():
+            extra_reqs.update(reqs)
+
+    all_reqs = sorted(set(base_reqs) | extra_reqs)
+    (dest_path / "requirements.txt").write_text("\n".join(all_reqs) + "\n", encoding="utf-8")
+
+    # ── Write standalone main.py entry point ──────────────────────────────────
+    main_py = '''\
+"""
+Standalone entry point — generated by Koza extract_project.
+Run: python main.py
+"""
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+
+from config import load_config
+from providers.factory import get_provider
+from core import Agent
+
+
+def main():
+    cfg = load_config()
+    provider = get_provider(cfg)
+    agent = Agent(provider, cfg["db_path"], cfg=cfg)
+
+    print("Agent ready. Type your message (Ctrl+C to quit).")
+    while True:
+        try:
+            user_input = input("You: ").strip()
+            if not user_input:
+                continue
+            response = ""
+            for event in agent.stream_chat(user_input):
+                if event.get("type") == "text":
+                    tok = event["token"]
+                    print(tok, end="", flush=True)
+                    response += tok
+            print()
+        except KeyboardInterrupt:
+            print("\\nBye!")
+            break
+
+
+if __name__ == "__main__":
+    main()
+'''
+    (dest_path / "main.py").write_text(main_py, encoding="utf-8")
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    lines = [
+        f"✅ Project extracted to: {dest_path}",
+        f"",
+        f"  📁 app/              — your project code ({len(py_files)} Python files)",
+        f"  📄 main.py           — standalone entry point",
+        f"  📄 requirements.txt  — pip dependencies",
+    ]
+    if include_koza_core:
+        lines += [
+            f"  📦 skills/           — Koza skills used: {sorted(used_skills) or ['(core only)']}",
+            f"  📦 providers/        — providers: {sorted(used_providers) or ['(all)']  }",
+            f"  📦 core.py + config.py + prompt.py + tools/",
+        ]
+    lines += [
+        f"",
+        f"To run:",
+        f"  cd {dest_path}",
+        f"  pip install -r requirements.txt",
+        f"  python main.py",
+    ]
+    return "\n".join(lines)
+
+
 # ── Tool definitions ──────────────────────────────────────────────────────────
 
 TOOL_DEFINITIONS = [
@@ -343,6 +599,36 @@ TOOL_DEFINITIONS = [
             "required": [],
         },
     },
+    {
+        "name": "extract_project",
+        "description": (
+            "Extract a sub-agent or project into a fully standalone, independent project that can run without Koza. "
+            "Scans the project's Python files to detect which Koza skills and providers are used, "
+            "copies them alongside the project code, generates a filtered requirements.txt, "
+            "and writes a main.py entry point. Use after a sub-agent finishes building something "
+            "so the user can take it and run it independently."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Project or sub-agent name (looks in workspace/projects/ then workspace/subagents/) or absolute path",
+                },
+                "dest": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Output path (default: workspace/projects/<name>_standalone/)",
+                },
+                "include_koza_core": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Copy Koza framework files (core.py, providers/, skills/, tools/). Set False to extract only app code.",
+                },
+            },
+            "required": ["source"],
+        },
+    },
 ]
 
 HANDLERS: dict = {
@@ -358,4 +644,6 @@ HANDLERS: dict = {
     "create_project":      lambda name, description="": create_project(name, description),
     "list_projects":       lambda **_: list_projects(),
     "clean_workspace":     lambda scope="all": clean_workspace(scope),
+    "extract_project":     lambda source, dest="", include_koza_core=True:
+                               extract_project(source, dest, include_koza_core),
 }
