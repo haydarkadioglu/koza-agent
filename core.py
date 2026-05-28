@@ -486,13 +486,20 @@ class Agent:
         """
         Dual-memory system prompt update:
         - Working memory  → always injected (compact recent activity, last 20 events)
-        - Permanent memory → NOT auto-injected; only when agent calls memory_recall/search
+        - Permanent memory → top relevant entries auto-injected every turn
         """
         try:
             from skills.shell import get_cwd as _get_cwd
             wm_ctx = working_memory.wm_get_context()
             new_system = build_system_prompt(user_input, wm_ctx or "")
             new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
+            # ── Auto-inject relevant permanent memories ───────────────────────
+            try:
+                pm_ctx = shared_memory.get_relevant_context(user_input, limit=8)
+                if pm_ctx:
+                    new_system += f"\n\n{pm_ctx}"
+            except Exception:
+                pass
             if self.messages and self.messages[0]["role"] == "system":
                 self.messages[0]["content"] = new_system
             # Log user input to working memory
