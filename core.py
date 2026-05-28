@@ -188,6 +188,37 @@ class Agent:
                 (ws / sub).mkdir(parents=True, exist_ok=True)
             _shell.set_cwd(str(ws))
 
+    def _drop_dangling_tool_calls(self) -> int:
+        """
+        Permanently remove any trailing assistant+tool_calls from self.messages
+        that don't have matching tool responses. Returns number of messages removed.
+        Used for emergency recovery from API 400 errors.
+        """
+        # Build set of tool_call_ids that have responses
+        result_ids: set[str] = set()
+        for m in self.messages:
+            if m.get("role") == "tool":
+                result_ids.add(m.get("tool_call_id", ""))
+
+        removed = 0
+        clean: list[dict] = []
+        skip_ids: set[str] = set()
+        for m in self.messages:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                missing = [tc for tc in m["tool_calls"]
+                           if tc.get("id", tc.get("name", "")) not in result_ids]
+                if missing:
+                    for tc in m["tool_calls"]:
+                        skip_ids.add(tc.get("id", tc.get("name", "")))
+                    removed += 1
+                    continue
+            if m.get("role") == "tool" and m.get("tool_call_id", "") in skip_ids:
+                removed += 1
+                continue
+            clean.append(m)
+        self.messages = clean
+        return removed
+
     def _trim_messages(self) -> list[dict]:
         """
         Return a windowed view of messages: system prompt + last MAX_CONTEXT_MESSAGES.
@@ -344,24 +375,42 @@ class Agent:
                 full = ""
                 _tool_buf: dict[int, dict] = {}
 
-                for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
-                    if self._cancel.is_set():
-                        yield {"type": "interrupted"}
-                        return
-                    if isinstance(item, dict) and item.get("__tool_chunk__"):
-                        idx = item["index"]
-                        if idx not in _tool_buf:
-                            _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
-                        if item.get("name"):
-                            _tool_buf[idx]["name"] = item["name"]
-                        if item.get("id"):
-                            _tool_buf[idx]["id"] = item["id"]
-                        _tool_buf[idx]["args"] += item.get("args_chunk", "")
-                    else:
-                        token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
-                        if token:
-                            full += token
-                            yield {"type": "text", "token": token}
+                _stream_retried = False
+                while True:
+                    try:
+                        for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
+                            if self._cancel.is_set():
+                                yield {"type": "interrupted"}
+                                return
+                            if isinstance(item, dict) and item.get("__tool_chunk__"):
+                                idx = item["index"]
+                                if idx not in _tool_buf:
+                                    _tool_buf[idx] = {"id": item.get("id"), "name": item.get("name", ""), "args": ""}
+                                if item.get("name"):
+                                    _tool_buf[idx]["name"] = item["name"]
+                                if item.get("id"):
+                                    _tool_buf[idx]["id"] = item["id"]
+                                _tool_buf[idx]["args"] += item.get("args_chunk", "")
+                            else:
+                                token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
+                                if token:
+                                    full += token
+                                    yield {"type": "text", "token": token}
+                        break  # stream finished successfully
+                    except Exception as _e:
+                        # Auto-recover from "tool_calls must be followed by tool messages" (400)
+                        _emsg = str(_e)
+                        if not _stream_retried and ("tool_calls" in _emsg or "400" in _emsg):
+                            _stream_retried = True
+                            n = self._drop_dangling_tool_calls()
+                            import logging as _logging
+                            _logging.getLogger(__name__).warning(
+                                f"stream_chat: 400 tool_calls error — dropped {n} dangling messages, retrying"
+                            )
+                            full = ""
+                            _tool_buf = {}
+                            continue
+                        raise
 
                 # ── No tool calls → pure text response, done ─────────────────────
                 if not _tool_buf:

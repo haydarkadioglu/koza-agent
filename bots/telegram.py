@@ -713,6 +713,19 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         app.add_handler(_CmdHandler("start", on_start))
 
+        async def on_reset(update, context):
+            """Clear agent message history for this chat."""
+            cid = update.effective_chat.id
+            ag = _agents.get(cid)
+            if ag:
+                ag.reset()
+            await update.message.reply_text(
+                "🔄 Sohbet geçmişi sıfırlandı. Yeni bir konuşma başlatabilirsin.",
+            )
+
+        app.add_handler(_CmdHandler("reset", on_reset))
+        app.add_handler(_CmdHandler("temizle", on_reset))
+
         try:
             app.run_polling(
                 allowed_updates=["message", "edited_message", "callback_query"],
