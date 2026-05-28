@@ -116,6 +116,34 @@ def load_last_session() -> list | None:
         return None
 
 
+def load_session(session_id: int) -> list | None:
+    """Load a specific session's messages by ID. Returns None if not found."""
+    if not _db_path:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT messages FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row["messages"]) or None
+    except Exception:
+        return None
+
+
+def get_session_rows(limit: int = 10) -> list[dict]:
+    """Return raw session rows (id, title, started, summary) for UI rendering."""
+    if not _db_path:
+        return []
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, title, started, summary FROM sessions ORDER BY started DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def list_sessions(limit: int = 20) -> str:
     """List recent sessions."""
     if not _db_path:

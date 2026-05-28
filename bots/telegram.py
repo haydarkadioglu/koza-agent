@@ -561,6 +561,30 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
             parts = data.split(":", 2)
 
+            # Handle session load buttons
+            if data.startswith("session::"):
+                _, action, sid = data.split("::", 2)
+                if action == "close":
+                    await query.edit_message_reply_markup(reply_markup=None)
+                    return
+                if action == "load":
+                    from skills import session_memory as _sm
+                    msgs = _sm.load_session(int(sid))
+                    cid = query.message.chat_id
+                    if msgs is None:
+                        await query.edit_message_text("❌ Session not found.")
+                        return
+                    ag = _agents.get(cid)
+                    if ag is None:
+                        ag = _get_or_create_agent(cid, agent_factory)
+                    from skills import session_memory as _sm2
+                    from prompt import build_system_prompt
+                    ag.messages = [{"role": "system", "content": build_system_prompt()}] + msgs
+                    await query.edit_message_text(
+                        f"✅ Session #{sid} loaded — {len(msgs)} messages restored.",
+                    )
+                    return
+
             # Handle choice buttons (format: "choice::{selected_option}")
             if data.startswith("choice::"):
                 selected = data[len("choice::"):]
@@ -649,6 +673,22 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                     )
 
         async def on_message(update, context):
+            # ── Quick keyboard button text shortcuts ──────────────────────────
+            msg = update.message or update.edited_message
+            txt = (msg.text or "").strip() if msg else ""
+            if txt == "📋 Sessions":
+                await on_sessions(update, context)
+                return
+            if txt == "💾 Save":
+                await on_save(update, context)
+                return
+            if txt == "📊 Status":
+                await on_status(update, context)
+                return
+            if txt == "🔄 Reset":
+                await on_reset(update, context)
+                return
+            # ── Normal message → agent ────────────────────────────────────────
             try:
                 await _process_message(
                     update, context, agent_factory,
@@ -692,6 +732,14 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         # ── /start command: save chat_id and send welcome ─────────────────────
         from telegram.ext import CommandHandler as _CmdHandler
+        from telegram import ReplyKeyboardMarkup as _RKM, KeyboardButton as _KB
+
+        _QUICK_KB = _RKM(
+            [[_KB("📋 Sessions"), _KB("💾 Save")],
+             [_KB("📊 Status"),   _KB("🔄 Reset")]],
+            resize_keyboard=True,
+            is_persistent=True,
+        )
 
         async def on_start(update, context):
             cid = update.effective_chat.id
@@ -705,13 +753,64 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             except Exception:
                 pass
             await update.message.reply_text(
-                f"👋 Merhaba @{uname}!\n\n"
-                "Ben *Koza*, senin yapay zeka asistanın. Telegram bağlantımız başarıyla kuruldu! 🎉\n\n"
-                "Artık buradan bana istediğini yazabilirsin. Sana nasıl yardımcı olabilirim?",
+                f"👋 Hello @{uname}!\n\n"
+                "I'm *Koza*, your AI assistant. Telegram connection established! 🎉\n\n"
+                "Use the buttons below for quick access, or just type your message.",
                 parse_mode="Markdown",
+                reply_markup=_QUICK_KB,
             )
 
         app.add_handler(_CmdHandler("start", on_start))
+
+        # ── /sessions command: list recent sessions with load buttons ─────────
+        async def on_sessions(update, context):
+            from skills import session_memory as _sm
+            from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+            rows = _sm.get_session_rows(limit=10)
+            if not rows:
+                await update.message.reply_text("No saved sessions yet.")
+                return
+            buttons = []
+            for r in rows:
+                import time as _t
+                ts = _t.strftime("%m/%d %H:%M", _t.localtime(r["started"]))
+                title = (r["title"] or "Untitled")[:35]
+                label = f"#{r['id']} [{ts}] {title}"
+                buttons.append([_IKB(label, callback_data=f"session::load::{r['id']}")])
+            buttons.append([_IKB("❌ Close", callback_data="session::close::0")])
+            await update.message.reply_text(
+                "📋 *Recent Sessions* — tap to load:",
+                parse_mode="Markdown",
+                reply_markup=_IKM(buttons),
+            )
+
+        # ── /save command: save current session ───────────────────────────────
+        async def on_save(update, context):
+            cid = update.effective_chat.id
+            ag = _agents.get(cid)
+            if ag:
+                label = ag.auto_save()
+                await update.message.reply_text(f"💾 {label}", reply_markup=_QUICK_KB)
+            else:
+                await update.message.reply_text("Nothing to save yet.", reply_markup=_QUICK_KB)
+
+        # ── /status command ───────────────────────────────────────────────────
+        async def on_status(update, context):
+            from skills import cron, kanban
+            try:
+                cron_info = cron.list_crons()
+            except Exception:
+                cron_info = "(unavailable)"
+            try:
+                kb_info = kanban.list_tasks()
+            except Exception:
+                kb_info = "(unavailable)"
+            text = f"📊 *Koza Status*\n\n*Cron jobs:*\n{cron_info}\n\n*Tasks:*\n{kb_info}"
+            await update.message.reply_text(text[:4000], parse_mode="Markdown", reply_markup=_QUICK_KB)
+
+        app.add_handler(_CmdHandler("sessions", on_sessions))
+        app.add_handler(_CmdHandler("save", on_save))
+        app.add_handler(_CmdHandler("status", on_status))
 
         async def on_reset(update, context):
             """Clear agent message history for this chat."""
@@ -721,10 +820,10 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 ag.reset()
             await update.message.reply_text(
                 "🔄 Conversation history cleared. You can start a new chat.",
+                reply_markup=_QUICK_KB,
             )
 
         app.add_handler(_CmdHandler("reset", on_reset))
-        app.add_handler(_CmdHandler("temizle", on_reset))
 
         try:
             app.run_polling(
