@@ -11,8 +11,12 @@ from skills import (
 from tools.registry import ALL_TOOLS, ALL_HANDLERS
 
 # How many recent messages to keep in context (system + last N)
-# Older messages are summarized/dropped to save tokens
-MAX_CONTEXT_MESSAGES = 20
+# Older messages are summarized/compacted to save tokens
+MAX_CONTEXT_MESSAGES = 50
+
+# Tool messages older than this many exchanges get compacted to a single-line note
+# (keeps tool history visible without burning too many tokens)
+TOOL_COMPACT_AFTER = 20
 
 # ── Tool selection helpers ────────────────────────────────────────────────────
 # Keywords that hint at which tool categories are needed.
@@ -159,6 +163,8 @@ class Agent:
         self.provider = provider
         self.on_token = on_token
         self.messages: list[dict] = [{"role": "system", "content": build_system_prompt(channel=channel)}]
+        # Rolling summary of conversations older than the context window
+        self._context_summary: str = ""
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop
@@ -219,33 +225,133 @@ class Agent:
         self.messages = clean
         return removed
 
+    def _compact_tool_messages(self, messages: list[dict]) -> list[dict]:
+        """Replace old tool message pairs with single compact notes.
+
+        Tool call + result pairs older than TOOL_COMPACT_AFTER non-system messages
+        are compressed to a single user-role "[tool log]" message to save tokens
+        while keeping a readable trace of what was done.
+        """
+        non_system = [m for m in messages if m.get("role") != "system"]
+        system_msgs = [m for m in messages if m.get("role") == "system"]
+
+        if len(non_system) <= TOOL_COMPACT_AFTER:
+            return messages
+
+        # Split: older half gets compacted, recent half is kept verbatim
+        cut = len(non_system) - TOOL_COMPACT_AFTER
+        old_msgs = non_system[:cut]
+        recent_msgs = non_system[cut:]
+
+        # Build a compact log from old messages
+        log_lines: list[str] = []
+        skip_ids: set[str] = set()
+        for m in old_msgs:
+            role = m.get("role", "")
+            if role == "user":
+                content = m.get("content", "")
+                if isinstance(content, list):
+                    content = " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+                if content:
+                    log_lines.append(f"USER: {str(content)[:200]}")
+            elif role == "assistant":
+                content = m.get("content") or ""
+                tool_calls = m.get("tool_calls") or []
+                if tool_calls:
+                    names = ", ".join(tc.get("name", "?") for tc in tool_calls)
+                    for tc in tool_calls:
+                        skip_ids.add(tc.get("id", tc.get("name", "")))
+                    if content:
+                        log_lines.append(f"ASSISTANT: {str(content)[:120]} [called: {names}]")
+                    else:
+                        log_lines.append(f"ASSISTANT called: {names}")
+                elif content:
+                    log_lines.append(f"ASSISTANT: {str(content)[:200]}")
+            elif role == "tool":
+                result = str(m.get("content", ""))[:150]
+                name = m.get("name", "tool")
+                log_lines.append(f"  ↳ {name}: {result}")
+
+        if log_lines:
+            compact_msg = {
+                "role": "user",
+                "content": "[Earlier conversation summary]\n" + "\n".join(log_lines),
+            }
+            return system_msgs + [compact_msg] + recent_msgs
+        return system_msgs + recent_msgs
+
+    def _maybe_build_rolling_summary(self) -> None:
+        """When messages exceed MAX_CONTEXT_MESSAGES, summarize the overflow into
+        self._context_summary using a lightweight provider call.
+
+        Summary is stored in memory and injected into the system prompt each turn
+        via _refresh_memory_context so context is never truly lost.
+        """
+        rest = [m for m in self.messages if m.get("role") != "system"]
+        overflow_count = len(rest) - MAX_CONTEXT_MESSAGES
+        if overflow_count <= 0:
+            return
+
+        # Take the overflow portion and summarize it
+        overflow = rest[:overflow_count]
+        lines = []
+        for m in overflow:
+            role = m.get("role", "")
+            content = m.get("content") or ""
+            if isinstance(content, list):
+                content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+            if role in ("user", "assistant") and content:
+                lines.append(f"{role.upper()}: {str(content)[:300]}")
+        if not lines:
+            return
+
+        snippet = "\n".join(lines[-40:])  # cap to avoid token explosion
+        try:
+            resp = self.provider.chat(
+                [
+                    {"role": "system", "content": "You are a concise summarizer."},
+                    {"role": "user",   "content":
+                        f"Summarize the key facts, decisions, and outcomes from this conversation excerpt "
+                        f"in 3-5 bullet points. Be very concise. Focus on: what was asked, what was done, "
+                        f"key values/names/paths mentioned.\n\n{snippet}"},
+                ],
+                tools=None,
+            )
+            summary_text = (resp.get("content") or "").strip()
+            if summary_text:
+                self._context_summary = summary_text
+        except Exception:
+            # If summarization fails, fall back to raw truncation of the excerpt
+            self._context_summary = "\n".join(lines[-10:])
+
     def _trim_messages(self) -> list[dict]:
         """
         Return a windowed view of messages: system prompt + last MAX_CONTEXT_MESSAGES.
-        Also normalizes assistant tool_calls and tool result messages to API format.
-        Ensures no orphan tool messages (tool without preceding assistant+tool_calls).
-        Removes dangling assistant+tool_calls whose tool results are missing.
+        - Compacts old tool message pairs into single-line notes
+        - Normalizes assistant tool_calls and tool result messages to API format
+        - Ensures no orphan tool messages
+        - Removes dangling assistant+tool_calls
         """
         import json
         system = [m for m in self.messages if m.get("role") == "system"]
         rest = [m for m in self.messages if m.get("role") != "system"]
         window = system + rest[-MAX_CONTEXT_MESSAGES:]
 
+        # ── Pass 0: compact old tool pairs to save tokens ─────────────────────
+        window = self._compact_tool_messages(window)
+
         # ── Pass 1: ensure every tool msg has a valid preceding assistant ─────
-        # Build set of all tool_call ids that appear in assistant messages in window
         valid_call_ids: set[str] = set()
         for m in window:
             if m.get("role") == "assistant" and m.get("tool_calls"):
                 for tc in m["tool_calls"]:
                     valid_call_ids.add(tc.get("id", tc.get("name", "")))
 
-        # Remove tool messages whose call_id has no matching assistant in window
         window = [m for m in window
                   if not (m.get("role") == "tool"
                           and m.get("tool_call_id", "") not in valid_call_ids)]
 
         # ── Pass 2: remove dangling assistant+tool_calls pairs ────────────────
-        # (assistant says "I'll call X" but no tool result was ever recorded)
         result_ids: set[str] = set()
         for m in window:
             if m.get("role") == "tool":
@@ -291,9 +397,10 @@ class Agent:
             elif m.get("role") == "assistant" and "content" not in m:
                 m = {**m, "content": ""}
             normalized.append(m)
+
         # ── Pass 4: flatten vision (list) content for non-vision providers ───
         if not getattr(self.provider, "supports_vision", False):
-            from .providers.base import LLMProvider as _LLMProvider
+            from providers.base import LLMProvider as _LLMProvider
             normalized = _LLMProvider._flatten_messages_for_text(normalized)
 
         return normalized
@@ -520,12 +627,23 @@ class Agent:
         Dual-memory system prompt update:
         - Working memory  → always injected (compact recent activity, last 20 events)
         - Permanent memory → top relevant entries auto-injected every turn
+        - Rolling summary  → if conversation history was truncated, inject its summary
         """
+        # Trigger rolling summary build if messages are getting long
+        self._maybe_build_rolling_summary()
+
         try:
             from skills.shell import get_cwd as _get_cwd
             wm_ctx = working_memory.wm_get_context()
             new_system = build_system_prompt(user_input, wm_ctx or "")
             new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
+            # ── Inject rolling summary of older conversations ─────────────────
+            if self._context_summary:
+                new_system += (
+                    f"\n\n## Earlier Conversation Summary\n"
+                    f"(This happened before the current context window)\n"
+                    f"{self._context_summary}"
+                )
             # ── Auto-inject relevant permanent memories ───────────────────────
             try:
                 pm_ctx = shared_memory.get_relevant_context(user_input, limit=8)
@@ -563,6 +681,7 @@ class Agent:
     def reset(self):
         self.auto_save()  # save session before clearing
         self.messages = [{"role": "system", "content": build_system_prompt()}]
+        self._context_summary = ""
         working_memory.wm_clear()  # wipe short-term memory on reset
 
     def auto_save(self, title: str = "", summary: str = "") -> str:
