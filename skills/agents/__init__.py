@@ -102,6 +102,113 @@ def agent_profile_delete(name: str) -> str:
     return memory_delete(key)
 
 
+def agent_profile_import(source: str, name: str = "") -> str:
+    """Import an agent profile from a GitHub URL or raw content URL.
+
+    Supports:
+    - Raw GitHub URL: https://raw.githubusercontent.com/user/repo/branch/agent.json
+    - GitHub file URL: https://github.com/user/repo/blob/branch/agent.json
+    - Direct raw URL to a JSON/YAML/Markdown file
+
+    The file should contain at minimum a 'role' or 'system_prompt' field.
+    Supported formats: JSON, YAML, Markdown (with YAML frontmatter or ## Role section).
+    """
+    import json as _json
+    import re as _re
+    import requests as _req
+
+    # Convert github.com blob URL to raw URL
+    raw_url = source
+    if "github.com" in source and "/blob/" in source:
+        raw_url = source.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+
+    try:
+        resp = _req.get(raw_url, timeout=15, headers={"User-Agent": "Koza-Agent/1.0"})
+        resp.raise_for_status()
+        content = resp.text
+    except Exception as e:
+        return f"❌ Failed to fetch from {raw_url}: {e}"
+
+    profile_data: dict = {}
+
+    # Try JSON first
+    try:
+        profile_data = _json.loads(content)
+    except Exception:
+        pass
+
+    # Try YAML
+    if not profile_data:
+        try:
+            import yaml as _yaml
+            profile_data = _yaml.safe_load(content) or {}
+        except Exception:
+            pass
+
+    # Try Markdown with YAML frontmatter (---\n...\n---)
+    if not profile_data and content.startswith("---"):
+        try:
+            import yaml as _yaml
+            fm_match = _re.match(r"^---\s*\n(.*?)\n---\s*\n", content, _re.DOTALL)
+            if fm_match:
+                profile_data = _yaml.safe_load(fm_match.group(1)) or {}
+                # Grab body as role if role not in frontmatter
+                body = content[fm_match.end():]
+                if "role" not in profile_data and "system_prompt" not in profile_data:
+                    profile_data["role"] = body.strip()
+        except Exception:
+            pass
+
+    # Try Markdown: look for ## Role / ## System Prompt / ## Description sections
+    if not profile_data or ("role" not in profile_data and "system_prompt" not in profile_data):
+        role_match = _re.search(
+            r"#+\s*(?:role|system[_ ]prompt|system prompt)\s*\n+(.*?)(?=\n#+\s|\Z)",
+            content, _re.IGNORECASE | _re.DOTALL,
+        )
+        if role_match:
+            profile_data["role"] = role_match.group(1).strip()
+        name_match = _re.search(r"#+\s*(?:name|agent name)\s*\n+([^\n]+)", content, _re.IGNORECASE)
+        if name_match and not name:
+            profile_data["name"] = name_match.group(1).strip()
+        desc_match = _re.search(r"#+\s*description\s*\n+([^\n]+)", content, _re.IGNORECASE)
+        if desc_match:
+            profile_data.setdefault("description", desc_match.group(1).strip())
+
+    # Normalize: accept 'system_prompt' as alias for 'role'
+    if "system_prompt" in profile_data and "role" not in profile_data:
+        profile_data["role"] = profile_data.pop("system_prompt")
+
+    role = profile_data.get("role", "").strip()
+    if not role:
+        # Last resort: treat entire file as role if it's plain text / markdown
+        if len(content) < 8000 and content.strip():
+            role = content.strip()
+        else:
+            return (
+                f"❌ Could not extract a 'role' / 'system_prompt' from the file.\n"
+                f"   Fetched {len(content)} bytes from {raw_url}\n"
+                f"   Make sure the file has a 'role' field (JSON/YAML) or a '## Role' section (Markdown)."
+            )
+
+    # Determine profile name
+    profile_name = (
+        name
+        or profile_data.get("name", "")
+        or profile_data.get("agent_name", "")
+        or _re.sub(r"[^\w]", "_", raw_url.rstrip("/").split("/")[-1].split(".")[0]).lower()
+        or "imported_agent"
+    )
+
+    tools = profile_data.get("tools", profile_data.get("tool_list", ""))
+    if isinstance(tools, list):
+        tools = ",".join(tools)
+
+    description = profile_data.get("description", f"Imported from {source}")
+
+    result = agent_profile_save(profile_name, role, tools=str(tools), description=description)
+    return f"{result}\n   Source: {raw_url}"
+
+
 def get_subagent_status(agent_id: str) -> str:
     """Check the status and result of a running or completed sub-agent."""
     ag = _subagents.get(agent_id)
@@ -589,6 +696,30 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "agent_profile_import",
+        "description": (
+            "Import a specialist agent profile from a GitHub URL (or any raw URL). "
+            "Supports JSON, YAML, and Markdown files with a 'role'/'system_prompt' field or '## Role' section. "
+            "GitHub blob URLs are automatically converted to raw URLs. "
+            "After import, use spawn_subagent(goal='...', profile='name') to use it."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "GitHub file URL (blob or raw) or any direct URL to a JSON/YAML/Markdown agent definition",
+                },
+                "name": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Override the profile name (default: derived from filename or file content)",
+                },
+            },
+            "required": ["source"],
+        },
+    },
+    {
         "name": "list_capabilities",
         "description": "List all available capability groups and the tools they include. Use this to discover what to pass in spawn_subagent's 'capabilities' parameter.",
         "parameters": {"type": "object", "properties": {}},
@@ -735,4 +866,5 @@ HANDLERS: dict = {
                                agent_profile_save(name, role, tools, description),
     "agent_profile_list":  lambda **_: agent_profile_list(),
     "agent_profile_delete": lambda name: agent_profile_delete(name),
+    "agent_profile_import": lambda source, name="": agent_profile_import(source, name),
 }
