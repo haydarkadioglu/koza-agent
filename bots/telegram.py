@@ -307,6 +307,9 @@ async def _process_message(update, context, agent_factory: Callable,
     last_edit   = 0.0      # timestamp of last edit
     edit_count  = 0        # edits on current message
     _MAX_EDITS  = 12       # after this many edits, next text starts a new msg
+    _tool_start_time: float = 0.0   # when current tool started (for spinner)
+    _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    _spinner_idx: int = 0
 
     _bg_task_ids: list[str] = []  # task IDs started in this turn (for watcher)
 
@@ -403,8 +406,19 @@ async def _process_message(update, context, agent_factory: Callable,
         try:
             event = ev_queue.get_nowait()
         except _queue.Empty:
+            # Animate spinner while tool is running
+            if _tool_start_time and status and not status.startswith("✅"):
+                _spinner_idx += 1
+                elapsed = round(_time.monotonic() - _tool_start_time, 1)
+                frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
+                # Extract tool name: strip previous spinner frame prefix
+                raw = status
+                for f in _SPINNER_FRAMES:
+                    raw = raw.replace(f, "")
+                tool_name = raw.split("…")[0].strip()
+                status = f"{frame} {tool_name}… {elapsed}s"
             await _flush()
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.25)
             continue
 
         if event is _DONE:
@@ -433,7 +447,10 @@ async def _process_message(update, context, agent_factory: Callable,
 
         elif etype == "tool_start":
             name = event.get("name", "")
-            status = f"⚙️ {name}…"
+            _tool_start_time = _time.monotonic()
+            _spinner_idx = 0
+            frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
+            status = f"{frame} {name}… 0s"
             # After enough edits on current message, start fresh for next block
             if edit_count >= _MAX_EDITS and text_buf.strip():
                 await _finalize_msg_and_start_fresh()
@@ -441,7 +458,8 @@ async def _process_message(update, context, agent_factory: Callable,
 
         elif etype == "tool_done":
             name = event.get("name", "")
-            status = f"✅ {name}"
+            elapsed = round(_time.monotonic() - _tool_start_time, 1) if _tool_start_time else 0
+            status = f"✅ {name} ({elapsed}s)"
             await _flush(force=True)
 
             # Track background task IDs so we can register watchers

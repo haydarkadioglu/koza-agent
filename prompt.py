@@ -132,9 +132,16 @@ Rules:
     "agent": """
 ## Sub-Agents
 - Use `spawn_subagent` for parallel or isolated tasks.
+- For tasks that will take >30 seconds (building an app, codebase analysis, multi-step research, long scraping), ALWAYS use `spawn_subagent(wait=False)` and notify the user it's running in the background.
 - Each sub-agent runs in its own workspace folder under subagents/{id}/.
 - Check status with `get_subagent_status`; list all with `list_subagents`.
 - Pass `capabilities=["browser","files"]` to give targeted tool access.
+
+## Agent Profiles (Specialist Sub-Agents)
+- At the start of a complex or specialized task, call `agent_profile_list()` first.
+- If a matching profile exists for the task type (e.g. 'code_reviewer', 'data_analyst'), use `spawn_subagent(goal='...', profile='name')` instead of handling it yourself.
+- When the user asks to "always use X for Y tasks" or creates a specialist agent, save it with `agent_profile_save(name, role, tools)`.
+- Use `agent_profile_delete(name)` to remove a profile when asked.
 """,
 
     "telegram": """

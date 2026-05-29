@@ -7,7 +7,8 @@ from ._registry import _subagents
 
 
 def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
-                         tools_filter: list[str]) -> None:
+                         tools_filter: list[str],
+                         system_prompt_override: str = "") -> None:
     """Run a sub-agent in a background thread using the core Agent."""
     _subagents[agent_id]["status"] = "running"
     try:
@@ -39,7 +40,8 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         prov = get_provider(cfg)
 
         if tools_filter:
-            tools    = [t for t in ALL_TOOLS    if t.get("name") in tools_filter]
+            tools    = [t for t in ALL_TOOLS    if t.get("name") in tools_filter
+                        or (t.get("function", {}).get("name") in tools_filter)]
             handlers = {k: v for k, v in ALL_HANDLERS.items() if k in tools_filter}
         else:
             tools    = ALL_TOOLS
@@ -51,7 +53,11 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
 
         wm_ctx  = wm_get_context()
         mem_ctx = get_relevant_context(goal, limit=6)
-        system_content = build_system_prompt(user_input=goal, channel="subagent")
+
+        if system_prompt_override:
+            system_content = system_prompt_override
+        else:
+            system_content = build_system_prompt(user_input=goal, channel="subagent")
         if wm_ctx:
             system_content += f"\n\n{wm_ctx}"
         if mem_ctx:

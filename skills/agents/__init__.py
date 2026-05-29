@@ -13,9 +13,31 @@ from .background import BackgroundTaskManager, _background_tasks
 
 def spawn_subagent(goal: str, provider: str = "", model: str = "",
                    tools: str = "", capabilities: str = "",
-                   wait: bool = True) -> str:
-    """Spawn a sub-agent with a specific goal. Runs in-process in a thread."""
+                   wait: bool = True,
+                   profile: str = "") -> str:
+    """Spawn a sub-agent with a specific goal. Runs in-process in a thread.
+    
+    If 'profile' is given, the named agent profile's system prompt and tools are used.
+    """
     from tools.capabilities import resolve_capabilities
+
+    system_prompt_override = ""
+
+    # Load named profile if requested
+    if profile:
+        from skills.shared_memory import memory_recall
+        key = f"agent_profile.{profile.lower().strip().replace(' ', '_')}"
+        stored = memory_recall(key)
+        if "No memory" not in stored:
+            import json as _json
+            try:
+                data = _json.loads(stored)
+                system_prompt_override = data.get("role", "")
+                # Merge profile tools with explicit tools
+                if data.get("tools") and not tools:
+                    tools = data["tools"]
+            except Exception:
+                system_prompt_override = stored  # treat raw value as system prompt
 
     # Resolve named capability groups into individual tool names
     cap_names    = [c.strip() for c in capabilities.split(",") if c.strip()] if capabilities else []
@@ -35,22 +57,49 @@ def spawn_subagent(goal: str, provider: str = "", model: str = "",
         "id": agent_id, "goal": goal[:80], "status": "pending",
         "result": "", "messages": [], "started": time.time(),
         "capabilities": cap_names,
+        "profile": profile,
     }
 
     t = threading.Thread(
         target=_run_subagent_thread,
-        args=(agent_id, goal, provider, model, tools_filter),
+        args=(agent_id, goal, provider, model, tools_filter, system_prompt_override),
         daemon=True,
     )
     t.start()
 
+    profile_note = f" [profile: {profile}]" if profile else ""
     if wait:
         t.join(timeout=180)
         ag     = _subagents[agent_id]
         status = ag["status"]
         result = ag.get("result", "")
-        return f"[Sub-agent {agent_id}] {status}\n{result}"
-    return f"Sub-agent {agent_id} launched (background). Use get_subagent_status('{agent_id}') to check."
+        return f"[Sub-agent {agent_id}{profile_note}] {status}\n{result}"
+    return f"Sub-agent {agent_id}{profile_note} launched (background). Use get_subagent_status('{agent_id}') to check."
+
+
+def agent_profile_save(name: str, role: str, tools: str = "", description: str = "") -> str:
+    """Save a named agent profile to memory. The profile defines a specialist role
+    (system prompt) and optional tool set. Use spawn_subagent(profile='name') to use it."""
+    import json as _json
+    from skills.shared_memory import memory_store
+    key = f"agent_profile.{name.lower().strip().replace(' ', '_')}"
+    data = {"name": name, "role": role, "tools": tools, "description": description}
+    memory_store(key, _json.dumps(data), tags="agent_profile", source="user")
+    return f"✅ Agent profile '{name}' saved. Use: spawn_subagent(goal='...', profile='{name}')"
+
+
+def agent_profile_list() -> str:
+    """List all saved agent profiles."""
+    from skills.shared_memory import memory_list
+    result = memory_list(tags="agent_profile", limit=30)
+    return result
+
+
+def agent_profile_delete(name: str) -> str:
+    """Delete a named agent profile."""
+    from skills.shared_memory import memory_delete
+    key = f"agent_profile.{name.lower().strip().replace(' ', '_')}"
+    return memory_delete(key)
 
 
 def get_subagent_status(agent_id: str) -> str:
@@ -488,7 +537,8 @@ TOOL_DEFINITIONS = [
             "Spawn an autonomous background sub-agent to handle a user-requested task. "
             "ONLY use for tasks explicitly requested by the user that benefit from parallelism or isolation. "
             "DO NOT use for: Telegram (use start_telegram_daemon), Cron (use create_cron), Sync (use sync_now). "
-            "Use 'capabilities' for named skill bundles (e.g. 'browser,files') instead of listing individual tools."
+            "Use 'capabilities' for named skill bundles (e.g. 'browser,files') instead of listing individual tools. "
+            "If the user has a saved agent profile for this type of task, use 'profile' to load it automatically."
         ),
         "parameters": {
             "type": "object",
@@ -499,8 +549,43 @@ TOOL_DEFINITIONS = [
                 "tools":        {"type": "string",  "default": "", "description": "Comma-separated individual tool names (empty = all)"},
                 "capabilities": {"type": "string",  "default": "", "description": "Comma-separated capability group names (e.g. 'browser,files,code'). Use list_capabilities() to see available groups."},
                 "wait":         {"type": "boolean", "default": True, "description": "Wait for completion or launch in background"},
+                "profile":      {"type": "string",  "default": "", "description": "Named agent profile to use (see agent_profile_list). Loads the profile's role (system prompt) and default tools."},
             },
             "required": ["goal"],
+        },
+    },
+    {
+        "name": "agent_profile_save",
+        "description": (
+            "Save a named specialist agent profile with a custom system prompt (role) and optional tool set. "
+            "After saving, use spawn_subagent(goal='...', profile='name') to reuse this specialist in future tasks. "
+            "Example: save a 'code_reviewer' profile with a strict code review role."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name":        {"type": "string", "description": "Profile name (e.g. 'code_reviewer', 'data_analyst')"},
+                "role":        {"type": "string", "description": "System prompt / role description for this specialist agent"},
+                "tools":       {"type": "string", "default": "", "description": "Comma-separated tool names this agent should have (empty = all)"},
+                "description": {"type": "string", "default": "", "description": "Human-readable description of what this profile does"},
+            },
+            "required": ["name", "role"],
+        },
+    },
+    {
+        "name": "agent_profile_list",
+        "description": "List all saved named agent profiles. Check this before spawning a sub-agent to see if a matching specialist profile exists.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "agent_profile_delete",
+        "description": "Delete a saved agent profile by name.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Profile name to delete"},
+            },
+            "required": ["name"],
         },
     },
     {
@@ -632,8 +717,8 @@ TOOL_DEFINITIONS = [
 ]
 
 HANDLERS: dict = {
-    "spawn_subagent":      lambda goal, provider="", model="", tools="", capabilities="", wait=True:
-                               spawn_subagent(goal, provider, model, tools, capabilities, wait),
+    "spawn_subagent":      lambda goal, provider="", model="", tools="", capabilities="", wait=True, profile="":
+                               spawn_subagent(goal, provider, model, tools, capabilities, wait, profile),
     "get_subagent_status": lambda agent_id: get_subagent_status(agent_id),
     "list_subagents":      lambda **_: list_subagents(),
     "list_capabilities":   lambda **_: list_capabilities(),
@@ -646,4 +731,8 @@ HANDLERS: dict = {
     "clean_workspace":     lambda scope="all": clean_workspace(scope),
     "extract_project":     lambda source, dest="", include_koza_core=True:
                                extract_project(source, dest, include_koza_core),
+    "agent_profile_save":  lambda name, role, tools="", description="":
+                               agent_profile_save(name, role, tools, description),
+    "agent_profile_list":  lambda **_: agent_profile_list(),
+    "agent_profile_delete": lambda name: agent_profile_delete(name),
 }
