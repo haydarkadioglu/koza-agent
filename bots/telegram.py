@@ -61,25 +61,6 @@ def _sanitize_response(text: str) -> str:
 # No more keyword lists here — the LLM decides what's a coding task.
 
 
-# ── Quick-access keyboard (module level so all handlers can use it) ───────────
-def _make_quick_keyboard():
-    try:
-        from telegram import ReplyKeyboardMarkup, KeyboardButton
-        return ReplyKeyboardMarkup(
-            [[KeyboardButton("📋 Sessions"), KeyboardButton("💾 Save")],
-             [KeyboardButton("📊 Status"),   KeyboardButton("🔄 Reset")]],
-            resize_keyboard=True,
-            is_persistent=True,
-        )
-    except Exception:
-        return None
-
-_QUICK_KB = _make_quick_keyboard()
-
-# Chat IDs that have already seen the quick keyboard (so we only send it once per session)
-_kb_shown_chats: set[int] = set()
-
-
 def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> None:
     """Poll task status and send notification on completion."""
     assert loop is not None, "_register_completion_watcher requires a running event loop"
@@ -263,9 +244,7 @@ async def _process_message(update, context, agent_factory: Callable,
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     if image_path:
-        if not getattr(agent.provider, "supports_vision", False):
-            user_text = f"[Photo: {image_path}]\n{user_text}"
-            image_path = None  # won't be passed as vision — provider doesn't support it
+        user_text = f"[Photo: {image_path}]\n{user_text}"
 
     ev_queue: _queue.Queue = _queue.Queue()
     _DONE = object()
@@ -274,7 +253,7 @@ async def _process_message(update, context, agent_factory: Callable,
     def _stream_worker():
         try:
             logger.debug(f"_stream_worker: starting for chat_id={chat_id}")
-            for event in agent.stream_chat(user_text, image_path=image_path):
+            for event in agent.stream_chat(user_text):
                 ev_queue.put(event)
         except Exception as e:
             logger.error(f"_stream_worker: exception: {e}", exc_info=True)
@@ -282,13 +261,6 @@ async def _process_message(update, context, agent_factory: Callable,
         finally:
             logger.debug(f"_stream_worker: done for chat_id={chat_id}")
             ev_queue.put(_DONE)
-            # Clean up temp image file after the stream finishes
-            if image_path:
-                import os as _os
-                try:
-                    _os.unlink(image_path)
-                except Exception:
-                    pass
 
     threading.Thread(target=_stream_worker, daemon=True).start()
 
@@ -335,13 +307,7 @@ async def _process_message(update, context, agent_factory: Callable,
             last_edit = now
             return
         if sent_msg is None:
-            kb = None
-            if _QUICK_KB is not None and chat_id not in _kb_shown_chats:
-                kb = _QUICK_KB
-                _kb_shown_chats.add(chat_id)
-            sent_msg = await context.bot.send_message(
-                chat_id=chat_id, text=display, reply_markup=kb,
-            )
+            sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
             edit_count = 0
         else:
             try:
@@ -766,6 +732,14 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         # ── /start command: save chat_id and send welcome ─────────────────────
         from telegram.ext import CommandHandler as _CmdHandler
+        from telegram import ReplyKeyboardMarkup as _RKM, KeyboardButton as _KB
+
+        _QUICK_KB = _RKM(
+            [[_KB("📋 Sessions"), _KB("💾 Save")],
+             [_KB("📊 Status"),   _KB("🔄 Reset")]],
+            resize_keyboard=True,
+            is_persistent=True,
+        )
 
         async def on_start(update, context):
             cid = update.effective_chat.id
@@ -778,7 +752,6 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 save_config(c)
             except Exception:
                 pass
-            _kb_shown_chats.discard(cid)  # Reset so keyboard is re-sent on next response
             await update.message.reply_text(
                 f"👋 Hello @{uname}!\n\n"
                 "I'm *Koza*, your AI assistant. Telegram connection established! 🎉\n\n"

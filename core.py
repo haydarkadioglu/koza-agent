@@ -638,16 +638,13 @@ class Agent:
 
     def _refresh_memory_context(self, user_input: str) -> None:
         """
-        Dual-memory system prompt update:
-        - Credential vault  → ALWAYS injected (every turn, unconditionally)
-        - Working memory    → always injected (compact recent activity)
-        - Permanent memory  → top relevant entries auto-injected every turn
-        - Rolling summary   → if conversation history was truncated, inject its summary
+        System prompt update every turn:
+        - Working memory  → compact recent activity
+        - Permanent memory → top relevant entries (query-filtered)
+        - Rolling summary  → if conversation history was truncated
+        Credentials are NOT injected here — agent calls credential_get() on demand.
         """
-        # Trigger rolling summary build if messages are getting long
         self._maybe_build_rolling_summary()
-
-        # Auto-detect and save credentials mentioned in user message
         self._auto_save_credentials(user_input)
 
         try:
@@ -655,13 +652,6 @@ class Agent:
             wm_ctx = working_memory.wm_get_context()
             new_system = build_system_prompt(user_input, wm_ctx or "")
             new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
-            # ── Always inject ALL credentials (never query-filtered) ──────────
-            try:
-                cred_ctx = shared_memory.get_credential_context()
-                if cred_ctx:
-                    new_system += f"\n\n{cred_ctx}"
-            except Exception:
-                pass
             # ── Inject rolling summary of older conversations ─────────────────
             if self._context_summary:
                 new_system += (
@@ -678,11 +668,7 @@ class Agent:
                 pass
             if self.messages and self.messages[0]["role"] == "system":
                 self.messages[0]["content"] = new_system
-            # Log user input to working memory
-            working_memory.wm_add(
-                summary=user_input[:120],
-                event_type="user",
-            )
+            working_memory.wm_add(summary=user_input[:120], event_type="user")
         except Exception:
             pass
 

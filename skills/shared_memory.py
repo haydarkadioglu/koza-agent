@@ -163,54 +163,99 @@ def get_relevant_context(query: str, limit: int = 5) -> str:
     return "## Shared Memory (relevant facts):\n" + "\n".join(lines)
 
 
-def get_credential_context() -> str:
-    """Return ALL stored credentials — always injected into system prompt regardless of query."""
-    if not _db_path:
-        return ""
-    with _conn() as conn:
-        rows = conn.execute(
-            "SELECT key, value FROM shared_memory WHERE tags LIKE '%credential%' ORDER BY updated_at DESC",
-        ).fetchall()
-    if not rows:
-        return ""
-    lines = [f"- [{r['key']}]: {r['value']}" for r in rows]
-    return "## Credential Vault (API keys & tokens you have been given):\n" + "\n".join(lines)
+# ─── Credential vault — stored in ~/.Koza/.env ───────────────────────────────
+# Tokens/keys are NEVER injected into the system prompt; the agent calls
+# credential_get() on demand so secrets don't leak into every LLM turn.
+
+import re as _re
+from pathlib import Path as _Path
 
 
-# ─── Credential vault helpers ─────────────────────────────────────────────────
-
-def credential_set(service: str, token: str, notes: str = "") -> str:
-    """Store or update a credential/token in the vault."""
-    key = f"credential.{service.lower().replace(' ', '_')}"
-    value = token if not notes else f"{token}  # {notes}"
-    return memory_store(key, value, tags="credential", source="user")
+def _env_path() -> _Path:
+    return _Path.home() / ".Koza" / ".env"
 
 
-def credential_get(service: str) -> str:
-    """Retrieve a stored credential/token by service name."""
-    key = f"credential.{service.lower().replace(' ', '_')}"
-    result = memory_recall(key)
-    if "No memory found" in result:
-        # Fuzzy fallback: search for the service name in credentials
-        return memory_search(service, limit=3)
+def _service_to_key(service: str) -> str:
+    """'openai api key' → 'OPENAI_API_KEY'"""
+    return _re.sub(r"[^a-zA-Z0-9]+", "_", service.strip()).upper().strip("_")
+
+
+def _read_env() -> dict[str, tuple[str, str]]:
+    """Return {ENV_KEY: (value, notes)} parsed from ~/.Koza/.env"""
+    p = _env_path()
+    if not p.exists():
+        return {}
+    result: dict[str, tuple[str, str]] = {}
+    for line in p.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, _, rest = stripped.partition("=")
+        key = key.strip()
+        if "  #" in rest:
+            value, _, notes = rest.partition("  #")
+            result[key] = (value.strip(), notes.strip())
+        else:
+            result[key] = (rest.strip(), "")
     return result
 
 
-def credential_list() -> str:
-    """List all stored credentials (service names only, not values)."""
-    if not _db_path:
-        return "Shared memory DB not initialized."
-    with _conn() as conn:
-        rows = conn.execute(
-            "SELECT key, updated_at FROM shared_memory WHERE tags LIKE '%credential%' ORDER BY updated_at DESC"
-        ).fetchall()
-    if not rows:
-        return "No credentials stored yet."
+def _write_env(data: dict[str, tuple[str, str]]) -> None:
+    """Write {ENV_KEY: (value, notes)} to ~/.Koza/.env"""
+    p = _env_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
     lines = []
-    for r in rows:
-        ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["updated_at"]))
-        lines.append(f"  🔑 {r['key']}  (saved: {ts})")
-    return f"Stored credentials ({len(rows)}):\n" + "\n".join(lines)
+    for key in sorted(data):
+        value, notes = data[key]
+        lines.append(f"{key}={value}  # {notes}" if notes else f"{key}={value}")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def credential_set(service: str, token: str, notes: str = "") -> str:
+    """Save or update a credential in ~/.Koza/.env"""
+    env_key = _service_to_key(service)
+    data = _read_env()
+    data[env_key] = (token, notes)
+    _write_env(data)
+    return f"✅ Saved {env_key} to ~/.Koza/.env"
+
+
+def credential_get(service: str) -> str:
+    """Look up a credential from ~/.Koza/.env by service name."""
+    env_key = _service_to_key(service)
+    data = _read_env()
+    # Exact match
+    if env_key in data:
+        value, notes = data[env_key]
+        return f"{env_key}={value}" + (f"  # {notes}" if notes else "")
+    # Fuzzy: check if service substring appears in any key
+    lower = service.lower().replace(" ", "_")
+    matches = [(k, v, n) for k, (v, n) in data.items() if lower in k.lower()]
+    if matches:
+        return "\n".join(
+            f"{k}={v}" + (f"  # {n}" if n else "") for k, v, n in matches
+        )
+    return f"No credential found for '{service}' in ~/.Koza/.env"
+
+
+def credential_list() -> str:
+    """List all credential keys stored in ~/.Koza/.env (names only, not values)."""
+    data = _read_env()
+    if not data:
+        return f"No credentials stored in {_env_path()} yet."
+    lines = [f"  🔑 {k}" + (f"  # {n}" if n else "") for k, (_, n) in sorted(data.items())]
+    return f"Stored credentials in ~/.Koza/.env ({len(data)}):\n" + "\n".join(lines)
+
+
+def get_credential_context() -> str:
+    """Return credential list summary (key names only, no values) — safe for logging."""
+    data = _read_env()
+    if not data:
+        return ""
+    keys = ", ".join(sorted(data.keys()))
+    return f"## Credentials in ~/.Koza/.env (use credential_get to retrieve values):\n{keys}"
 
 
 # ─── Tool definitions ─────────────────────────────────────────────────────────
