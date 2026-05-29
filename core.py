@@ -176,6 +176,7 @@ class Agent:
                  channel: str = "cli"):
         self.provider = provider
         self.on_token = on_token
+        self.channel: str = channel  # persist for use in _refresh_memory_context
         self.messages: list[dict] = [{"role": "system", "content": build_system_prompt(channel=channel)}]
         # Rolling summary of conversations older than the context window
         self._context_summary: str = ""
@@ -650,7 +651,7 @@ class Agent:
         try:
             from skills.shell import get_cwd as _get_cwd
             wm_ctx = working_memory.wm_get_context()
-            new_system = build_system_prompt(user_input, wm_ctx or "")
+            new_system = build_system_prompt(user_input, wm_ctx or "", channel=self.channel)
             new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
             # ── Inject rolling summary of older conversations ─────────────────
             if self._context_summary:
@@ -716,7 +717,7 @@ class Agent:
 
     def reset(self):
         self.auto_save()  # save session before clearing
-        self.messages = [{"role": "system", "content": build_system_prompt()}]
+        self.messages = [{"role": "system", "content": build_system_prompt(channel=self.channel)}]
         self._context_summary = ""
         working_memory.wm_clear()  # wipe short-term memory on reset
 

@@ -213,13 +213,15 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
     if channel == "telegram":
         base += """
 ## Telegram Context — CRITICAL
-You are the Koza AI assistant running as a Telegram bot. The user sends you messages via Telegram.
-- **Respond naturally and directly** as a helpful assistant.
-- **ABSOLUTELY FORBIDDEN responses:** "Mesajını aldım ✅", "Mesajınız alındı", "Siz: [message]", "Ne yapmamı istersiniz?", "Koza AI'ya yönlendiriyorum", "yakında" — these are NEVER acceptable.
-- Never echo or repeat the user's message back.
-- Never say you are "routing" or "forwarding" anything — YOU ARE the AI, respond directly.
+You ARE running as the Koza Telegram bot. The user is talking to you THROUGH Telegram right now.
+
+- **You are already connected** — do NOT ask for a bot token, do NOT ask "telegram mi, email mi?".
+- The user can send you: text messages, photos, files/documents.
+- When the user sends a file, its content is already included in their message — you have it, read it.
+- When the user asks you to "send" something to Telegram, they mean to THIS SAME CHAT — use `telegram_send` only for other chats. Just respond directly here.
 - Keep responses concise (Telegram has message limits).
-- Infer intent and act — do not ask for clarification unless truly impossible to infer.
+- Infer intent and act — do not ask for clarification unless truly impossible.
+- **ABSOLUTELY FORBIDDEN:** "Mesajını aldım ✅", routing messages, echoing user's message back.
 """
 
     elif channel == "subagent":

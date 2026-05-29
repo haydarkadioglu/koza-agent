@@ -205,7 +205,7 @@ async def _process_message(update, context, agent_factory: Callable,
         except Exception:
             pass  # Reactions not available in all chat types — ignore
 
-    # Photo support
+    # ── Photo support ─────────────────────────────────────────────────────────
     if msg and msg.photo:
         photo = msg.photo[-1]
         file = await context.bot.get_file(photo.file_id)
@@ -216,6 +216,29 @@ async def _process_message(update, context, agent_factory: Callable,
         image_path = tmp.name
         if not user_text:
             user_text = "Analyze this photo."
+
+    # ── Document/file support ──────────────────────────────────────────────────
+    elif msg and msg.document:
+        doc = msg.document
+        import tempfile, os as _os
+        suffix = "." + doc.file_name.rsplit(".", 1)[-1] if doc.file_name and "." in doc.file_name else ""
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp.close()
+        file = await context.bot.get_file(doc.file_id)
+        await file.download_to_drive(tmp.name)
+        # Try to read as text (code, markdown, CSV, etc.)
+        try:
+            with open(tmp.name, "r", encoding="utf-8", errors="replace") as _f:
+                content = _f.read(8000)  # cap at 8K chars
+            file_info = f"[File: {doc.file_name or 'document'} ({doc.mime_type or 'text'})]:\n{content}"
+            if len(content) >= 8000:
+                file_info += "\n... (truncated)"
+        except Exception:
+            file_info = f"[File: {doc.file_name or 'document'} saved to {tmp.name}]"
+        _os.unlink(tmp.name)
+        user_text = (user_text + "\n\n" + file_info).strip() if user_text else file_info
+        if not user_text:
+            user_text = file_info
 
     if not user_text:
         return
@@ -250,15 +273,23 @@ async def _process_message(update, context, agent_factory: Callable,
     _DONE = object()
     _STREAM_TIMEOUT_SEC = 300  # 5 minutes — give up if LLM/network hangs
 
+    _captured_image_path = image_path  # capture for closure
+
     def _stream_worker():
         try:
             logger.debug(f"_stream_worker: starting for chat_id={chat_id}")
-            for event in agent.stream_chat(user_text):
+            for event in agent.stream_chat(user_text, image_path=_captured_image_path):
                 ev_queue.put(event)
         except Exception as e:
             logger.error(f"_stream_worker: exception: {e}", exc_info=True)
             ev_queue.put({"type": "error", "message": str(e)})
         finally:
+            # Clean up temp image file
+            if _captured_image_path:
+                try:
+                    import os as _os; _os.unlink(_captured_image_path)
+                except Exception:
+                    pass
             logger.debug(f"_stream_worker: done for chat_id={chat_id}")
             ev_queue.put(_DONE)
 
