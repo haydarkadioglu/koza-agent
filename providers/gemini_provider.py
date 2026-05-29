@@ -160,14 +160,46 @@ class GeminiProvider(LLMProvider):
         try:
             from gemini_webapi import GeminiClient
         except ImportError:
-            raise ImportError("gemini-webapi not installed. Run: pip install gemini-webapi")
-        psid, psidts = self._cookie_1psid, self._cookie_1psidts or None
+            raise ImportError(
+                "gemini-webapi not installed. Run: pip install 'gemini-webapi>=2.0.0' curl_cffi orjson"
+            )
+
+        # Persist refreshed cookies to ~/.Koza/ instead of %TEMP%
+        import os
+        cookie_dir = os.path.join(os.path.expanduser("~"), ".Koza", ".gemini_cookies")
+        os.makedirs(cookie_dir, exist_ok=True)
+        os.environ.setdefault("GEMINI_COOKIE_PATH", cookie_dir)
+
+        psid  = self._cookie_1psid
+        psidts = self._cookie_1psidts or None
+
         async def _init():
             c = GeminiClient(psid, psidts)
-            await c.init(timeout=30, auto_close=False, close_delay=600, auto_refresh=True)
+            await c.init(
+                timeout=60,
+                auto_close=False,
+                auto_refresh=True,
+                refresh_interval=600,
+                verbose=False,
+            )
             return c
-        self._cookie_client = _run_async(_init())
+
+        try:
+            self._cookie_client = _run_async(_init())
+        except Exception as e:
+            err = str(e)
+            if "AuthError" in type(e).__name__ or "Failed to initialize" in err or "expired" in err.lower():
+                raise RuntimeError(
+                    "❌ Gemini cookie auth failed — cookies are expired or invalid.\n\n"
+                    "To fix: run  koza setup  and choose 'gemini cookie' to re-login, "
+                    "or manually update __Secure-1PSID in your config.yaml."
+                ) from e
+            raise
         return self._cookie_client
+
+    def _reset_cookie_client(self):
+        """Force re-initialization of the cookie client on next call."""
+        self._cookie_client = None
 
     def _cookie_generate(self, prompt: str) -> str:
         client = self._get_cookie_client()
@@ -177,7 +209,18 @@ class GeminiProvider(LLMProvider):
         async def _run():
             resp = await client.generate_content(prompt, model=model)
             return resp.text
-        return _run_async(_run())
+        try:
+            return _run_async(_run())
+        except Exception as e:
+            err = str(e)
+            # If session died, reset client so next call re-initializes
+            if any(k in err.lower() for k in ("session", "auth", "expired", "401", "403")):
+                self._reset_cookie_client()
+                raise RuntimeError(
+                    f"Gemini cookie session expired: {e}\n"
+                    "Run 'koza setup' to refresh cookies."
+                ) from e
+            raise
 
     # ── Playwright-based media generation ────────────────────────────────────
 
