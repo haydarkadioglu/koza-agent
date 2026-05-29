@@ -163,6 +163,56 @@ def get_relevant_context(query: str, limit: int = 5) -> str:
     return "## Shared Memory (relevant facts):\n" + "\n".join(lines)
 
 
+def get_credential_context() -> str:
+    """Return ALL stored credentials — always injected into system prompt regardless of query."""
+    if not _db_path:
+        return ""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM shared_memory WHERE tags LIKE '%credential%' ORDER BY updated_at DESC",
+        ).fetchall()
+    if not rows:
+        return ""
+    lines = [f"- [{r['key']}]: {r['value']}" for r in rows]
+    return "## Credential Vault (API keys & tokens you have been given):\n" + "\n".join(lines)
+
+
+# ─── Credential vault helpers ─────────────────────────────────────────────────
+
+def credential_set(service: str, token: str, notes: str = "") -> str:
+    """Store or update a credential/token in the vault."""
+    key = f"credential.{service.lower().replace(' ', '_')}"
+    value = token if not notes else f"{token}  # {notes}"
+    return memory_store(key, value, tags="credential", source="user")
+
+
+def credential_get(service: str) -> str:
+    """Retrieve a stored credential/token by service name."""
+    key = f"credential.{service.lower().replace(' ', '_')}"
+    result = memory_recall(key)
+    if "No memory found" in result:
+        # Fuzzy fallback: search for the service name in credentials
+        return memory_search(service, limit=3)
+    return result
+
+
+def credential_list() -> str:
+    """List all stored credentials (service names only, not values)."""
+    if not _db_path:
+        return "Shared memory DB not initialized."
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT key, updated_at FROM shared_memory WHERE tags LIKE '%credential%' ORDER BY updated_at DESC"
+        ).fetchall()
+    if not rows:
+        return "No credentials stored yet."
+    lines = []
+    for r in rows:
+        ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["updated_at"]))
+        lines.append(f"  🔑 {r['key']}  (saved: {ts})")
+    return f"Stored credentials ({len(rows)}):\n" + "\n".join(lines)
+
+
 # ─── Tool definitions ─────────────────────────────────────────────────────────
 
 TOOL_DEFINITIONS = [
@@ -228,12 +278,52 @@ TOOL_DEFINITIONS = [
             "required": ["key"],
         },
     },
+    {
+        "name": "credential_set",
+        "description": (
+            "Store or update an API key, token, password, or any credential in the secure vault. "
+            "Call this immediately whenever the user provides any token, key, or credential — "
+            "even mid-conversation. The vault persists forever across all sessions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "service": {"type": "string", "description": "Service name (e.g. 'openai', 'telegram_bot', 'github', 'spotify')"},
+                "token":   {"type": "string", "description": "The actual token/key/password value"},
+                "notes":   {"type": "string", "description": "Optional notes (e.g. 'read-only', 'bot token')", "default": ""},
+            },
+            "required": ["service", "token"],
+        },
+    },
+    {
+        "name": "credential_get",
+        "description": (
+            "Retrieve a stored API key, token, or credential by service name. "
+            "ALWAYS call this BEFORE asking the user for any credential — "
+            "they may have provided it before."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "service": {"type": "string", "description": "Service name to look up (e.g. 'openai', 'telegram_bot')"},
+            },
+            "required": ["service"],
+        },
+    },
+    {
+        "name": "credential_list",
+        "description": "List all stored credentials (service names only, values hidden). Use to see what credentials are already saved.",
+        "parameters": {"type": "object", "properties": {}},
+    },
 ]
 
 HANDLERS: dict = {
-    "memory_store":  lambda key, value, tags="": memory_store(key, value, tags),
-    "memory_recall": lambda key: memory_recall(key),
-    "memory_search": lambda query, limit=10: memory_search(query, int(limit)),
-    "memory_list":   lambda tags="", limit=30: memory_list(tags, int(limit)),
-    "memory_delete": lambda key: memory_delete(key),
+    "memory_store":    lambda key, value, tags="": memory_store(key, value, tags),
+    "memory_recall":   lambda key: memory_recall(key),
+    "memory_search":   lambda query, limit=10: memory_search(query, int(limit)),
+    "memory_list":     lambda tags="", limit=30: memory_list(tags, int(limit)),
+    "memory_delete":   lambda key: memory_delete(key),
+    "credential_set":  lambda service, token, notes="": credential_set(service, token, notes),
+    "credential_get":  lambda service: credential_get(service),
+    "credential_list": lambda: credential_list(),
 }

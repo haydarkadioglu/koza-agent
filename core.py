@@ -30,6 +30,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "kanban":     ["create_task", "list_tasks", "move_task", "update_task", "delete_task"],
     "cron":       ["create_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
+                   "credential_set", "credential_get", "credential_list",
                    "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents"],
     "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
@@ -74,6 +75,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # memory
     "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
     "session": ["memory"],
+    # credentials
+    "token": ["memory"], "api key": ["memory"], "apikey": ["memory"], "credential": ["memory"],
+    "password": ["memory"], "secret": ["memory"], "key": ["memory"],
     # agents
     "agent": ["agent"], "subagent": ["agent"], "parallel": ["agent"],
     # messaging
@@ -126,6 +130,16 @@ def _tool_name(t: dict) -> str:
     return t.get("name", "")
 
 _TOOL_BY_NAME: dict[str, dict] = {_tool_name(t): t for t in ALL_TOOLS}
+
+import re as _re
+_CRED_PATTERNS = _re.compile(
+    r"(?:"
+    r"(?P<service1>[\w\s]+?)\s+(?:api\s*)?(?:key|token|secret|password|credential|apikey|api_key|access_token)\s*(?:is|:|=)\s*(?P<val1>\S{8,})"
+    r"|(?P<val2>(?:sk-|ghp_|xox[bprao]-|Bearer\s+)\S{6,})"
+    r"|(?P<service2>[\w]+)\s+(?:api\s+)?key\s*[:=]\s*(?P<val3>\S{8,})"
+    r")",
+    _re.IGNORECASE,
+)
 
 
 def _select_tools(user_input: str) -> list[dict]:
@@ -625,18 +639,29 @@ class Agent:
     def _refresh_memory_context(self, user_input: str) -> None:
         """
         Dual-memory system prompt update:
-        - Working memory  → always injected (compact recent activity, last 20 events)
-        - Permanent memory → top relevant entries auto-injected every turn
-        - Rolling summary  → if conversation history was truncated, inject its summary
+        - Credential vault  → ALWAYS injected (every turn, unconditionally)
+        - Working memory    → always injected (compact recent activity)
+        - Permanent memory  → top relevant entries auto-injected every turn
+        - Rolling summary   → if conversation history was truncated, inject its summary
         """
         # Trigger rolling summary build if messages are getting long
         self._maybe_build_rolling_summary()
+
+        # Auto-detect and save credentials mentioned in user message
+        self._auto_save_credentials(user_input)
 
         try:
             from skills.shell import get_cwd as _get_cwd
             wm_ctx = working_memory.wm_get_context()
             new_system = build_system_prompt(user_input, wm_ctx or "")
             new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
+            # ── Always inject ALL credentials (never query-filtered) ──────────
+            try:
+                cred_ctx = shared_memory.get_credential_context()
+                if cred_ctx:
+                    new_system += f"\n\n{cred_ctx}"
+            except Exception:
+                pass
             # ── Inject rolling summary of older conversations ─────────────────
             if self._context_summary:
                 new_system += (
@@ -658,6 +683,31 @@ class Agent:
                 summary=user_input[:120],
                 event_type="user",
             )
+        except Exception:
+            pass
+
+    def _auto_save_credentials(self, user_input: str) -> None:
+        """Detect and auto-save any credentials/tokens mentioned in user message."""
+        try:
+            for m in _CRED_PATTERNS.finditer(user_input):
+                service = (m.group("service1") or m.group("service2") or "").strip()
+                value   = (m.group("val1") or m.group("val2") or m.group("val3") or "").strip()
+                if not value or len(value) < 8:
+                    continue
+                if not service:
+                    # Infer service from value prefix
+                    v = value.lower()
+                    if v.startswith("sk-"):
+                        service = "openai"
+                    elif v.startswith("ghp_") or v.startswith("github_pat"):
+                        service = "github"
+                    elif v.startswith("xox"):
+                        service = "slack"
+                    elif ":" in value and value.split(":")[0].isdigit():
+                        service = "telegram_bot"
+                    else:
+                        service = "unknown"
+                shared_memory.credential_set(service.lower().strip(), value)
         except Exception:
             pass
 
