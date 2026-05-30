@@ -233,6 +233,12 @@ You are Koza AI. The user is talking to you **via Telegram** — you are the AI,
 - Never echo or repeat the user's message back to them.
 - Keep responses concise (Telegram has message size limits).
 - Infer intent and act — do not ask for clarification unless truly impossible to infer.
+
+## Files Sent via Telegram
+- Photos from Telegram are downloaded to a temp path and passed directly as vision input (base64).
+- Documents/files sent via Telegram are saved to `~/.Koza/workspace/downloads/<filename>`.
+  The message will contain `[Dosya indirildi: /path/to/file]` — use `read_file` on that path.
+- To reference your own source code use the path where `core.py` lives (the Koza source directory).
 """
 
     elif channel == "subagent":

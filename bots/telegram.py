@@ -5,9 +5,13 @@ Each Telegram chat_id gets its own Agent instance (isolated session).
 Messages stream back to the user in real time (chunked text edits).
 """
 import asyncio
+import json
 import logging
+import os
 import re
+import sqlite3
 import threading
+from pathlib import Path
 from typing import Dict, Callable
 
 from skills.agents.background import BackgroundTaskManager, _background_tasks
@@ -16,6 +20,69 @@ logger = logging.getLogger(__name__)
 
 # ── Module-level config reference (set by start_bot_thread) ──────────────────
 _bot_cfg: dict | None = None
+
+# ── Telegram conversation history persistence ─────────────────────────────────
+# Conversations are persisted to SQLite so context survives bot restarts.
+_TG_HISTORY_KEEP = 100   # max messages to persist per chat_id
+
+
+def _get_db_path() -> str | None:
+    if _bot_cfg:
+        return _bot_cfg.get("db_path")
+    return None
+
+
+def _ensure_history_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS telegram_history (
+               chat_id   INTEGER PRIMARY KEY,
+               messages  TEXT NOT NULL,
+               updated_at TEXT DEFAULT (datetime('now'))
+           )"""
+    )
+    conn.commit()
+
+
+def _save_tg_history(chat_id: int, messages: list) -> None:
+    """Persist agent message history (excluding system msg) for a chat_id."""
+    db_path = _get_db_path()
+    if not db_path:
+        return
+    try:
+        # Keep only non-system messages, capped to last _TG_HISTORY_KEEP entries
+        history = [m for m in messages if m.get("role") != "system"]
+        history = history[-_TG_HISTORY_KEEP:]
+        with sqlite3.connect(db_path) as conn:
+            _ensure_history_table(conn)
+            conn.execute(
+                """INSERT INTO telegram_history (chat_id, messages, updated_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(chat_id) DO UPDATE SET messages=excluded.messages,
+                                                      updated_at=excluded.updated_at""",
+                (chat_id, json.dumps(history, ensure_ascii=False)),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.debug(f"_save_tg_history failed: {e}")
+
+
+def _load_tg_history(chat_id: int) -> list:
+    """Load persisted message history for a chat_id (returns [] if none)."""
+    db_path = _get_db_path()
+    if not db_path:
+        return []
+    try:
+        with sqlite3.connect(db_path) as conn:
+            _ensure_history_table(conn)
+            row = conn.execute(
+                "SELECT messages FROM telegram_history WHERE chat_id = ?",
+                (chat_id,),
+            ).fetchone()
+            if row:
+                return json.loads(row[0])
+    except Exception as e:
+        logger.debug(f"_load_tg_history failed: {e}")
+    return []
 
 
 def _strip_markdown(text: str) -> str:
@@ -174,6 +241,11 @@ def _get_or_create_agent(chat_id: int, agent_factory: Callable, permission_cb=No
         if chat_id not in _agents:
             agent = agent_factory(channel="telegram")
             agent.permission_callback = permission_cb
+            # Restore persisted conversation history
+            history = _load_tg_history(chat_id)
+            if history:
+                agent.messages.extend(history)
+                logger.debug(f"Restored {len(history)} messages for chat_id={chat_id}")
             _agents[chat_id] = agent
         return _agents[chat_id]
 
@@ -218,25 +290,35 @@ async def _process_message(update, context, agent_factory: Callable,
         except Exception:
             pass  # Reactions not available in all chat types — ignore
 
-    # Photo support
+    # ── Photo support ──────────────────────────────────────────────────────────
     if msg and msg.photo:
         photo = msg.photo[-1]
-        file = await context.bot.get_file(photo.file_id)
+        tg_file = await context.bot.get_file(photo.file_id)
         import tempfile
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
         tmp.close()
-        await file.download_to_drive(tmp.name)
+        await tg_file.download_to_drive(tmp.name)
         image_path = tmp.name
         if not user_text:
-            user_text = "Analyze this photo."
+            user_text = "Bu fotoğrafı analiz et."
+
+    # ── Document / file support ────────────────────────────────────────────────
+    elif msg and msg.document:
+        doc = msg.document
+        tg_file = await context.bot.get_file(doc.file_id)
+        # Save to ~/.Koza/workspace/downloads/ so path survives and is accessible
+        dl_dir = Path(_bot_cfg.get("workspace_path", Path.home() / ".Koza" / "workspace")) / "downloads"
+        dl_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^\w\.\-]", "_", doc.file_name or f"file_{doc.file_id[:8]}")
+        dest = str(dl_dir / safe_name)
+        await tg_file.download_to_drive(dest)
+        file_info = f"[Dosya indirildi: {dest}]"
+        user_text = f"{file_info}\n{user_text}" if user_text else f"{file_info}\nBu dosyayı işle."
 
     if not user_text:
         return
 
-    # ── Background delegation disabled ────────────────────────────────────────
-    # Koza handles all requests directly. User can explicitly use spawn_subagent
-    # tool if they want background delegation.
-    # Get or create agent first
+    # Get or create agent
     permission_cb = None
     if kb_manager and bot_loop:
         permission_cb = _make_permission_callback(
@@ -255,15 +337,13 @@ async def _process_message(update, context, agent_factory: Callable,
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
-    if image_path:
-        user_text = f"[Photo: {image_path}]\n{user_text}"
-
     ev_queue: _queue.Queue = _queue.Queue()
     _DONE = object()
 
     def _stream_worker():
         try:
-            for event in agent.stream_chat(user_text):
+            # Pass image_path so vision-capable providers encode it as base64
+            for event in agent.stream_chat(user_text, image_path=image_path):
                 ev_queue.put(event)
         except Exception as e:
             ev_queue.put({"type": "error", "message": str(e)})
@@ -429,6 +509,12 @@ async def _process_message(update, context, agent_factory: Callable,
     # Final flush: clear status, show clean response
     status = ""
     await _flush(force=True)
+
+    # Persist conversation history for this chat_id (survives bot restart)
+    try:
+        _save_tg_history(chat_id, agent.messages)
+    except Exception:
+        pass
 
     # Register completion watchers for any background tasks started this turn
     for task_id in _bg_task_ids:
@@ -650,7 +736,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             logger.error(f"Telegram error: {context.error}", exc_info=context.error)
 
         app.add_handler(MessageHandler(
-            (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND,
+            (filters.TEXT | filters.PHOTO | filters.DOCUMENT | filters.CAPTION) & ~filters.COMMAND,
             on_message,
         ))
         app.add_handler(CallbackQueryHandler(on_callback_query))
