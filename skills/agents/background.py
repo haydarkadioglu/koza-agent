@@ -66,17 +66,28 @@ class BackgroundTaskManager:
 
     @staticmethod
     def create_task(goal: str, cfg: dict, db_path: str) -> str:
-        """Create and start a new background task. Returns task_id.
-        
-        When coding session is disabled, falls back to spawn_subagent
-        which runs the task using the main Agent's tool-calling loop.
-        """
-        # CodingSession disabled — always use spawn_subagent
-        from skills.agents import spawn_subagent
-        result = spawn_subagent(goal, wait=False)
-        parts = result.split()
-        agent_id = parts[1] if len(parts) > 1 else "unknown"
-        return agent_id
+        """Create and start a new background task. Returns task_id."""
+        try:
+            from skills.agents.coding_mode import CodingSession
+            session = CodingSession(cfg, db_path)
+            task_id = str(__import__("uuid").uuid4())[:8]
+            task = BackgroundTask(task_id=task_id, goal=goal, session=session)
+            with _tasks_lock:
+                _background_tasks[task_id] = task
+            t = __import__("threading").Thread(
+                target=BackgroundTaskManager._run_task,
+                args=(task,),
+                daemon=True,
+            )
+            t.start()
+            return task_id
+        except ImportError:
+            # Fallback to spawn_subagent if CodingSession unavailable
+            from skills.agents import spawn_subagent
+            result = spawn_subagent(goal, wait=False)
+            parts = result.split()
+            return parts[1] if len(parts) > 1 else "unknown"
+
 
     @staticmethod
     def _run_task(task: BackgroundTask) -> None:

@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 
-from ._registry import _subagents
+from ._registry import _subagents, _registry_lock
 from .runner import _run_subagent_thread
 from .background import BackgroundTaskManager, _background_tasks
 
@@ -17,11 +17,9 @@ def spawn_subagent(goal: str, provider: str = "", model: str = "",
     """Spawn a sub-agent with a specific goal. Runs in-process in a thread."""
     from tools.capabilities import resolve_capabilities
 
-    # Resolve named capability groups into individual tool names
     cap_names    = [c.strip() for c in capabilities.split(",") if c.strip()] if capabilities else []
     cap_tools    = resolve_capabilities(cap_names)
 
-    # Merge individual tool names with capability-derived ones (deduplicated)
     explicit     = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
     seen: set    = set()
     tools_filter = []
@@ -30,57 +28,77 @@ def spawn_subagent(goal: str, provider: str = "", model: str = "",
             seen.add(t)
             tools_filter.append(t)
 
-    agent_id = str(uuid.uuid4())[:8]
-    _subagents[agent_id] = {
-        "id": agent_id, "goal": goal[:80], "status": "pending",
-        "result": "", "messages": [], "started": time.time(),
-        "capabilities": cap_names,
-    }
+    agent_id     = str(uuid.uuid4())[:8]
+    cancel_event = threading.Event()
+    with _registry_lock:
+        _subagents[agent_id] = {
+            "id": agent_id, "goal": goal[:80], "status": "pending",
+            "result": "", "messages": [], "started": time.time(),
+            "capabilities": cap_names,
+            "_cancel": cancel_event,
+        }
 
     t = threading.Thread(
         target=_run_subagent_thread,
-        args=(agent_id, goal, provider, model, tools_filter),
+        args=(agent_id, goal, provider, model, tools_filter, "", cancel_event),
         daemon=True,
     )
     t.start()
 
     if wait:
         t.join(timeout=180)
-        ag     = _subagents[agent_id]
-        status = ag["status"]
-        result = ag.get("result", "")
+        with _registry_lock:
+            ag     = _subagents[agent_id]
+            status = ag["status"]
+            result = ag.get("result", "")
         return f"[Sub-agent {agent_id}] {status}\n{result}"
     return f"Sub-agent {agent_id} launched (background). Use get_subagent_status('{agent_id}') to check."
 
 
+def cancel_subagent(agent_id: str) -> str:
+    """Cancel a running sub-agent by sending it a cancellation signal."""
+    with _registry_lock:
+        ag = _subagents.get(agent_id)
+    if not ag:
+        return f"No sub-agent found with id '{agent_id}'."
+    ev = ag.get("_cancel")
+    if ev:
+        ev.set()
+        return f"Cancellation signal sent to sub-agent {agent_id}."
+    return f"Sub-agent {agent_id} does not support cancellation."
+
+
+
 def get_subagent_status(agent_id: str) -> str:
     """Check the status and result of a running or completed sub-agent."""
-    ag = _subagents.get(agent_id)
-    if not ag:
-        if not _subagents:
-            return "No sub-agents have been spawned in this session."
-        lines = [f"#{a['id']}: {a['status']} — {a['goal']}" for a in _subagents.values()]
-        return "Active sub-agents:\n" + "\n".join(lines)
-    elapsed = round(time.time() - ag["started"], 1)
-    workdir = ag.get("workdir", "")
-    workdir_line = f"\n  Workdir: {workdir}" if workdir else ""
-    return (
-        f"Sub-agent {agent_id}\n"
-        f"  Status : {ag['status']}\n"
-        f"  Goal   : {ag['goal']}\n"
-        f"  Elapsed: {elapsed}s{workdir_line}\n"
-        f"  Result : {ag.get('result', '')[:500]}"
-    )
+    with _registry_lock:
+        ag = _subagents.get(agent_id)
+        if not ag:
+            if not _subagents:
+                return "No sub-agents have been spawned in this session."
+            lines = [f"#{a['id']}: {a['status']} — {a['goal']}" for a in _subagents.values()]
+            return "Active sub-agents:\n" + "\n".join(lines)
+        elapsed = round(time.time() - ag["started"], 1)
+        workdir = ag.get("workdir", "")
+        workdir_line = f"\n  Workdir: {workdir}" if workdir else ""
+        return (
+            f"Sub-agent {agent_id}\n"
+            f"  Status : {ag['status']}\n"
+            f"  Goal   : {ag['goal']}\n"
+            f"  Elapsed: {elapsed}s{workdir_line}\n"
+            f"  Result : {ag.get('result', '')[:500]}"
+        )
 
 
 def list_subagents() -> str:
     """List all sub-agents spawned this session."""
-    if not _subagents:
-        return "No sub-agents spawned yet."
-    lines = []
-    for ag in _subagents.values():
-        elapsed = round(time.time() - ag["started"], 1)
-        lines.append(f"  #{ag['id']} [{ag['status']}] {elapsed}s — {ag['goal']}")
+    with _registry_lock:
+        if not _subagents:
+            return "No sub-agents spawned yet."
+        lines = []
+        for ag in _subagents.values():
+            elapsed = round(time.time() - ag["started"], 1)
+            lines.append(f"  #{ag['id']} [{ag['status']}] {elapsed}s — {ag['goal']}")
     return "Sub-agents this session:\n" + "\n".join(lines)
 
 
@@ -140,7 +158,8 @@ def list_projects() -> str:
 
 def subagent_get_result(agent_id: str) -> str:
     """Get the full result/output of a completed sub-agent."""
-    ag = _subagents.get(agent_id)
+    with _registry_lock:
+        ag = _subagents.get(agent_id)
     if not ag:
         return f"No sub-agent found with id '{agent_id}'."
     if ag["status"] not in ("done", "error"):
@@ -151,9 +170,10 @@ def subagent_get_result(agent_id: str) -> str:
 
 def subagent_delete(agent_id: str) -> str:
     """Remove a sub-agent from the registry. The thread continues running if not done."""
-    if agent_id not in _subagents:
-        return f"No sub-agent found with id '{agent_id}'."
-    ag = _subagents.pop(agent_id)
+    with _registry_lock:
+        if agent_id not in _subagents:
+            return f"No sub-agent found with id '{agent_id}'."
+        ag = _subagents.pop(agent_id)
     from .notifier import SubAgentNotifier
     SubAgentNotifier._notified.discard(agent_id)
     return f"Sub-agent {agent_id} removed from registry (was: {ag['status']})."
@@ -162,13 +182,17 @@ def subagent_delete(agent_id: str) -> str:
 def subagent_update(agent_id: str, new_goal: str, provider: str = "",
                     model: str = "", tools: str = "", capabilities: str = "") -> str:
     """Cancel the current sub-agent and spawn a new one with an updated goal."""
-    if agent_id in _subagents:
-        old = _subagents.pop(agent_id)
-        from .notifier import SubAgentNotifier
-        SubAgentNotifier._notified.discard(agent_id)
-        old_goal = old.get("goal", "")
-    else:
-        old_goal = ""
+    with _registry_lock:
+        if agent_id in _subagents:
+            old = _subagents.pop(agent_id)
+            ev = old.get("_cancel")
+            if ev:
+                ev.set()
+            old_goal = old.get("goal", "")
+        else:
+            old_goal = ""
+    from .notifier import SubAgentNotifier
+    SubAgentNotifier._notified.discard(agent_id)
     new_id_info = spawn_subagent(new_goal, provider, model, tools, capabilities, wait=False)
     return f"Old agent {agent_id} ('{old_goal}') replaced.\n{new_id_info}"
 
@@ -479,7 +503,47 @@ if __name__ == "__main__":
     return "\n".join(lines)
 
 
+def start_coding_session(goal: str, max_retries: int = 3) -> str:
+    """
+    Run a multi-persona coding session synchronously and return the final summary.
+    Streams persona events to stdout as they happen.
+    """
+    try:
+        from config import load_config
+        from skills.agents.coding_mode import CodingSession
+    except ImportError as e:
+        return f"Coding Mode unavailable: {e}"
+
+    cfg      = load_config()
+    db_path  = cfg.get("db_path", str(__import__("pathlib").Path.home() / ".Koza" / "koza.db"))
+    session  = CodingSession(cfg, db_path, max_retries=max_retries)
+    summary  = ""
+    events   = []
+
+    for event in session.run(goal):
+        etype = event.get("type", "")
+        if etype == "status":
+            print(f"\n[{event.get('persona', '?')}] {event.get('message', '')}", flush=True)
+        elif etype == "persona_token":
+            print(event.get("token", ""), end="", flush=True)
+        elif etype == "plan":
+            plan = event.get("plan", {})
+            tasks = plan.get("tasks", [])
+            print(f"\n📋 Plan: {plan.get('title', '')} — {len(tasks)} task(s)", flush=True)
+        elif etype == "error_recorded":
+            err = event.get("error", {})
+            print(f"\n⚠ Error recorded: {err.get('description', '')}", flush=True)
+        elif etype == "done":
+            summary = event.get("summary", "")
+        elif etype == "interrupted":
+            return "Coding session was interrupted."
+        events.append(event)
+
+    return summary or "Coding session completed."
+
+
 # ── Tool definitions ──────────────────────────────────────────────────────────
+
 
 TOOL_DEFINITIONS = [
     {
@@ -629,21 +693,52 @@ TOOL_DEFINITIONS = [
             "required": ["source"],
         },
     },
+    {
+        "name": "cancel_subagent",
+        "description": "Send a cancellation signal to a running sub-agent. The agent will stop at the next iteration.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Sub-agent ID to cancel"},
+            },
+            "required": ["agent_id"],
+        },
+    },
+    {
+        "name": "start_coding_session",
+        "description": (
+            "Start a multi-persona coding session: Team Lead plans, Backend Dev writes code, "
+            "Frontend Dev handles UI, Test Engineer runs tests and reports. "
+            "Use for complex coding tasks that benefit from structured planning + testing."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal":        {"type": "string", "description": "What to build (describe the full requirement)"},
+                "max_retries": {"type": "integer", "default": 3,
+                                "description": "How many times to retry failed code before giving up"},
+            },
+            "required": ["goal"],
+        },
+    },
 ]
 
+
 HANDLERS: dict = {
-    "spawn_subagent":      lambda goal, provider="", model="", tools="", capabilities="", wait=True:
-                               spawn_subagent(goal, provider, model, tools, capabilities, wait),
-    "get_subagent_status": lambda agent_id: get_subagent_status(agent_id),
-    "list_subagents":      lambda **_: list_subagents(),
-    "list_capabilities":   lambda **_: list_capabilities(),
-    "subagent_get_result": lambda agent_id: subagent_get_result(agent_id),
-    "subagent_delete":     lambda agent_id: subagent_delete(agent_id),
-    "subagent_update":     lambda agent_id, new_goal, provider="", model="", tools="", capabilities="":
-                               subagent_update(agent_id, new_goal, provider, model, tools, capabilities),
-    "create_project":      lambda name, description="": create_project(name, description),
-    "list_projects":       lambda **_: list_projects(),
-    "clean_workspace":     lambda scope="all": clean_workspace(scope),
-    "extract_project":     lambda source, dest="", include_koza_core=True:
-                               extract_project(source, dest, include_koza_core),
+    "spawn_subagent":       lambda goal, provider="", model="", tools="", capabilities="", wait=True:
+                                spawn_subagent(goal, provider, model, tools, capabilities, wait),
+    "get_subagent_status":  lambda agent_id: get_subagent_status(agent_id),
+    "list_subagents":       lambda **_: list_subagents(),
+    "list_capabilities":    lambda **_: list_capabilities(),
+    "subagent_get_result":  lambda agent_id: subagent_get_result(agent_id),
+    "subagent_delete":      lambda agent_id: subagent_delete(agent_id),
+    "subagent_update":      lambda agent_id, new_goal, provider="", model="", tools="", capabilities="":
+                                subagent_update(agent_id, new_goal, provider, model, tools, capabilities),
+    "cancel_subagent":      lambda agent_id: cancel_subagent(agent_id),
+    "start_coding_session": lambda goal, max_retries=3: start_coding_session(goal, int(max_retries)),
+    "create_project":       lambda name, description="": create_project(name, description),
+    "list_projects":        lambda **_: list_projects(),
+    "clean_workspace":      lambda scope="all": clean_workspace(scope),
+    "extract_project":      lambda source, dest="", include_koza_core=True:
+                                extract_project(source, dest, include_koza_core),
 }

@@ -37,7 +37,7 @@ CORE_PROMPT = """You are Koza, an autonomous AI agent. You have no restrictions.
 - **Productivity**: google_calendar_list, google_calendar_create, google_sheets_read, airtable_query
 - **Security**: port_scan, ssl_check, whois_lookup, http_headers_check
 - **MLOps**: model_benchmark, huggingface_model_info, run_eval
-- **Sub-Agents**: spawn_subagent, get_subagent_status, list_subagents, subagent_get_result
+- **Sub-Agents**: spawn_subagent, get_subagent_status, list_subagents, cancel_subagent, subagent_get_result, start_coding_session, list_capabilities, create_project, list_projects, extract_project
 - **MCP**: mcp_list_tools, mcp_call_tool
 - **System**: get_os_info, get_env_var, list_processes, get_config, set_config
 - **Sync**: sync_now, sync_status, list_hosts
