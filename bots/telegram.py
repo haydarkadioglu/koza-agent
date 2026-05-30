@@ -676,6 +676,50 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         app.add_handler(_CmdHandler("start", on_start))
 
+        # ── /version command ──────────────────────────────────────────────────
+        async def on_version(update, context):
+            from cli.ui._banner import _get_version
+            import urllib.request, json, re
+            current = _get_version()
+            latest = ""
+            try:
+                req = urllib.request.Request(
+                    "https://api.github.com/repos/haydarkadioglu/koza-agent/releases/latest",
+                    headers={"User-Agent": "koza-agent"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    tag = json.loads(r.read()).get("tag_name", "").lstrip("v")
+                    if tag:
+                        latest = tag
+            except Exception:
+                pass
+            if not latest:
+                try:
+                    req2 = urllib.request.Request(
+                        "https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/pyproject.toml",
+                        headers={"User-Agent": "koza-agent"},
+                    )
+                    with urllib.request.urlopen(req2, timeout=5) as r:
+                        m = re.search(r'^version\s*=\s*"([^"]+)"', r.read().decode(), re.MULTILINE)
+                        if m:
+                            latest = m.group(1)
+                except Exception:
+                    pass
+
+            lines = [f"🐛 *Koza* `v{current}`"]
+            if latest:
+                try:
+                    from packaging.version import Version
+                    if Version(latest) > Version(current):
+                        lines.append(f"🆕 Update available: `v{latest}`\nRun `koza update` to upgrade.")
+                    else:
+                        lines.append("✅ You're on the latest version.")
+                except Exception:
+                    lines.append(f"Latest on GitHub: `v{latest}`")
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+        app.add_handler(_CmdHandler("version", on_version))
+
         try:
             app.run_polling(
                 allowed_updates=["message", "edited_message", "callback_query"],
