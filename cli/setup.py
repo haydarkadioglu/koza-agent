@@ -44,21 +44,25 @@ def cmd_setup(args: list) -> None:
         # Messaging status label
         tg_token  = cfg.get("telegram_token", "") or cfg.get("providers", {}).get("telegram", {}).get("token", "")
         tg_chat   = cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
+        tw_sid    = cfg.get("messaging", {}).get("twilio", {}).get("account_sid", "")
         msg_status = ""
         if tg_token:
             msg_status = f"Telegram ✓" + (f"  chat:{tg_chat}" if tg_chat else "  (no chat_id)")
+        if tw_sid:
+            msg_status = (msg_status + "  " if msg_status else "") + "Twilio ✓"
 
         sections = [
             f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
             f"Fallback Provider   {_status(cur_fallback)}",
             f"Media (Image/Video) {_status(cur_media or cur_provider)}",
             f"Messaging Channels  {_status(msg_status)}",
+            f"Twilio Setup        {_status('✓ configured' if tw_sid else '')}",
             f"Multi-host Sync     {_status(cfg.get('multi_host', {}).get('mode', 'single') if cfg.get('multi_host', {}).get('mode', 'single') != 'single' else '')}",
             f"Voice Mode          {_status('enabled' if cfg.get('voice', {}).get('enabled') else 'disabled')}",
             "Done — save & exit",
         ]
         try:
-            section = _select_menu("Configure section", sections, default_idx=6)
+            section = _select_menu("Configure section", sections, default_idx=7)
         except (KeyboardInterrupt, EOFError):
             print(_C("\n  Cancelled.\n", "grey"))
             return
@@ -82,6 +86,10 @@ def cmd_setup(args: list) -> None:
         # ── Messaging Channels ────────────────────────────────────────────────
         elif section.startswith("Messaging"):
             _setup_messaging(cfg)
+
+        # ── Twilio Setup ──────────────────────────────────────────────────────
+        elif section.startswith("Twilio"):
+            _setup_twilio(cfg)
 
         # ── Multi-host Sync ───────────────────────────────────────────────────
         elif section.startswith("Multi"):
@@ -371,7 +379,7 @@ def _setup_media_provider(cfg: dict) -> None:
 
 
 def _setup_messaging(cfg: dict) -> None:
-    """Configure messaging channels (Telegram, Discord, etc.)."""
+    """Configure messaging channels (Telegram, Discord, Twilio, etc.)."""
     from config import save_config
 
     _hr("·", "grey")
@@ -383,14 +391,18 @@ def _setup_messaging(cfg: dict) -> None:
         tg_chat  = cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
         tg_label = f"✓ token set  chat_id:{tg_chat}" if tg_token else "not configured"
 
+        tw_sid   = cfg.get("messaging", {}).get("twilio", {}).get("account_sid", "")
+        tw_label = f"✓ SID:{tw_sid[:8]}…" if tw_sid else "not configured"
+
         try:
             channel = _select_menu(
                 "Select channel to configure",
                 [
-                    f"Telegram   {_C(f'({tg_label})', 'teal' if tg_token else 'grey')}",
+                    f"Telegram          {_C(f'({tg_label})', 'teal' if tg_token else 'grey')}",
+                    f"Twilio (SMS/WA)   {_C(f'({tw_label})', 'teal' if tw_sid else 'grey')}",
                     "Done — back to main menu",
                 ],
-                default_idx=1,
+                default_idx=2,
             )
         except (KeyboardInterrupt, EOFError):
             return
@@ -399,6 +411,9 @@ def _setup_messaging(cfg: dict) -> None:
             break
         elif channel.startswith("Telegram"):
             _setup_telegram_channel(cfg)
+            save_config(cfg)
+        elif channel.startswith("Twilio"):
+            _setup_twilio(cfg)
             save_config(cfg)
 
 
@@ -510,6 +525,134 @@ def _setup_telegram_channel(cfg: dict) -> None:
             print(_C(f"  ⚠  Could not start daemon: {e}\n  Run: koza\n", "yellow"))
     else:
         print(_C("  ✓  Telegram configured. Run: koza telegram start\n", "teal"))
+
+
+def _setup_twilio(cfg: dict) -> None:
+    """Interactive Twilio setup — Account credentials + SMS / WhatsApp / Voice."""
+    from config import save_config
+
+    _hr("·", "grey")
+    print(_C("  Twilio Setup", "cyan", "bold"))
+    print(_C("  SMS · WhatsApp · Voice calls · Phone Lookup\n", "grey"))
+    print(_C("  Get your credentials from: https://console.twilio.com\n", "grey"))
+    _hr("·", "grey")
+
+    tw_cfg = cfg.setdefault("messaging", {}).setdefault("twilio", {})
+
+    cur_sid = tw_cfg.get("account_sid", "")
+    if cur_sid:
+        try:
+            action = _select_menu(
+                f"Twilio already configured (SID: {cur_sid[:8]}…)",
+                ["Keep existing credentials", "Update credentials", "Remove Twilio integration"],
+                default_idx=0,
+            )
+        except (KeyboardInterrupt, EOFError):
+            return
+        if action.startswith("Remove"):
+            cfg["messaging"].pop("twilio", None)
+            print(_C("  ✓  Twilio integration removed.\n", "green"))
+            save_config(cfg)
+            return
+        elif action.startswith("Update"):
+            cur_sid = ""
+
+    if not cur_sid:
+        print(_C("  ── Account Credentials ──────────────────────────────────────\n", "grey"))
+        try:
+            sid = _prompt("  Account SID (ACxxxxx): ").strip()
+            if not sid:
+                print(_C("  Cancelled.\n", "grey"))
+                return
+            auth = _prompt_secret("  Auth Token: ").strip()
+            if not auth:
+                print(_C("  Cancelled.\n", "grey"))
+                return
+        except (KeyboardInterrupt, EOFError):
+            return
+        tw_cfg["account_sid"] = sid
+        tw_cfg["auth_token"]  = auth
+        cur_sid = sid
+
+    # ── SMS From number ───────────────────────────────────────────────────────
+    print(_C("  ── SMS / Voice Caller ID ────────────────────────────────────\n", "grey"))
+    cur_from = tw_cfg.get("from_number", "")
+    try:
+        from_num = _prompt(f"  Twilio phone number for SMS/Voice (E.164) [{cur_from or 'e.g. +14155551234'}]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        from_num = ""
+    if from_num:
+        tw_cfg["from_number"] = from_num
+    elif not cur_from:
+        print(_C("  ⚠  No SMS/Voice number set. SMS and calls won't work without it.\n", "yellow"))
+
+    # ── WhatsApp ──────────────────────────────────────────────────────────────
+    print(_C("  ── WhatsApp (optional) ──────────────────────────────────────\n", "grey"))
+    print(_C("  Leave blank to skip WhatsApp. Use Sandbox or approved sender.\n", "grey"))
+    cur_wa_from = tw_cfg.get("wa_from", "")
+    cur_wa_to   = tw_cfg.get("wa_to",   "")
+    try:
+        wa_from = _prompt(f"  WhatsApp sender number [{cur_wa_from or 'e.g. +14155238886'}]: ").strip()
+        wa_to   = _prompt(f"  Default WhatsApp recipient [{cur_wa_to or 'optional'}]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        wa_from = wa_to = ""
+    if wa_from:
+        tw_cfg["wa_from"] = wa_from
+    if wa_to:
+        tw_cfg["wa_to"] = wa_to
+
+    save_config(cfg)
+    print(_C("  ✓  Twilio credentials saved.\n", "green"))
+
+    # ── Test connection ───────────────────────────────────────────────────────
+    try:
+        test_choice = _select_menu(
+            "Test Twilio connection now?",
+            ["Yes — verify account credentials", "No — skip test"],
+            default_idx=0,
+        )
+    except (KeyboardInterrupt, EOFError):
+        test_choice = "No"
+
+    if test_choice.startswith("Yes"):
+        print(_C("  Connecting to Twilio API…\n", "grey"))
+        try:
+            from twilio.rest import Client as _TwClient
+            c = _TwClient(tw_cfg["account_sid"], tw_cfg["auth_token"])
+            acc = c.api.accounts(tw_cfg["account_sid"]).fetch()
+            bal = c.api.accounts(tw_cfg["account_sid"]).balance.fetch()
+            print(_C(f"  ✓  Account: {acc.friendly_name}  ({acc.status})", "green"))
+            print(_C(f"  ✓  Balance: {bal.balance} {bal.currency}\n", "green"))
+        except ImportError:
+            print(_C("  ⚠  twilio package not installed. Run: pip install twilio\n", "yellow"))
+        except Exception as e:
+            print(_C(f"  ✗  Connection failed: {e}\n", "red"))
+
+    # ── Optional: send a test SMS ─────────────────────────────────────────────
+    sms_from = tw_cfg.get("from_number", "")
+    if sms_from:
+        try:
+            sms_choice = _select_menu(
+                "Send a test SMS?",
+                ["Yes — send test SMS", "No — skip"],
+                default_idx=1,
+            )
+        except (KeyboardInterrupt, EOFError):
+            sms_choice = "No"
+
+        if sms_choice.startswith("Yes"):
+            try:
+                test_to = _prompt("  Send test SMS to (E.164, e.g. +905551234567): ").strip()
+            except (KeyboardInterrupt, EOFError):
+                test_to = ""
+            if test_to:
+                try:
+                    from twilio.rest import Client as _TwClient
+                    c = _TwClient(tw_cfg["account_sid"], tw_cfg["auth_token"])
+                    m = c.messages.create(body="Koza Agent — Twilio test ✅", from_=sms_from, to=test_to)
+                    print(_C(f"  ✅ SMS sent! SID: {m.sid}\n", "green"))
+                except Exception as e:
+                    print(_C(f"  ✗  SMS failed: {e}\n", "red"))
 
 
 def _setup_voice_mode(cfg: dict) -> None:

@@ -80,7 +80,11 @@ _TOOL_GROUPS: dict[str, list[str]] = {
                    "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents"],
     "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
-                   "discord_send", "discord_get_messages", "whatsapp_send"],
+                   "telegram_send_photo", "telegram_send_video",
+                   "discord_send", "discord_get_messages", "whatsapp_send",
+                   "twilio_send_sms", "twilio_send_whatsapp", "twilio_make_call",
+                   "twilio_call_status", "twilio_list_messages", "twilio_lookup_phone",
+                   "twilio_account_info"],
     "github":     ["github_search_code", "github_create_issue", "github_list_prs",
                    "github_repo_info", "github_clone_repo"],
     "finance":    ["crypto_price", "stock_price", "crypto_top"],
@@ -129,6 +133,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "agent": ["agent"], "subagent": ["agent"], "parallel": ["agent"],
     # messaging
     "telegram": ["message"], "discord": ["message"], "whatsapp": ["message"],
+    "twilio": ["message"], "sms gönder": ["message"], "arama yap": ["message"],
+    "twilio_send": ["message"], "send sms": ["message"], "make call": ["message"],
+    "telefon ara": ["message"], "numaraya mesaj": ["message"],
     "send message": ["message"], "message": ["message"],
     # github
     "github": ["github"], "git": ["github", "devops"], "repo": ["github"],

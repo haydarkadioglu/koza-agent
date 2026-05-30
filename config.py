@@ -31,6 +31,13 @@ def default_config() -> dict:
             "telegram":  {"token": "", "chat_id": ""},
             "discord":   {"webhook_url": "", "token": "", "channel_id": ""},
             "whatsapp":  {"account_sid": "", "auth_token": "", "from": "whatsapp:+14155238886", "to": ""},
+            "twilio": {
+                "account_sid": "",
+                "auth_token":  "",
+                "from_number": "",
+                "wa_from":     "",
+                "wa_to":       "",
+            },
         },
         "social": {
             "twitter_bearer_token": "",
@@ -98,8 +105,11 @@ def load_config() -> dict:
         "DISCORD_WEBHOOK_URL": ("messaging", "discord", "webhook_url"),
         "DISCORD_TOKEN":       ("messaging", "discord", "token"),
         "DISCORD_CHANNEL_ID":  ("messaging", "discord", "channel_id"),
-        "TWILIO_ACCOUNT_SID":  ("messaging", "whatsapp", "account_sid"),
-        "TWILIO_AUTH_TOKEN":   ("messaging", "whatsapp", "auth_token"),
+        "TWILIO_ACCOUNT_SID":  ("messaging", "twilio", "account_sid"),
+        "TWILIO_AUTH_TOKEN":   ("messaging", "twilio", "auth_token"),
+        "TWILIO_FROM_NUMBER":  ("messaging", "twilio", "from_number"),
+        "TWILIO_WA_FROM":      ("messaging", "twilio", "wa_from"),
+        "TWILIO_WA_TO":        ("messaging", "twilio", "wa_to"),
         "WHATSAPP_FROM":       ("messaging", "whatsapp", "from"),
         "WHATSAPP_TO":         ("messaging", "whatsapp", "to"),
     }

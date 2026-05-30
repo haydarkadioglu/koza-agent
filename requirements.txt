@@ -32,3 +32,6 @@ python-whois>=0.9.4
 
 # Smart home
 paho-mqtt>=2.0.0
+
+# Messaging
+twilio>=9.0.0
