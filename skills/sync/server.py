@@ -212,6 +212,58 @@ def _upsert_rows(table: str, rows: list[dict], db_path: str) -> int:
         return 0
 
 
+def _extract_syncable_config(cfg: dict) -> dict:
+    """
+    Extract only the credential/token fields that should be synced to clients.
+    Deliberately excludes local-machine paths and device-specific settings.
+    """
+    synced: dict = {}
+
+    # ── LLM provider API keys ─────────────────────────────────────────────────
+    providers = cfg.get("providers", {})
+    synced_providers: dict = {}
+    for pname, pvals in providers.items():
+        entry: dict = {}
+        if pvals.get("api_key"):
+            entry["api_key"] = pvals["api_key"]
+        if pvals.get("token"):
+            entry["token"] = pvals["token"]
+        if pvals.get("base_url"):
+            entry["base_url"] = pvals["base_url"]
+        if pvals.get("auth"):
+            entry["auth"] = pvals["auth"]
+        if entry:
+            synced_providers[pname] = entry
+    if synced_providers:
+        synced["providers"] = synced_providers
+
+    # ── Active provider / model ───────────────────────────────────────────────
+    for key in ("provider", "model", "fallback_provider", "fallback_model", "media_provider"):
+        if cfg.get(key):
+            synced[key] = cfg[key]
+
+    # ── Messaging tokens ──────────────────────────────────────────────────────
+    messaging = cfg.get("messaging", {})
+    synced_messaging: dict = {}
+    for channel, vals in messaging.items():
+        if isinstance(vals, dict) and any(vals.values()):
+            synced_messaging[channel] = {k: v for k, v in vals.items() if v}
+    if synced_messaging:
+        synced["messaging"] = synced_messaging
+
+    # telegram_token flat key
+    if cfg.get("telegram_token"):
+        synced["telegram_token"] = cfg["telegram_token"]
+
+    # ── Social tokens ─────────────────────────────────────────────────────────
+    social = cfg.get("social", {})
+    synced_social = {k: v for k, v in social.items() if v}
+    if synced_social:
+        synced["social"] = synced_social
+
+    return synced
+
+
 class _SyncHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the sync REST API."""
 
@@ -244,7 +296,9 @@ class _SyncHandler(BaseHTTPRequestHandler):
             self._send_json(401, {"error": "unauthorized"})
             return
 
-        if self.path.split("?")[0] == "/api/sync/status":
+        path = self.path.split("?")[0]
+
+        if path == "/api/sync/status":
             clients = get_registered_clients(_db_path)
             recent_log = get_sync_log(_db_path, limit=5)
             self._send_json(200, {
@@ -259,7 +313,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             })
             return
 
-        if self.path.split("?")[0] == "/api/sync/pull":
+        if path == "/api/sync/pull":
             qs = self._parse_qs()
             tables_param = qs.get("tables", "")
             since = float(qs.get("since", "0") or "0")
@@ -277,6 +331,20 @@ class _SyncHandler(BaseHTTPRequestHandler):
             client_ip = self.client_address[0]
             _append_sync_log("pull", client_ip, total_rows, "ok", "", _db_path)
             self._send_json(200, {"data": payload, "pulled_at": time.time()})
+            return
+
+        if path == "/api/sync/config":
+            # Return syncable credentials from master's config
+            try:
+                from config import load_config
+                cfg = load_config()
+            except Exception as e:
+                self._send_json(500, {"error": f"config load failed: {e}"})
+                return
+            self._send_json(200, {
+                "config":    _extract_syncable_config(cfg),
+                "pulled_at": time.time(),
+            })
             return
 
         self._send_json(404, {"error": "not found"})

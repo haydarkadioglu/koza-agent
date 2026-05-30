@@ -157,32 +157,81 @@ def sync_push(master_url: str, token: str, db_path: str,
         raise RuntimeError(f"Push failed: {e}") from e
 
 
+def sync_pull_config(master_url: str, token: str) -> dict:
+    """
+    Pull credential config from master and merge into local config.
+    Only syncs providers, messaging tokens, and social keys.
+    Returns the merged config dict (keys that were updated).
+    """
+    url = master_url.rstrip("/") + "/api/sync/config"
+    try:
+        r = requests.get(url, headers=_headers(token), timeout=_TIMEOUT)
+        r.raise_for_status()
+        remote_cfg = r.json().get("config", {})
+    except requests.ConnectionError as e:
+        raise ConnectionError(f"Cannot reach master: {e}") from e
+    except Exception as e:
+        raise RuntimeError(f"Config pull failed: {e}") from e
+
+    if not remote_cfg:
+        return {}
+
+    try:
+        from config import load_config, save_config
+        local = load_config()
+        _deep_merge_config(local, remote_cfg)
+        save_config(local)
+        return remote_cfg
+    except Exception as e:
+        raise RuntimeError(f"Config save failed: {e}") from e
+
+
+def _deep_merge_config(base: dict, overlay: dict) -> None:
+    """Recursively merge overlay into base dict (in-place). Never overwrites with empty values."""
+    for key, val in overlay.items():
+        if isinstance(val, dict) and isinstance(base.get(key), dict):
+            _deep_merge_config(base[key], val)
+        elif val not in (None, "", [], {}):
+            base[key] = val
+
+
 def sync_bidirectional(master_url: str, token: str, db_path: str,
                        tables: Optional[list[str]] = None,
-                       since: float = 0.0) -> dict:
+                       since: float = 0.0,
+                       sync_config: bool = True) -> dict:
     """
     Pull then push — full bidirectional sync.
+    If sync_config=True, also pulls credentials from master config.
     Returns summary dict.
     """
     pulled = sync_pull(master_url, token, db_path, tables, since=since)
     pushed = sync_push(master_url, token, db_path, tables, since=since)
+    config_synced = False
+    if sync_config:
+        try:
+            merged = sync_pull_config(master_url, token)
+            config_synced = bool(merged)
+        except Exception:
+            pass
     synced_at = time.time()
     _save_last_sync_at(synced_at)
-    return {"pulled": pulled, "pushed": pushed, "synced_at": synced_at}
+    return {"pulled": pulled, "pushed": pushed, "synced_at": synced_at, "config_synced": config_synced}
 
 
 def sync_bidirectional_safe(master_url: str, token: str, db_path: str,
-                             since: float = 0.0) -> str:
+                             since: float = 0.0,
+                             sync_config: bool = True) -> str:
     """
     Same as sync_bidirectional but catches all errors and returns human-readable string.
     Safe to call from daemon startup/shutdown.
     """
     try:
-        result = sync_bidirectional(master_url, token, db_path, since=since)
+        result = sync_bidirectional(master_url, token, db_path, since=since, sync_config=sync_config)
         pulled_total = sum(result["pulled"].values())
         pushed_total = sum(result["pushed"].values())
         mode = "(delta)" if since > 0 else "(full)"
-        return f"Sync OK {mode} — pulled {pulled_total} rows, pushed {pushed_total} rows"
+        cfg_note = " +config" if result.get("config_synced") else ""
+        return f"Sync OK {mode}{cfg_note} — pulled {pulled_total} rows, pushed {pushed_total} rows"
     except ConnectionError as e:
         return f"Sync skipped (master unreachable): {e}"
     except Exception as e:
