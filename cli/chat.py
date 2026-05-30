@@ -231,7 +231,8 @@ def _plain_cli(agent, cfg: dict) -> None:
         # then resume the TUI. This prevents print() from a background thread
         # corrupting the prompt_toolkit display.
         pt_app = get_app_or_none() if _HAS_PT else None
-        if pt_app is not None and pt_app.is_running and pt_app.loop is not None:
+        if (pt_app is not None and pt_app.is_running
+                and pt_app.loop is not None and pt_app.loop.is_running()):
             import asyncio
             from prompt_toolkit.application import run_in_terminal
 
@@ -259,8 +260,8 @@ def _plain_cli(agent, cfg: dict) -> None:
                 # App closed mid-prompt — ask directly
                 return _show_permission_ui(name, args)
             except TimeoutError:
-                # User didn't respond within timeout — deny by default
-                return False
+                # Timeout — fall back to direct terminal UI instead of silent deny
+                return _show_permission_ui(name, args)
             except Exception:
                 # Any other error — fall back to direct terminal UI instead of silent deny
                 return _show_permission_ui(name, args)
