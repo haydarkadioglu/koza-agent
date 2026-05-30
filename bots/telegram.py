@@ -45,6 +45,9 @@ _ECHO_PATTERNS = re.compile(
     r"|Koza\s+AI['']?ya\s+yönlendiriyorum.*?(?:\n|$)"
     r"|Chat\s+ID\s*:\s*\d+\s*(?:\n|$)"
     r"|[✅☑]\s*Mesajını[z]?\s+aldım.*?(?:\n|$)"
+    r"|Hemen\s+başlıyorum[…\.]*\s*(?:\n|$)"
+    r"|Tabii\s*ki[,\s]+hemen.*?(?:\n|$)"
+    r"|Sure[,\s]+let\s+me.*?(?:\n|$)"
     r")",
     re.IGNORECASE | re.MULTILINE,
 )
