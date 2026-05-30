@@ -18,10 +18,15 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read the contents of a file.",
+            "description": (
+                "Read the contents of a file. "
+                "Use absolute paths (e.g. /home/user/file.txt or C:/Users/user/file.txt). "
+                "Use '~' to refer to the user's home directory (e.g. ~/file.txt). "
+                "Relative paths resolve from the current working directory (NOT home)."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "Absolute or relative file path"}},
+                "properties": {"path": {"type": "string", "description": "Absolute or relative file path. Use ~ for home directory."}},
                 "required": ["path"],
             },
         },

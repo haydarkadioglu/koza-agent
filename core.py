@@ -650,9 +650,18 @@ class Agent:
 
         try:
             from skills.shell import get_cwd as _get_cwd
+            from pathlib import Path as _Path
+            import os as _os
             wm_ctx = working_memory.wm_get_context()
             new_system = build_system_prompt(user_input, wm_ctx or "", channel=self.channel)
-            new_system += f"\n\n**Current working directory:** `{_get_cwd()}`"
+            home_dir = str(_Path.home())
+            cwd = _get_cwd()
+            new_system += (
+                f"\n\n**User home directory:** `{home_dir}`"
+                f"\n**Current working directory:** `{cwd}`"
+                f"\n**Workspace:** `{_os.path.join(home_dir, '.Koza', 'workspace')}`"
+                f"\nWhen the user says 'home dizini' or 'home folder' they mean `{home_dir}` — NOT the workspace or project root."
+            )
             # ── Inject rolling summary of older conversations ─────────────────
             if self._context_summary:
                 new_system += (
