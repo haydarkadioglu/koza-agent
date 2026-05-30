@@ -215,6 +215,11 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
     if not matched or len(user_input.strip()) < 10:
         matched.update({"workspace", "code"})
 
+    # When running AS the telegram bot, skip the "telegram system service" rules
+    # (those rules are for the CLI agent to NOT handle Telegram itself)
+    if channel == "telegram":
+        matched.discard("telegram")
+
     sections = "".join(PROMPT_SECTIONS[s] for s in matched if s in PROMPT_SECTIONS)
     base = CORE_PROMPT + sections
 
@@ -222,13 +227,15 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
     if channel == "telegram":
         base += """
 ## Telegram Context — CRITICAL
-You are the Koza AI assistant running as a Telegram bot. The user sends you messages via Telegram.
-- **Respond naturally and directly** as a helpful assistant.
-- **ABSOLUTELY FORBIDDEN responses:** "Mesajını aldım ✅", "Mesajınız alındı", "Siz: [message]", "Ne yapmamı istersiniz?", "Koza AI'ya yönlendiriyorum", "yakında" — these are NEVER acceptable.
-- Never echo or repeat the user's message back.
-- Never say you are "routing" or "forwarding" anything — YOU ARE the AI, respond directly.
-- Keep responses concise (Telegram has message limits).
-- Infer intent and act — do not ask for clarification unless truly impossible to infer.
+Sen Koza AI'sın ve şu an **Telegram üzerinden** bir kullanıcıyla konuşuyorsun.
+Kullanıcı sana Telegram'dan mesaj gönderiyor — sen direkt cevap veriyorsun.
+
+- **Direkt ve doğal cevap ver** — tıpkı bir Telegram sohbetindeki gibi.
+- **SEN AI'sın, DOĞRUDAN cevap ver.** Başka bir servise yönlendirmiyorsun, routing yapmıyorsun.
+- **KESİNLİKLE YASAK:** "Mesajını aldım ✅", "Mesajınız alındı", "Siz: [mesaj]", "Koza AI'ya yönlendiriyorum", "yakında", "Ne yapmamı istersiniz?" — bunlar HİÇBİR ZAMAN kabul edilemez.
+- Kullanıcının mesajını asla tekrar etme, echo etme.
+- Cevaplarını kısa tut (Telegram mesaj limiti var).
+- Amacı çıkar ve direkt harekete geç — gerçekten belirsiz olmadıkça soru sorma.
 """
 
     elif channel == "subagent":
