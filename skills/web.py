@@ -25,12 +25,19 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "fetch_url",
-            "description": "Fetch the text content of a URL.",
+            "description": (
+                "Fetch the text content of a URL. "
+                "For JavaScript-rendered sites (Next.js, React, Vue, Nuxt, Firebase, etc.) "
+                "set js_render=true to use a headless browser. "
+                "If you're not sure whether the site is JS-rendered, set js_render=true."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "url": {"type": "string"},
                     "max_chars": {"type": "integer", "default": 4000},
+                    "js_render": {"type": "boolean", "default": False,
+                                  "description": "Use headless browser for JS-rendered pages (Next.js, React, Vue, etc.)"},
                 },
                 "required": ["url"],
             },
@@ -64,8 +71,20 @@ def web_search(query: str, max_results: int = 5) -> str:
         return f"ERROR: {e}"
 
 
-def fetch_url(url: str, max_chars: int = 4000) -> str:
+def fetch_url(url: str, max_chars: int = 4000, js_render: bool = False) -> str:
     """Fetch URL content. Falls back to headless browser for JS-rendered pages."""
+    # JS framework markers in raw HTML
+    _JS_MARKERS = (
+        "__NEXT_DATA__", "__next", "_nuxt", "react-root", "app-root",
+        "ng-version", "data-reactroot", "__NUXT__", "window.__INITIAL_STATE__",
+    )
+
+    if js_render:
+        rendered = _fetch_with_browser(url, max_chars)
+        if rendered and not rendered.startswith("(browser render failed"):
+            return rendered
+        # Fall through to static fetch if browser failed
+
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -76,12 +95,12 @@ def fetch_url(url: str, max_chars: int = 4000) -> str:
 
         if "html" in content_type:
             text = _strip_html(raw)
-            # If content is too short, likely a JS-rendered page (Next.js, React, etc.)
-            if len(text.strip()) < 200 and ("__next" in raw or "__NEXT_DATA__" in raw
-                                            or "react-root" in raw or "app-root" in raw
-                                            or "_nuxt" in raw):
+            # Auto-detect JS-rendered page: framework marker present OR very little text vs HTML size
+            is_js_heavy = any(m in raw for m in _JS_MARKERS)
+            content_ratio = len(text.strip()) / max(len(raw), 1)
+            if not js_render and (is_js_heavy or (content_ratio < 0.05 and len(raw) > 5000)):
                 rendered = _fetch_with_browser(url, max_chars)
-                if rendered:
+                if rendered and not rendered.startswith("(browser render failed"):
                     return rendered
             return text[:max_chars] + ("..." if len(text) > max_chars else "")
         else:

@@ -109,9 +109,11 @@ Rules:
 
     "web": """
 ## Web & Research Strategy
-1. `fetch_url` → if client-rendered (SPA), fall back to
-2. `web_search` → then search `"{name}" site:linkedin.com OR site:github.com` → then
-3. Check web.archive.org for a snapshot.
+1. `fetch_url` → for **static/simple** pages (blogs, docs, Wikipedia)
+2. `fetch_url(url, js_render=True)` → for **JS-rendered** pages (Next.js, React, Vue, Nuxt, Firebase, Angular)
+   - Use js_render=True whenever the site is a modern web app or you get empty/minimal content
+3. `web_search` → to find URLs, then fetch the relevant ones
+4. Check web.archive.org for a snapshot if live fetch fails.
 """,
 
     "shell": """
