@@ -21,7 +21,7 @@
 irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex
 ```
 
-> PowerShell 5.1 (Windows built-in) kullanıyorsan TLS hatasına karşı:
+> If you're using PowerShell 5.1 (Windows built-in) and get a TLS error:
 > ```powershell
 > [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex
 > ```
@@ -32,14 +32,14 @@ irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1
 curl -fsSL https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.sh | bash
 ```
 
-Her iki script de:
-- Repo'yu `~/.koza-agent/` altına indirir (git varsa clone, yoksa ZIP)
-- Otomatik virtualenv oluşturur
-- Tüm bağımlılıkları kurar
-- `koza` komutunu PATH'e ekler
-- Tekrar çalıştırılırsa mevcut kurulumu günceller
+Both scripts will:
+- Clone the repo to `~/.koza-agent/` (via git if available, otherwise ZIP download)
+- Automatically create a virtualenv
+- Install all dependencies
+- Add the `koza` command to PATH
+- Re-running updates an existing installation
 
-> **Gereksinimler:** Python 3.11+ (git opsiyonel — yoksa ZIP ile indirir)  
+> **Requirements:** Python 3.11+ (git optional — falls back to ZIP download)  
 > Windows: [python.org](https://python.org/downloads)  
 > macOS: `brew install python@3.12` · Debian/Ubuntu: `sudo apt install python3.12`
 
@@ -85,10 +85,10 @@ Database:    `~/.Koza/koza.db`
 Just tell Koza what you want to set:
 
 ```
-"deepseek api keyim sk-abc123"
-"openai modelini gpt-4o-mini yap"
-"telegram tokenım 1234567:ABC..."
-"hangi provider kullanılıyor"
+"my deepseek api key is sk-abc123"
+"set openai model to gpt-4o-mini"
+"my telegram token is 1234567:ABC..."
+"which provider is currently active"
 ```
 
 ### Environment variables / `.env` file
@@ -181,16 +181,16 @@ koza-agent/
 
 ## Prompt Externalization
 
-Tüm system prompt'lar Python kaynak kodundan ayrılmış olup `prompts/` dizininde `.md` dosyaları olarak tutulur. Bu sayede prompt'ları kod değiştirmeden düzenleyebilir, versiyonlayabilir ve bağımsız olarak test edebilirsiniz.
+All system prompts are separated from Python source code and stored as `.md` files in the `prompts/` directory. This allows you to edit, version, and test prompts independently without touching any code.
 
-### Dizin Yapısı
+### Directory Structure
 
 ```
 prompts/
 ├── core/
-│   └── system.md           # Ana system prompt (CORE_PROMPT)
+│   └── system.md           # Main system prompt (CORE_PROMPT)
 ├── sections/
-│   ├── workspace.md        # Dinamik olarak eklenen bölümler
+│   ├── workspace.md        # Dynamically injected sections
 │   ├── code.md
 │   ├── web.md
 │   ├── shell.md
@@ -200,36 +200,36 @@ prompts/
 │   ├── devops.md
 │   └── background.md
 ├── personas/
-│   ├── team_lead.md        # Coding Mode persona prompt'ları
+│   ├── team_lead.md        # Coding Mode persona prompts
 │   ├── backend_dev.md
 │   ├── frontend_dev.md
 │   └── test_engineer.md
 ├── channels/
-│   ├── telegram.md         # Kanal-spesifik prompt ekleri
+│   ├── telegram.md         # Channel-specific prompt additions
 │   ├── discord.md
 │   ├── whatsapp.md
 │   └── cli.md
 └── routing/
-    └── classifier.md       # Intent Router system prompt'u
+    └── classifier.md       # Intent Router system prompt
 ```
 
-### Prompt Düzenleme
+### Editing Prompts
 
-Prompt dosyalarını doğrudan düzenleyebilirsiniz — değişiklikler otomatik olarak algılanır. `PromptLoader` modülü mtime-based cache invalidation kullanır; dosya değiştiğinde bir sonraki erişimde güncel içerik yüklenir. Restart gerekmez.
+Edit prompt files directly — changes are picked up automatically. The `PromptLoader` module uses mtime-based cache invalidation; the next access after a file change will load the updated content. No restart required.
 
-### Yeni Section Ekleme
+### Adding a New Section
 
-`prompts/sections/` dizinine yeni bir `.md` dosyası oluşturmanız yeterlidir. Dosya adı section adı olarak kullanılır ve sistem tarafından otomatik algılanır.
+Create a new `.md` file in `prompts/sections/`. The filename becomes the section name and is auto-detected by the system.
 
-### Yeni Channel Ekleme
+### Adding a New Channel
 
-`prompts/channels/` dizinine kanal adıyla bir `.md` dosyası oluşturun (örn. `slack.md`). `build_system_prompt(channel="slack")` çağrıldığında ilgili dosya otomatik yüklenir. Dosya yoksa hata fırlatılmaz, sadece channel prompt'u eklenmez.
+Create a `.md` file in `prompts/channels/` named after the channel (e.g. `slack.md`). When `build_system_prompt(channel="slack")` is called, the file is loaded automatically. Missing files are silently ignored — no error is thrown.
 
-### Teknik Detaylar
+### Technical Details
 
-- **Cache**: `PromptLoader` singleton pattern ile çalışır, thread-safe in-memory cache kullanır
-- **Validation**: UTF-8 encoding zorunlu, boş dosyalar `ValueError` fırlatır
-- **Geriye uyumluluk**: `from prompt import SYSTEM_PROMPT, build_system_prompt` çalışmaya devam eder
+- **Cache**: `PromptLoader` uses a singleton pattern with a thread-safe in-memory cache
+- **Validation**: UTF-8 encoding required; empty files raise `ValueError`
+- **Backwards compatibility**: `from prompt import SYSTEM_PROMPT, build_system_prompt` continues to work
 
 ---
 
