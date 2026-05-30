@@ -93,7 +93,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
                    "bluesky_search", "bluesky_post", "hackernews_top", "hackernews_search",
                    "linkedin_post", "threads_post", "instagram_post", "instagram_get_profile"],
     "note":       ["note_create", "note_search", "note_read", "note_list"],
-    "email":      ["send_email", "read_emails"],
+    "email":      ["send_email", "read_emails", "search_emails", "reply_email"],
     "devops":     ["git_operation", "docker_run", "webhook_listen"],
     "creative":   ["ascii_art", "architecture_diagram", "generate_image"],
     "mlops":      ["run_eval", "model_benchmark", "huggingface_model_info"],
@@ -106,6 +106,7 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # file
     "file": ["file"], "folder": ["file"], "directory": ["file"], "read": ["file"],
     "write": ["file"], "delete": ["file"], "list": ["file", "kanban"],
+    "dosya indirildi": ["file"], "[dosya": ["file"],  # Telegram file download messages
     # shell
     "run": ["shell", "code"], "command": ["shell"], "terminal": ["shell"], "powershell": ["shell"],
     # web
@@ -186,6 +187,8 @@ _CRED_PATTERNS = _re.compile(
     r")",
     _re.IGNORECASE,
 )
+# Telegram bot token: digits:alphanumeric (e.g. 1234567890:ABCdefGHI...)
+_TG_TOKEN_RE = _re.compile(r'\b(\d{8,12}:[A-Za-z0-9_\-]{30,50})\b')
 
 
 def _select_tools(user_input: str) -> list[dict]:
@@ -764,6 +767,21 @@ class Agent:
     def _auto_save_credentials(self, user_input: str) -> None:
         """Detect and auto-save any credentials/tokens mentioned in user message."""
         try:
+            # ── Telegram bot token (digits:alphanumeric) ─────────────────────
+            for m in _TG_TOKEN_RE.finditer(user_input):
+                tg_token = m.group(1)
+                shared_memory.credential_set("telegram_bot", tg_token)
+                try:
+                    from config import load_config, save_config
+                    _cfg = load_config()
+                    _cfg.setdefault("messaging", {}).setdefault("telegram", {})["token"] = tg_token
+                    # Also save at the flat key used by the daemon
+                    _cfg["telegram_token"] = tg_token
+                    save_config(_cfg)
+                except Exception:
+                    pass
+
+            # ── Generic credential patterns ───────────────────────────────────
             for m in _CRED_PATTERNS.finditer(user_input):
                 service = (m.group("service1") or m.group("service2") or "").strip()
                 value   = (m.group("val1") or m.group("val2") or m.group("val3") or "").strip()
