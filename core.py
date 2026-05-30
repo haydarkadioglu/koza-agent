@@ -1,4 +1,6 @@
 """Core agent loop — tool-calling orchestration."""
+import shutil
+import sys
 import threading
 from typing import Callable
 
@@ -17,6 +19,50 @@ MAX_CONTEXT_MESSAGES = 50
 # Tool messages older than this many exchanges get compacted to a single-line note
 # (keeps tool history visible without burning too many tokens)
 TOOL_COMPACT_AFTER = 20
+
+
+def _detect_capabilities() -> dict:
+    """Detect what system capabilities are actually available at runtime."""
+    caps = {}
+
+    # Headless browser (Playwright)
+    try:
+        import importlib.util
+        caps["playwright"] = importlib.util.find_spec("playwright") is not None
+    except Exception:
+        caps["playwright"] = False
+
+    # Docker
+    caps["docker"] = shutil.which("docker") is not None
+
+    # ffmpeg
+    caps["ffmpeg"] = shutil.which("ffmpeg") is not None
+
+    # git
+    caps["git"] = shutil.which("git") is not None
+
+    # Display / GUI (Linux/macOS check)
+    import os
+    caps["has_display"] = (
+        sys.platform == "win32"
+        or bool(os.environ.get("DISPLAY"))
+        or bool(os.environ.get("WAYLAND_DISPLAY"))
+    )
+
+    # Running inside a container (Docker/LXC)
+    caps["in_container"] = os.path.exists("/.dockerenv") or (
+        sys.platform != "win32"
+        and os.path.exists("/proc/1/cgroup")
+        and any("docker" in line or "lxc" in line
+                for line in open("/proc/1/cgroup").readlines()
+                if line.strip())
+    )
+
+    return caps
+
+
+# Cached at startup — re-detect only on explicit request
+_SYSTEM_CAPS: dict = {}
 
 # ── Tool selection helpers ────────────────────────────────────────────────────
 # Keywords that hint at which tool categories are needed.
@@ -190,6 +236,10 @@ class Agent:
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
         working_memory.init_db(db_path)
+        # Detect and cache system capabilities once per agent init
+        global _SYSTEM_CAPS
+        if not _SYSTEM_CAPS:
+            _SYSTEM_CAPS = _detect_capabilities()
         if cfg:
             email_skill.init_email(cfg)
             media.init_media(cfg)
@@ -662,6 +712,35 @@ class Agent:
                 f"\n**Workspace:** `{_os.path.join(home_dir, '.Koza', 'workspace')}`"
                 f"\nWhen the user says 'home dizini' or 'home folder' they mean `{home_dir}` — NOT the workspace or project root."
             )
+            # ── Inject detected system capabilities ───────────────────────────
+            if _SYSTEM_CAPS:
+                available = []
+                unavailable = []
+                if _SYSTEM_CAPS.get("playwright"):
+                    available.append("Playwright/headless browser (js_render=True works)")
+                else:
+                    unavailable.append("Playwright/headless browser (js_render=True will fail — skip it)")
+                if _SYSTEM_CAPS.get("docker"):
+                    available.append("Docker")
+                else:
+                    unavailable.append("Docker (not installed)")
+                if _SYSTEM_CAPS.get("ffmpeg"):
+                    available.append("ffmpeg (video/audio processing)")
+                else:
+                    unavailable.append("ffmpeg (not installed — avoid audio/video conversion)")
+                if _SYSTEM_CAPS.get("git"):
+                    available.append("git")
+                else:
+                    unavailable.append("git (not installed)")
+                if _SYSTEM_CAPS.get("in_container"):
+                    available.append("Container environment (limited filesystem access)")
+                cap_lines = ""
+                if available:
+                    cap_lines += "\n**Available:** " + ", ".join(available)
+                if unavailable:
+                    cap_lines += "\n**NOT available on this system:** " + ", ".join(unavailable)
+                if cap_lines:
+                    new_system += f"\n\n## System Capabilities{cap_lines}"
             # ── Inject rolling summary of older conversations ─────────────────
             if self._context_summary:
                 new_system += (
