@@ -191,7 +191,17 @@ async def _process_message(update, context, agent_factory: Callable,
     user_text = override_text or (msg.text if msg else "") or (msg.caption if msg else "") or ""
     image_path = None
 
-    logger.debug(f"_process_message: chat_id={chat_id} text={user_text!r:.60}")
+    # Auto-save chat_id to config on first message (so proactive notifications work)
+    if not override_text and chat_id:
+        try:
+            from config import load_config, save_config
+            _cfg = load_config()
+            _saved = _cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
+            if str(_saved) != str(chat_id):
+                _cfg.setdefault("messaging", {}).setdefault("telegram", {})["chat_id"] = str(chat_id)
+                save_config(_cfg)
+        except Exception:
+            pass
 
     if not override_text:
         # React with 👀 to acknowledge the message immediately
@@ -205,7 +215,7 @@ async def _process_message(update, context, agent_factory: Callable,
         except Exception:
             pass  # Reactions not available in all chat types — ignore
 
-    # ── Photo support ─────────────────────────────────────────────────────────
+    # Photo support
     if msg and msg.photo:
         photo = msg.photo[-1]
         file = await context.bot.get_file(photo.file_id)
@@ -216,29 +226,6 @@ async def _process_message(update, context, agent_factory: Callable,
         image_path = tmp.name
         if not user_text:
             user_text = "Analyze this photo."
-
-    # ── Document/file support ──────────────────────────────────────────────────
-    elif msg and msg.document:
-        doc = msg.document
-        import tempfile, os as _os
-        suffix = "." + doc.file_name.rsplit(".", 1)[-1] if doc.file_name and "." in doc.file_name else ""
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        tmp.close()
-        file = await context.bot.get_file(doc.file_id)
-        await file.download_to_drive(tmp.name)
-        # Try to read as text (code, markdown, CSV, etc.)
-        try:
-            with open(tmp.name, "r", encoding="utf-8", errors="replace") as _f:
-                content = _f.read(8000)  # cap at 8K chars
-            file_info = f"[File: {doc.file_name or 'document'} ({doc.mime_type or 'text'})]:\n{content}"
-            if len(content) >= 8000:
-                file_info += "\n... (truncated)"
-        except Exception:
-            file_info = f"[File: {doc.file_name or 'document'} saved to {tmp.name}]"
-        _os.unlink(tmp.name)
-        user_text = (user_text + "\n\n" + file_info).strip() if user_text else file_info
-        if not user_text:
-            user_text = file_info
 
     if not user_text:
         return
@@ -253,7 +240,6 @@ async def _process_message(update, context, agent_factory: Callable,
             chat_id, context.bot, bot_loop, kb_manager
         )
     agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
-    logger.debug(f"_process_message: agent created/fetched, busy={agent._busy}")
 
     if agent._busy:
         agent.interrupt()
@@ -271,26 +257,14 @@ async def _process_message(update, context, agent_factory: Callable,
 
     ev_queue: _queue.Queue = _queue.Queue()
     _DONE = object()
-    _STREAM_TIMEOUT_SEC = 300  # 5 minutes — give up if LLM/network hangs
-
-    _captured_image_path = image_path  # capture for closure
 
     def _stream_worker():
         try:
-            logger.debug(f"_stream_worker: starting for chat_id={chat_id}")
-            for event in agent.stream_chat(user_text, image_path=_captured_image_path):
+            for event in agent.stream_chat(user_text):
                 ev_queue.put(event)
         except Exception as e:
-            logger.error(f"_stream_worker: exception: {e}", exc_info=True)
             ev_queue.put({"type": "error", "message": str(e)})
         finally:
-            # Clean up temp image file
-            if _captured_image_path:
-                try:
-                    import os as _os; _os.unlink(_captured_image_path)
-                except Exception:
-                    pass
-            logger.debug(f"_stream_worker: done for chat_id={chat_id}")
             ev_queue.put(_DONE)
 
     threading.Thread(target=_stream_worker, daemon=True).start()
@@ -307,9 +281,6 @@ async def _process_message(update, context, agent_factory: Callable,
     last_edit   = 0.0      # timestamp of last edit
     edit_count  = 0        # edits on current message
     _MAX_EDITS  = 12       # after this many edits, next text starts a new msg
-    _tool_start_time: float = 0.0   # when current tool started (for spinner)
-    _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    _spinner_idx: int = 0
 
     _bg_task_ids: list[str] = []  # task IDs started in this turn (for watcher)
 
@@ -383,42 +354,12 @@ async def _process_message(update, context, agent_factory: Callable,
     import re as _re
     _CHOICE_RE = _re.compile(r"\[CHOICE:\s*([^\]]+)\]", _re.IGNORECASE)
 
-    stream_start = _time.monotonic()
-    last_typing = 0.0
-
     while True:
-        now_mono = _time.monotonic()
-
-        # Periodic TYPING action — Telegram expires it every ~5s
-        if now_mono - last_typing > 4.5:
-            try:
-                await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-            except Exception:
-                pass
-            last_typing = now_mono
-
-        # Hard timeout: bail out if LLM/network freezes (common on Linux)
-        if now_mono - stream_start > _STREAM_TIMEOUT_SEC:
-            text_buf += "\n\n⏱ Zaman aşımı: yanıt çok uzun sürdü."
-            await _flush(force=True)
-            return
-
         try:
             event = ev_queue.get_nowait()
         except _queue.Empty:
-            # Animate spinner while tool is running
-            if _tool_start_time and status and not status.startswith("✅"):
-                _spinner_idx += 1
-                elapsed = round(_time.monotonic() - _tool_start_time, 1)
-                frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
-                # Extract tool name: strip previous spinner frame prefix
-                raw = status
-                for f in _SPINNER_FRAMES:
-                    raw = raw.replace(f, "")
-                tool_name = raw.split("…")[0].strip()
-                status = f"{frame} {tool_name}… {elapsed}s"
             await _flush()
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.05)
             continue
 
         if event is _DONE:
@@ -447,10 +388,7 @@ async def _process_message(update, context, agent_factory: Callable,
 
         elif etype == "tool_start":
             name = event.get("name", "")
-            _tool_start_time = _time.monotonic()
-            _spinner_idx = 0
-            frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
-            status = f"{frame} {name}… 0s"
+            status = f"⚙️ {name}…"
             # After enough edits on current message, start fresh for next block
             if edit_count >= _MAX_EDITS and text_buf.strip():
                 await _finalize_msg_and_start_fresh()
@@ -458,8 +396,7 @@ async def _process_message(update, context, agent_factory: Callable,
 
         elif etype == "tool_done":
             name = event.get("name", "")
-            elapsed = round(_time.monotonic() - _tool_start_time, 1) if _tool_start_time else 0
-            status = f"✅ {name} ({elapsed}s)"
+            status = f"✅ {name}"
             await _flush(force=True)
 
             # Track background task IDs so we can register watchers
@@ -489,16 +426,6 @@ async def _process_message(update, context, agent_factory: Callable,
     # Final flush: clear status, show clean response
     status = ""
     await _flush(force=True)
-
-    # If nothing was ever sent (empty stream / no text tokens), send a fallback
-    if sent_msg is None:
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="⚠️ Yanıt alınamadı. Lütfen tekrar deneyin veya `koza status` ile servisleri kontrol edin.",
-            )
-        except Exception:
-            pass
 
     # Register completion watchers for any background tasks started this turn
     for task_id in _bg_task_ids:
@@ -610,30 +537,6 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
             parts = data.split(":", 2)
 
-            # Handle session load buttons
-            if data.startswith("session::"):
-                _, action, sid = data.split("::", 2)
-                if action == "close":
-                    await query.edit_message_reply_markup(reply_markup=None)
-                    return
-                if action == "load":
-                    from skills import session_memory as _sm
-                    msgs = _sm.load_session(int(sid))
-                    cid = query.message.chat_id
-                    if msgs is None:
-                        await query.edit_message_text("❌ Session not found.")
-                        return
-                    ag = _agents.get(cid)
-                    if ag is None:
-                        ag = _get_or_create_agent(cid, agent_factory)
-                    from skills import session_memory as _sm2
-                    from prompt import build_system_prompt
-                    ag.messages = [{"role": "system", "content": build_system_prompt()}] + msgs
-                    await query.edit_message_text(
-                        f"✅ Session #{sid} loaded — {len(msgs)} messages restored.",
-                    )
-                    return
-
             # Handle choice buttons (format: "choice::{selected_option}")
             if data.startswith("choice::"):
                 selected = data[len("choice::"):]
@@ -722,22 +625,6 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                     )
 
         async def on_message(update, context):
-            # ── Quick keyboard button text shortcuts ──────────────────────────
-            msg = update.message or update.edited_message
-            txt = (msg.text or "").strip() if msg else ""
-            if txt == "📋 Sessions":
-                await on_sessions(update, context)
-                return
-            if txt == "💾 Save":
-                await on_save(update, context)
-                return
-            if txt == "📊 Status":
-                await on_status(update, context)
-                return
-            if txt == "🔄 Reset":
-                await on_reset(update, context)
-                return
-            # ── Normal message → agent ────────────────────────────────────────
             try:
                 await _process_message(
                     update, context, agent_factory,
@@ -745,24 +632,11 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 )
             except Exception as e:
                 logger.error(f"Telegram handler error: {e}", exc_info=True)
-                # Always try to surface the error in chat
-                _cid = None
                 try:
-                    msg_obj = update.message or update.edited_message
-                    _cid = msg_obj.chat_id if msg_obj else update.callback_query.message.chat_id
+                    chat_id = (update.message or update.edited_message).chat_id
+                    await context.bot.send_message(chat_id=chat_id, text=f"❌ Hata: {e}")
                 except Exception:
                     pass
-                if _cid is not None:
-                    for _attempt in range(2):
-                        try:
-                            await context.bot.send_message(
-                                chat_id=_cid,
-                                text=f"❌ Hata: {type(e).__name__}: {e}",
-                            )
-                            break
-                        except Exception:
-                            import asyncio as _aio
-                            await _aio.sleep(1)
 
         async def on_error(update, context):
             """Handle errors silently — especially Conflict errors."""
@@ -781,14 +655,6 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         # ── /start command: save chat_id and send welcome ─────────────────────
         from telegram.ext import CommandHandler as _CmdHandler
-        from telegram import ReplyKeyboardMarkup as _RKM, KeyboardButton as _KB
-
-        _QUICK_KB = _RKM(
-            [[_KB("📋 Sessions"), _KB("💾 Save")],
-             [_KB("📊 Status"),   _KB("🔄 Reset")]],
-            resize_keyboard=True,
-            is_persistent=True,
-        )
 
         async def on_start(update, context):
             cid = update.effective_chat.id
@@ -802,84 +668,19 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             except Exception:
                 pass
             await update.message.reply_text(
-                f"👋 Hello @{uname}!\n\n"
-                "I'm *Koza*, your AI assistant. Telegram connection established! 🎉\n\n"
-                "Use the buttons below for quick access, or just type your message.",
+                f"👋 Merhaba @{uname}!\n\n"
+                "Ben *Koza*, senin yapay zeka asistanın. Telegram bağlantımız başarıyla kuruldu! 🎉\n\n"
+                "Artık buradan bana istediğini yazabilirsin. Sana nasıl yardımcı olabilirim?",
                 parse_mode="Markdown",
-                reply_markup=_QUICK_KB,
             )
 
         app.add_handler(_CmdHandler("start", on_start))
-
-        # ── /sessions command: list recent sessions with load buttons ─────────
-        async def on_sessions(update, context):
-            from skills import session_memory as _sm
-            from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
-            rows = _sm.get_session_rows(limit=10)
-            if not rows:
-                await update.message.reply_text("No saved sessions yet.")
-                return
-            buttons = []
-            for r in rows:
-                import time as _t
-                ts = _t.strftime("%m/%d %H:%M", _t.localtime(r["started"]))
-                title = (r["title"] or "Untitled")[:35]
-                label = f"#{r['id']} [{ts}] {title}"
-                buttons.append([_IKB(label, callback_data=f"session::load::{r['id']}")])
-            buttons.append([_IKB("❌ Close", callback_data="session::close::0")])
-            await update.message.reply_text(
-                "📋 *Recent Sessions* — tap to load:",
-                parse_mode="Markdown",
-                reply_markup=_IKM(buttons),
-            )
-
-        # ── /save command: save current session ───────────────────────────────
-        async def on_save(update, context):
-            cid = update.effective_chat.id
-            ag = _agents.get(cid)
-            if ag:
-                label = ag.auto_save()
-                await update.message.reply_text(f"💾 {label}", reply_markup=_QUICK_KB)
-            else:
-                await update.message.reply_text("Nothing to save yet.", reply_markup=_QUICK_KB)
-
-        # ── /status command ───────────────────────────────────────────────────
-        async def on_status(update, context):
-            from skills import cron, kanban
-            try:
-                cron_info = cron.list_crons()
-            except Exception:
-                cron_info = "(unavailable)"
-            try:
-                kb_info = kanban.list_tasks()
-            except Exception:
-                kb_info = "(unavailable)"
-            text = f"📊 *Koza Status*\n\n*Cron jobs:*\n{cron_info}\n\n*Tasks:*\n{kb_info}"
-            await update.message.reply_text(text[:4000], parse_mode="Markdown", reply_markup=_QUICK_KB)
-
-        app.add_handler(_CmdHandler("sessions", on_sessions))
-        app.add_handler(_CmdHandler("save", on_save))
-        app.add_handler(_CmdHandler("status", on_status))
-
-        async def on_reset(update, context):
-            """Clear agent message history for this chat."""
-            cid = update.effective_chat.id
-            ag = _agents.get(cid)
-            if ag:
-                ag.reset()
-            await update.message.reply_text(
-                "🔄 Conversation history cleared. You can start a new chat.",
-                reply_markup=_QUICK_KB,
-            )
-
-        app.add_handler(_CmdHandler("reset", on_reset))
 
         try:
             app.run_polling(
                 allowed_updates=["message", "edited_message", "callback_query"],
                 drop_pending_updates=True,
                 close_loop=False,
-                stop_signals=(),  # Linux: signal handlers only work in main thread
             )
         except _Conflict:
             logger.warning("Telegram bot stopped: another instance is already running.")
