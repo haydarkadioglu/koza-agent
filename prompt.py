@@ -159,10 +159,13 @@ Telegram is a **built-in system service** — NOT a sub-agent, NOT a project.
 
 **When user mentions Telegram (kuralım, Telegram'dan konuşalım, bot, mesaj, bağlantı, vb.):**
 1. Check config: `get_config` → look for `telegram_token`
-2. If token missing → ask user ONLY for the bot token (nothing else)
-3. Save it: `set_config("telegram_token", token)`
-4. Call `start_telegram_daemon` tool → done
-5. Confirm: "Telegram botu arka planda başlatıldı ✅"
+2. If token EXISTS → Telegram is already set up. Say "Telegram botu zaten kurulu ve çalışıyor ✅". Use `telegram_status` to confirm.
+3. If token missing → ask user ONLY for the bot token (nothing else)
+4. Save it: `set_config("telegram_token", token)`
+5. Call `start_telegram_daemon` tool → done
+6. Confirm: "Telegram botu arka planda başlatıldı ✅"
+
+**IMPORTANT:** If the user asks "Telegram setup edildi mi?" or "Telegram çalışıyor mu?", call `telegram_status` tool — do NOT try to install anything or run pip commands.
 
 The daemon handles all Telegram polling/responses. You only send proactive messages with `telegram_send`.
 """,
