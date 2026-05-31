@@ -4,21 +4,6 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "ascii_art",
-            "description": "Convert text to ASCII art using pyfiglet.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"},
-                    "font": {"type": "string", "default": "slant", "description": "Figlet font name"},
-                },
-                "required": ["text"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "architecture_diagram",
             "description": "Generate a Mermaid.js diagram definition for architecture/flowcharts.",
             "parameters": {

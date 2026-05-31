@@ -214,7 +214,7 @@ def _select_tools(user_input: str) -> list[dict]:
             groups.update(grp_list)
 
     if not groups:
-        return ALL_TOOLS  # fallback: send everything
+        return ALL_TOOLS[:128]  # fallback: send everything (capped at API limit)
 
     tool_names: set[str] = set()
     for g in groups:
@@ -226,7 +226,7 @@ def _select_tools(user_input: str) -> list[dict]:
         if name in _TOOL_BY_NAME and not any(_tool_name(t) == name for t in selected):
             selected.append(_TOOL_BY_NAME[name])
 
-    return selected if selected else ALL_TOOLS
+    return selected[:128] if selected else ALL_TOOLS[:128]
 
 
 class Agent:

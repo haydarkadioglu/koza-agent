@@ -38,21 +38,6 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "gif_search",
-            "description": "Search for GIFs using Tenor API.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "limit": {"type": "integer", "default": 3},
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "youtube_download",
             "description": "Download a YouTube video or audio using yt-dlp.",
             "parameters": {
