@@ -70,7 +70,7 @@ _started_at: float = 0.0
 # ── Client registry (in-memory, mirrored to DB) ───────────────────────────────
 
 def _ensure_clients_table(db_path: str) -> None:
-    """Create sync_clients and sync_log tables if they don't exist."""
+    """Create sync_clients, sync_log, and sync_tasks tables if they don't exist."""
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         conn.execute("""
@@ -91,6 +91,19 @@ def _ensure_clients_table(db_path: str) -> None:
                 status       TEXT DEFAULT 'ok',
                 error        TEXT DEFAULT '',
                 ts           REAL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_tasks (
+                id            TEXT PRIMARY KEY,
+                target_host   TEXT,
+                task_text     TEXT,
+                status        TEXT DEFAULT 'pending',
+                created_at    REAL,
+                claimed_at    REAL,
+                completed_at  REAL,
+                result        TEXT DEFAULT '',
+                error         TEXT DEFAULT ''
             )
         """)
         conn.commit()
@@ -155,6 +168,81 @@ def get_sync_log(db_path: str, limit: int = 10) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM sync_log ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ── Remote task helpers ───────────────────────────────────────────────────────
+
+def create_task(target_host: str, task_text: str, db_path: str) -> str:
+    """Insert a new remote task. Returns the task ID."""
+    import uuid as _uuid
+    task_id = str(_uuid.uuid4())
+    now = time.time()
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.execute("""
+            INSERT INTO sync_tasks (id, target_host, task_text, status, created_at)
+            VALUES (?, ?, ?, 'pending', ?)
+        """, (task_id, target_host, task_text, now))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return task_id
+
+
+def get_pending_tasks(host_name: str, db_path: str) -> list[dict]:
+    """Return pending tasks for a given host (or wildcard '*')."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT * FROM sync_tasks
+            WHERE status = 'pending'
+              AND (target_host = ? OR target_host = '*')
+            ORDER BY created_at ASC
+        """, (host_name,)).fetchall()
+        # Mark as claimed
+        for r in rows:
+            conn.execute(
+                "UPDATE sync_tasks SET status='running', claimed_at=? WHERE id=?",
+                (time.time(), r["id"])
+            )
+        conn.commit()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def update_task_result(task_id: str, result: str, error: str, db_path: str) -> None:
+    """Store the result of a completed task."""
+    status = "error" if error else "done"
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.execute("""
+            UPDATE sync_tasks
+            SET status=?, result=?, error=?, completed_at=?
+            WHERE id=?
+        """, (status, result, error, time.time(), task_id))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_task_results(db_path: str, limit: int = 20) -> list[dict]:
+    """Return recent tasks with their results."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT id, target_host, task_text, status, created_at, completed_at, result, error
+            FROM sync_tasks ORDER BY created_at DESC LIMIT ?
+        """, (limit,)).fetchall()
         conn.close()
         return [dict(r) for r in rows]
     except Exception:
@@ -347,6 +435,20 @@ class _SyncHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if path == "/api/sync/tasks/pending":
+            # Client polls for pending tasks assigned to its host
+            qs = self._parse_qs()
+            host_name = qs.get("host_name", "")
+            tasks = get_pending_tasks(host_name, _db_path)
+            self._send_json(200, {"tasks": tasks})
+            return
+
+        if path == "/api/sync/tasks":
+            # Return all tasks (for master to inspect results)
+            tasks = get_task_results(_db_path)
+            self._send_json(200, {"tasks": tasks})
+            return
+
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -395,6 +497,38 @@ class _SyncHandler(BaseHTTPRequestHandler):
             client_ip = self.client_address[0]
             _append_sync_log("push", client_ip, total, "ok", "", _db_path)
             self._send_json(200, {"merged": counts, "pushed_at": time.time()})
+            return
+
+        if path == "/api/sync/task":
+            # Master creates a task for a client: {target_host, task_text}
+            length = int(self.headers.get("Content-Length", 0))
+            body   = self.rfile.read(length)
+            try:
+                payload = json.loads(body.decode())
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "invalid json"})
+                return
+            target = payload.get("target_host", "*")
+            task_text = payload.get("task_text", "")
+            if not task_text:
+                self._send_json(400, {"error": "task_text required"})
+                return
+            task_id = create_task(target, task_text, _db_path)
+            self._send_json(200, {"task_id": task_id, "target_host": target})
+            return
+
+        if path.startswith("/api/sync/task/") and path.endswith("/result"):
+            # Client posts result: /api/sync/task/<id>/result
+            task_id = path.split("/")[4]
+            length = int(self.headers.get("Content-Length", 0))
+            body   = self.rfile.read(length)
+            try:
+                payload = json.loads(body.decode())
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "invalid json"})
+                return
+            update_task_result(task_id, payload.get("result", ""), payload.get("error", ""), _db_path)
+            self._send_json(200, {"ok": True})
             return
 
         self._send_json(404, {"error": "not found"})

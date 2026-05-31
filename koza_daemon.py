@@ -403,6 +403,15 @@ class DaemonServer:
                     from skills.sync.client import sync_bidirectional_safe
                     msg = sync_bidirectional_safe(master, token, db_path, since=_since)
                     _log(f"Multi-host periodic sync: {msg}")
+                    # Process any pending remote tasks from master
+                    try:
+                        from skills.sync.client import process_pending_tasks
+                        host_name = _mh.get("host_name", "koza-client")
+                        n = process_pending_tasks(master, token, db_path, host_name)
+                        if n:
+                            _log(f"Remote tasks: processed {n} task(s)")
+                    except Exception as te:
+                        _log(f"Remote task processing error: {te}")
                 except Exception as e:
                     _log(f"Multi-host periodic sync error: {e}")
 

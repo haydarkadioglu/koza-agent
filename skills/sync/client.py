@@ -236,3 +236,57 @@ def sync_bidirectional_safe(master_url: str, token: str, db_path: str,
         return f"Sync skipped (master unreachable): {e}"
     except Exception as e:
         return f"Sync error: {e}"
+
+
+# ── Remote task execution ─────────────────────────────────────────────────────
+
+def fetch_pending_tasks(master_url: str, token: str, host_name: str) -> list[dict]:
+    """Fetch tasks assigned to this client from master."""
+    url = master_url.rstrip("/") + f"/api/sync/tasks/pending?host_name={host_name}"
+    try:
+        r = requests.get(url, headers=_headers(token), timeout=_TIMEOUT)
+        r.raise_for_status()
+        return r.json().get("tasks", [])
+    except Exception:
+        return []
+
+
+def submit_task_result(master_url: str, token: str, task_id: str, result: str, error: str = "") -> bool:
+    """Post task result back to master."""
+    url = master_url.rstrip("/") + f"/api/sync/task/{task_id}/result"
+    try:
+        payload = json.dumps({"result": result, "error": error}).encode()
+        r = requests.post(url, headers=_headers(token), data=payload, timeout=_TIMEOUT)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def process_pending_tasks(master_url: str, token: str, db_path: str, host_name: str) -> int:
+    """
+    Fetch pending tasks from master, execute each via the local agent, and post results back.
+    Returns number of tasks processed.
+    """
+    tasks = fetch_pending_tasks(master_url, token, host_name)
+    if not tasks:
+        return 0
+
+    processed = 0
+    for task in tasks:
+        task_id   = task.get("id", "")
+        task_text = task.get("task_text", "")
+        if not task_id or not task_text:
+            continue
+        try:
+            from config import load_config
+            cfg = load_config()
+            from providers.factory import get_provider
+            from core import Agent
+            agent = Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg, channel="remote_task")
+            result = agent.chat(task_text)
+            submit_task_result(master_url, token, task_id, result or "")
+        except Exception as e:
+            submit_task_result(master_url, token, task_id, "", error=str(e))
+        processed += 1
+
+    return processed

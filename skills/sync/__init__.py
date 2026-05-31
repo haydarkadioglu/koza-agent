@@ -170,6 +170,66 @@ def list_hosts() -> str:
             f"Run sync_status() to check connectivity.")
 
 
+def send_task_to_client(target_host: str, task_text: str) -> str:
+    """
+    Send a remote task to a specific client host (or '*' for all clients).
+    The client will execute the task on its next sync cycle and return the result.
+    """
+    from config import load_config
+    cfg = load_config()
+    mh  = cfg.get("multi_host", {})
+    if mh.get("mode") != "master":
+        return "✗ Only master hosts can send tasks to clients."
+    db_path = cfg.get("db_path", "")
+    master_url = f"http://127.0.0.1:{mh.get('sync_port', 7420)}"
+    token = mh.get("sync_token", "")
+    try:
+        import requests as _req
+        import json as _json
+        url = master_url.rstrip("/") + "/api/sync/task"
+        payload = _json.dumps({"target_host": target_host, "task_text": task_text}).encode()
+        r = _req.post(url, headers={"X-Koza-Token": token, "Content-Type": "application/json"},
+                      data=payload, timeout=5)
+        if r.status_code == 200:
+            task_id = r.json().get("task_id", "?")
+            return f"✅ Task sent to '{target_host}' (id: {task_id[:8]}…)\nClient will execute on next sync cycle."
+        return f"✗ Server returned HTTP {r.status_code}"
+    except Exception as e:
+        # Fallback: write directly to DB
+        try:
+            from .server import create_task
+            task_id = create_task(target_host, task_text, db_path)
+            return f"✅ Task queued for '{target_host}' (id: {task_id[:8]}…)"
+        except Exception as e2:
+            return f"✗ Failed to send task: {e} / {e2}"
+
+
+def get_task_results_tool(limit: int = 10) -> str:
+    """Return recent remote task results."""
+    from config import load_config
+    cfg = load_config()
+    db_path = cfg.get("db_path", "")
+    try:
+        from .server import get_task_results
+        tasks = get_task_results(db_path, limit=limit)
+    except Exception as e:
+        return f"✗ {e}"
+    if not tasks:
+        return "No remote tasks found."
+    import datetime
+    lines = ["Remote Task Results:"]
+    for t in tasks:
+        ts = datetime.datetime.fromtimestamp(t["created_at"]).strftime("%m-%d %H:%M")
+        status_icon = {"done": "✅", "error": "❌", "pending": "⏳", "running": "🔄"}.get(t["status"], "?")
+        lines.append(f"\n  {status_icon} [{ts}] → {t['target_host']}")
+        lines.append(f"     Task   : {t['task_text'][:80]}")
+        if t.get("result"):
+            lines.append(f"     Result : {t['result'][:200]}")
+        if t.get("error"):
+            lines.append(f"     Error  : {t['error'][:100]}")
+    return "\n".join(lines)
+
+
 TOOL_DEFINITIONS = [
     {
         "name": "sync_now",
@@ -193,18 +253,71 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "sync_status",
-        "description": "Show current multi-host sync configuration, registered clients, server status, and recent sync log.",
+        "description": (
+            "Show current multi-host sync configuration, registered clients, server status, and recent sync log. "
+            "Use this when user asks about sync status, connected clients, registered hosts, or who is syncing. "
+            "On master: shows which clients have connected and when. On client: shows master connectivity."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     {
         "name": "list_hosts",
-        "description": "List configured hosts and registered clients in multi-host mode.",
+        "description": (
+            "List configured hosts and registered clients in multi-host mode. "
+            "Use this when user asks 'who is connected', 'which clients are registered', "
+            "'list connected machines', 'bağlı clientlar', 'hangi makineler bağlı' or similar questions."
+        ),
         "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "send_task_to_client",
+        "description": (
+            "Send a task/instruction to a remote client host to execute. "
+            "Use when user wants to run something on another machine, e.g. "
+            "'laptop'ta git status yap', 'ionos sunucusunda disk kontrolü yap', "
+            "'send task to client', 'remote execute'. "
+            "target_host should match the client's host_name (use '*' for all clients)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "target_host": {
+                    "type": "string",
+                    "description": "Host name of the target client, or '*' for all clients",
+                },
+                "task_text": {
+                    "type": "string",
+                    "description": "The instruction/task for the remote agent to execute",
+                },
+            },
+            "required": ["target_host", "task_text"],
+        },
+    },
+    {
+        "name": "get_task_results",
+        "description": (
+            "Get results of previously sent remote tasks. "
+            "Use when user asks about task status, remote task results, "
+            "'görev sonuçları', 'remote task tamamlandı mı' etc."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Number of recent tasks to return",
+                },
+            },
+            "required": [],
+        },
     },
 ]
 
 HANDLERS: dict = {
-    "sync_now":     lambda direction="both": sync_now(direction),
-    "sync_status":  lambda **_: sync_status(),
-    "list_hosts":   lambda **_: list_hosts(),
+    "sync_now":          lambda direction="both": sync_now(direction),
+    "sync_status":       lambda **_: sync_status(),
+    "list_hosts":        lambda **_: list_hosts(),
+    "send_task_to_client": lambda target_host, task_text, **_: send_task_to_client(target_host, task_text),
+    "get_task_results":  lambda limit=10, **_: get_task_results_tool(limit),
 }
