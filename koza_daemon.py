@@ -486,9 +486,9 @@ def start_as_background(python_exe: str = None) -> bool:
     kwargs = {"stdout": devnull, "stderr": devnull, "stdin": devnull}
 
     if os.name == "nt":
-        DETACHED    = 0x00000008
-        NEW_GROUP   = 0x00000200
-        kwargs["creationflags"] = DETACHED | NEW_GROUP
+        CREATE_NO_WINDOW = 0x08000000
+        NEW_GROUP        = 0x00000200
+        kwargs["creationflags"] = CREATE_NO_WINDOW | NEW_GROUP
     else:
         kwargs["start_new_session"] = True
 

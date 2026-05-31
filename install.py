@@ -111,13 +111,13 @@ else:
 # ── 5. Install package + deps ─────────────────────────────────────────────────
 
 info("Installing Koza and dependencies (this may take a minute) …")
-run([str(venv_pip), "install", "--quiet", "--upgrade", "pip"])
-run([str(venv_pip), "install", "--quiet", "-e", str(INSTALL_DIR)])
+run([str(venv_python), "-m", "pip", "install", "--quiet", "--upgrade", "pip"])
+run([str(venv_python), "-m", "pip", "install", "--quiet", "-e", str(INSTALL_DIR)])
 ok("Koza installed.")
 
 info("Installing optional dependencies (Telegram bot) …")
 try:
-    run([str(venv_pip), "install", "--quiet", "python-telegram-bot>=20.0"])
+    run([str(venv_python), "-m", "pip", "install", "--quiet", "python-telegram-bot>=20.0"])
     ok("python-telegram-bot installed.")
 except subprocess.CalledProcessError:
     warn("python-telegram-bot install failed (optional, Telegram bot won't work).")

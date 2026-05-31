@@ -165,10 +165,10 @@ def cmd_update(args: list) -> None:
             if koza_exe.exists():
                 # Restart koza without 'update' arg to avoid re-triggering update
                 subprocess.Popen([str(koza_exe)],
-                                 creationflags=subprocess.CREATE_NEW_CONSOLE)
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
             else:
                 subprocess.Popen([sys.executable, "-m", "koza_run"],
-                                 creationflags=subprocess.CREATE_NEW_CONSOLE)
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
         except Exception:
             print(_C("  ℹ  Please restart koza manually.\n", "grey"))
         time.sleep(0.5)
