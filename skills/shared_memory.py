@@ -30,6 +30,38 @@ def init_db(db_path: str) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_shm_key  ON shared_memory(key)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_shm_tags ON shared_memory(tags)")
 
+        # FTS5 virtual table for fast full-text search across key/value/tags
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS shared_memory_fts
+            USING fts5(key, value, tags, content='shared_memory', content_rowid='id')
+        """)
+        # Triggers to keep FTS index in sync with main table
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS shm_fts_ai AFTER INSERT ON shared_memory BEGIN
+                INSERT INTO shared_memory_fts(rowid, key, value, tags)
+                VALUES (new.id, new.key, new.value, new.tags);
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS shm_fts_au AFTER UPDATE ON shared_memory BEGIN
+                INSERT INTO shared_memory_fts(shared_memory_fts, rowid, key, value, tags)
+                VALUES ('delete', old.id, old.key, old.value, old.tags);
+                INSERT INTO shared_memory_fts(rowid, key, value, tags)
+                VALUES (new.id, new.key, new.value, new.tags);
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS shm_fts_ad AFTER DELETE ON shared_memory BEGIN
+                INSERT INTO shared_memory_fts(shared_memory_fts, rowid, key, value, tags)
+                VALUES ('delete', old.id, old.key, old.value, old.tags);
+            END
+        """)
+        # Populate FTS index for any existing rows (idempotent: ignored if already indexed)
+        conn.execute("""
+            INSERT OR IGNORE INTO shared_memory_fts(rowid, key, value, tags)
+            SELECT id, key, value, tags FROM shared_memory
+        """)
+
 
 @contextmanager
 def _conn():
@@ -86,14 +118,26 @@ def memory_search(query: str, limit: int = 10) -> str:
     """Search shared memory by keyword across keys, values, and tags."""
     if not _db_path:
         return "Shared memory DB not initialized."
-    q = f"%{query.lower()}%"
     with _conn() as conn:
-        rows = conn.execute(
-            """SELECT key, value, tags, source, updated_at FROM shared_memory
-               WHERE lower(key) LIKE ? OR lower(value) LIKE ? OR lower(tags) LIKE ?
-               ORDER BY updated_at DESC LIMIT ?""",
-            (q, q, q, limit),
-        ).fetchall()
+        try:
+            # FTS5 full-text search — fast and supports prefix matching (e.g. "key*")
+            rows = conn.execute(
+                """SELECT sm.key, sm.value, sm.tags, sm.source, sm.updated_at
+                   FROM shared_memory sm
+                   JOIN shared_memory_fts fts ON sm.id = fts.rowid
+                   WHERE shared_memory_fts MATCH ?
+                   ORDER BY sm.updated_at DESC LIMIT ?""",
+                (query, limit),
+            ).fetchall()
+        except Exception:
+            # FTS query syntax error — fall back to LIKE
+            q = f"%{query.lower()}%"
+            rows = conn.execute(
+                """SELECT key, value, tags, source, updated_at FROM shared_memory
+                   WHERE lower(key) LIKE ? OR lower(value) LIKE ? OR lower(tags) LIKE ?
+                   ORDER BY updated_at DESC LIMIT ?""",
+                (q, q, q, limit),
+            ).fetchall()
     if not rows:
         return f"No memories found matching '{query}'."
     lines = []
@@ -142,17 +186,26 @@ def get_relevant_context(query: str, limit: int = 5) -> str:
     """Return a compact memory context string for injecting into sub-agent prompts."""
     if not _db_path:
         return ""
-    q = f"%{query.lower()}%"
     with _conn() as conn:
-        rows = conn.execute(
-            """SELECT key, value FROM shared_memory
-               WHERE lower(key) LIKE ? OR lower(value) LIKE ? OR lower(tags) LIKE ?
-               ORDER BY updated_at DESC LIMIT ?""",
-            (q, q, q, limit),
-        ).fetchall()
-    if not rows:
-        # Fall back to most recent entries
-        with _conn() as conn:
+        try:
+            rows = conn.execute(
+                """SELECT sm.key, sm.value
+                   FROM shared_memory sm
+                   JOIN shared_memory_fts fts ON sm.id = fts.rowid
+                   WHERE shared_memory_fts MATCH ?
+                   ORDER BY sm.updated_at DESC LIMIT ?""",
+                (query, limit),
+            ).fetchall()
+        except Exception:
+            q = f"%{query.lower()}%"
+            rows = conn.execute(
+                """SELECT key, value FROM shared_memory
+                   WHERE lower(key) LIKE ? OR lower(value) LIKE ? OR lower(tags) LIKE ?
+                   ORDER BY updated_at DESC LIMIT ?""",
+                (q, q, q, limit),
+            ).fetchall()
+        if not rows:
+            # Fall back to most recent entries
             rows = conn.execute(
                 "SELECT key, value FROM shared_memory ORDER BY updated_at DESC LIMIT ?",
                 (limit,),

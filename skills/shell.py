@@ -2,19 +2,23 @@
 import os
 import platform
 import subprocess
+import threading
 
 # Tracks the current working directory across tool calls.
-# Initialized to where the user launched koza from.
+# Lock protects against concurrent sub-agent CWD changes.
 _CWD = os.getcwd()
+_cwd_lock = threading.Lock()
 
 
 def get_cwd() -> str:
-    return _CWD
+    with _cwd_lock:
+        return _CWD
 
 
 def set_cwd(path: str) -> None:
     global _CWD
-    _CWD = os.path.abspath(path)
+    with _cwd_lock:
+        _CWD = os.path.abspath(path)
 
 
 TOOL_DEFINITIONS = [
@@ -50,14 +54,16 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
     if stripped.lower().startswith("cd ") or stripped.lower() == "cd":
         parts = stripped.split(None, 1)
         target = parts[1] if len(parts) > 1 else os.path.expanduser("~")
-        new_dir = os.path.abspath(os.path.join(_CWD, os.path.expanduser(target)))
-        if os.path.isdir(new_dir):
-            _CWD = new_dir
-            return f"Changed directory to: {_CWD}"
-        else:
-            return f"ERROR: Directory not found: {new_dir}"
+        with _cwd_lock:
+            new_dir = os.path.abspath(os.path.join(_CWD, os.path.expanduser(target)))
+            if os.path.isdir(new_dir):
+                _CWD = new_dir
+                return f"Changed directory to: {_CWD}"
+        return f"ERROR: Directory not found: {new_dir}"
 
-    effective_cwd = os.path.abspath(os.path.join(_CWD, os.path.expanduser(cwd))) if cwd else _CWD
+    with _cwd_lock:
+        current_cwd = _CWD
+    effective_cwd = os.path.abspath(os.path.join(current_cwd, os.path.expanduser(cwd))) if cwd else current_cwd
 
     system = platform.system()
     try:
