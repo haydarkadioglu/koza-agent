@@ -180,6 +180,16 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "calendar": ["productivity"], "sheets": ["productivity"], "airtable": ["productivity"],
 }
 
+# ── Core tools always included ────────────────────────────────────────────────
+# Minimal set sent even when keyword matching gives no results.
+# These are general-purpose enough that almost any task may need them.
+_CORE_TOOL_NAMES: set[str] = {
+    "web_search", "fetch_url",
+    "memory_recall", "memory_store",
+    "run_command", "run_python",
+    "read_file", "write_file",
+}
+
 def _tool_name(t: dict) -> str:
     """Get tool name regardless of nested or flat format."""
     if "function" in t:
@@ -187,6 +197,34 @@ def _tool_name(t: dict) -> str:
     return t.get("name", "")
 
 _TOOL_BY_NAME: dict[str, dict] = {_tool_name(t): t for t in ALL_TOOLS}
+
+
+def _expand_tools_for_call(current_tools: list[dict], called_names: list[str]) -> list[dict]:
+    """
+    Dynamically expand the tool list when the model calls a tool that wasn't
+    sent in the current set. Adds the full group that contains the requested tool.
+    Called once per iteration before feeding results back to the model.
+    """
+    current_names = {_tool_name(t) for t in current_tools}
+    to_add: set[str] = set()
+    for name in called_names:
+        if name in current_names:
+            continue
+        # Find the group this tool belongs to and add all tools in that group
+        for group, group_tools in _TOOL_GROUPS.items():
+            if name in group_tools:
+                to_add.update(group_tools)
+                break
+        # If not in any group, add just the tool itself
+        if name not in to_add and name in _TOOL_BY_NAME:
+            to_add.add(name)
+    if not to_add:
+        return current_tools
+    new_tools = list(current_tools)
+    for n in to_add:
+        if n not in current_names and n in _TOOL_BY_NAME:
+            new_tools.append(_TOOL_BY_NAME[n])
+    return new_tools[:128]
 
 import re as _re
 _CRED_PATTERNS = _re.compile(
@@ -204,8 +242,10 @@ _TG_TOKEN_RE = _re.compile(r'\b(\d{8,12}:[A-Za-z0-9_\-]{30,50})\b')
 def _select_tools(user_input: str) -> list[dict]:
     """
     Return a targeted subset of tools based on keywords in the user message.
-    Falls back to ALL_TOOLS if no keyword matched or if input is very short/generic.
-    Saves tokens when the intent is narrow.
+    - If keywords match → return only those tool groups (+ always-on core tools)
+    - If no match → return only the minimal _CORE_TOOL_NAMES set
+    Never returns ALL_TOOLS upfront; groups are expanded dynamically during the
+    agentic loop via _expand_tools_for_call() when the model requests them.
     """
     lower = user_input.lower()
     groups: set[str] = set()
@@ -213,20 +253,18 @@ def _select_tools(user_input: str) -> list[dict]:
         if keyword in lower:
             groups.update(grp_list)
 
-    if not groups:
-        return ALL_TOOLS[:128]  # fallback: send everything (capped at API limit)
+    # Always include core tools
+    core = [t for t in ALL_TOOLS if _tool_name(t) in _CORE_TOOL_NAMES]
 
-    tool_names: set[str] = set()
+    if not groups:
+        return core  # narrow set — model can get more via _expand_tools_for_call
+
+    tool_names: set[str] = set(_CORE_TOOL_NAMES)
     for g in groups:
         tool_names.update(_TOOL_GROUPS.get(g, []))
 
     selected = [t for t in ALL_TOOLS if _tool_name(t) in tool_names]
-    # Always include core memory tools
-    for name in ("wm_add", "memory_store"):
-        if name in _TOOL_BY_NAME and not any(_tool_name(t) == name for t in selected):
-            selected.append(_TOOL_BY_NAME[name])
-
-    return selected[:128] if selected else ALL_TOOLS[:128]
+    return selected[:128] if selected else core
 
 
 class Agent:
@@ -520,6 +558,9 @@ class Agent:
                 if "PERMANENT FAILURE" in result_str:
                     permanent_failure = True
 
+            # Expand tools for next round if model called something outside current set
+            tools = _expand_tools_for_call(tools, [tc["name"] for tc in tool_calls])
+
             if permanent_failure:
                 self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
                 response = self.provider.chat(self._trim_messages(), tools=[])
@@ -694,6 +735,9 @@ class Agent:
                             yield {"type": "text", "token": tok}
                         self.messages.append({"role": "assistant", "content": final})
                     return
+
+                # Expand tools for next round if model called something outside current set
+                tools = _expand_tools_for_call(tools, [c["name"] for c in calls])
                 # loop → ask model again with tool results
 
         finally:
