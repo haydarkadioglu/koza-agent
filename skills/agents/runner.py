@@ -39,9 +39,11 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         ) * 8 or _DEFAULT_MAX_ITER
 
         # Each subagent gets its own isolated working directory
+        # Save the main agent's CWD and restore it after sub-agent finishes
         ws = Path(cfg.get("workspace_path", str(Path.home() / ".Koza" / "workspace")))
         agent_dir = ws / "subagents" / agent_id
         agent_dir.mkdir(parents=True, exist_ok=True)
+        _prev_cwd = _shell.get_cwd()  # save main agent's CWD
         _shell.set_cwd(str(agent_dir))
         with _registry_lock:
             _subagents[agent_id]["workdir"] = str(agent_dir)
@@ -151,4 +153,10 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         with _registry_lock:
             _subagents[agent_id]["status"] = "error"
             _subagents[agent_id]["result"] = f"Sub-agent error: {type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}"
+    finally:
+        # Restore main agent's CWD so sub-agent doesn't pollute it
+        try:
+            _shell.set_cwd(_prev_cwd)
+        except Exception:
+            pass
 
