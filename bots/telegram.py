@@ -266,6 +266,13 @@ async def _process_message(update, context, agent_factory: Callable,
     user_text = override_text or (msg.text if msg else "") or (msg.caption if msg else "") or ""
     image_path = None
 
+    # ── Whitelist check: only respond to configured owner chat_id ─────────────
+    if not override_text and _bot_cfg:
+        _allowed = str(_bot_cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")).strip()
+        if _allowed and str(chat_id) != _allowed:
+            logger.debug(f"Ignored message from unauthorized chat_id={chat_id}")
+            return
+
     # Auto-save chat_id to config on first message (so proactive notifications work)
     if not override_text and chat_id:
         try:

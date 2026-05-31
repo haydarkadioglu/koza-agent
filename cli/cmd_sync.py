@@ -165,7 +165,18 @@ def _setup_master(mh: dict, cfg: dict) -> None:
     print(_C(f"  Token  : {_C(mh['sync_token'], 'yellow')}", "white"))
     print(_C(f"  Port   : {mh['sync_port']}", "white"))
     print(_C("\n  Share these with your client machines.\n", "grey"))
-    print(_C(f"    master_url: http://<your-ip>:{mh['sync_port']}", "grey"))
+    # Detect public IP for convenience
+    _public_ip = "<your-ip>"
+    try:
+        import urllib.request as _ur
+        _public_ip = _ur.urlopen("https://api.ipify.org", timeout=3).read().decode().strip()
+    except Exception:
+        try:
+            import socket as _s
+            _public_ip = _s.gethostbyname(_s.gethostname())
+        except Exception:
+            pass
+    print(_C(f"    master_url: http://{_public_ip}:{mh['sync_port']}", "grey"))
     print(_C(f"    sync_token: {mh['sync_token']}", "grey"))
     print(_C("\n  Make sure port is open in your firewall!\n", "grey"))
     _hr()
