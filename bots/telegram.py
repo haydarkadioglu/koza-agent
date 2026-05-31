@@ -490,7 +490,16 @@ async def _process_message(update, context, agent_factory: Callable,
     import re as _re
     _CHOICE_RE = _re.compile(r"\[CHOICE:\s*([^\]]+)\]", _re.IGNORECASE)
 
+    _stream_start = _time.time()
+    _STREAM_TIMEOUT = 600  # 10 minutes max per message
+
     while True:
+        # Timeout protection — prevent infinite hangs
+        if _time.time() - _stream_start > _STREAM_TIMEOUT:
+            agent.interrupt()
+            text_buf += "\n\n⏱ (timeout — 10 dakika aşıldı)"
+            break
+
         try:
             event = ev_queue.get_nowait()
         except _queue.Empty:
