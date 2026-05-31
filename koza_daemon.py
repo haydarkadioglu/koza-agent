@@ -326,7 +326,9 @@ class DaemonServer:
         # Multi-host sync
         mh   = self.cfg.get("multi_host", {})
         mode = mh.get("mode", "single")
-        if mode == "master":
+        if mode == "single":
+            _log("Multi-host: mode=single, skipping.")
+        elif mode == "master":
             self._start_sync_server()
         elif mode in ("client", "demo"):
             self._sync_on_start()

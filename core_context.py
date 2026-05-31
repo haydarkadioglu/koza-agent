@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 MAX_CONTEXT_MESSAGES = 50
 # Tool messages older than this many exchanges get compacted to single-line notes
 TOOL_COMPACT_AFTER = 20
+# Maximum characters per tool result (longer results are truncated)
+MAX_TOOL_RESULT_CHARS = 4000
 
 
 class ContextWindow:
@@ -187,6 +189,15 @@ class ContextWindow:
 
         # Pass 0: compact old tool pairs
         window = self._compact_tool_messages(window)
+
+        # Pass 0.5: truncate long tool results to save tokens
+        for m in window:
+            if m.get("role") == "tool" and isinstance(m.get("content"), str):
+                if len(m["content"]) > MAX_TOOL_RESULT_CHARS:
+                    m["content"] = (
+                        m["content"][:MAX_TOOL_RESULT_CHARS]
+                        + f"\n\n[... truncated — {len(m['content'])} chars total]"
+                    )
 
         # Pass 1: remove orphan tool messages (no preceding assistant call)
         valid_call_ids: set[str] = set()

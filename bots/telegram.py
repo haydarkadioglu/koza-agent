@@ -352,6 +352,33 @@ async def _process_message(update, context, agent_factory: Callable,
         )
     agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
 
+    # ── LLM-driven background delegation (Telegram only) ─────────────────────
+    # If the router decides this is a long-running task, spawn a sub-agent
+    # in the background and notify the user when it completes.
+    try:
+        decision = agent._router.classify(user_text)
+        if decision.delegate_to_background:
+            from skills.agents import spawn_subagent
+            result = spawn_subagent(user_text, wait=False)
+            # Extract agent_id from result
+            import re as _re_bg
+            match = _re_bg.search(r"Sub-agent ([a-f0-9]{8})", result)
+            agent_id = match.group(1) if match else "unknown"
+            confirmation = f"🚀 Arka planda çalışıyorum: `{agent_id}`\nGörev: {user_text[:100]}"
+            await context.bot.send_message(chat_id=chat_id, text=confirmation)
+            # Register completion watcher to notify when done
+            from skills.agents.notifier import SubAgentNotifier
+            SubAgentNotifier.start()
+            # Also record in agent history
+            agent.messages.append({"role": "user", "content": user_text})
+            agent.messages.append({
+                "role": "assistant",
+                "content": f"Arka plan görevi başlatıldı (agent {agent_id}). Görev: {user_text[:100]}"
+            })
+            return
+    except Exception:
+        pass  # On router failure, proceed with normal handling
+
     if agent._busy:
         agent.interrupt()
         # Wait for the previous stream to finish (max 5s)
@@ -762,7 +789,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             logger.error(f"Telegram error: {context.error}", exc_info=context.error)
 
         app.add_handler(MessageHandler(
-            (filters.TEXT | filters.PHOTO | filters.DOCUMENT | filters.CAPTION) & ~filters.COMMAND,
+            (filters.TEXT | filters.PHOTO | filters.Document.ALL | filters.CAPTION) & ~filters.COMMAND,
             on_message,
         ))
         app.add_handler(CallbackQueryHandler(on_callback_query))
@@ -875,7 +902,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         app.add_handler(_CmdHandler("whoami", on_whoami))
 
-
+        try:
             app.run_polling(
                 allowed_updates=["message", "edited_message", "callback_query"],
                 drop_pending_updates=True,
