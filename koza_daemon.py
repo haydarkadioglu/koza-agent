@@ -25,12 +25,27 @@ HOST      = "127.0.0.1"
 
 # ── PID / port helpers ────────────────────────────────────────────────────────
 
+_LOG_MAX_BYTES = 500_000   # 500 KB
+_LOG_KEEP_LINES = 200     # lines to retain after rotation
+
+
 def _log(msg: str):
     try:
-        KOZA_DIR.mkdir(parents=True, exist_ok=True)
         import datetime
+        KOZA_DIR.mkdir(parents=True, exist_ok=True)
+        line = f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}\n"
+        # Rotate when file exceeds limit
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > _LOG_MAX_BYTES:
+            try:
+                lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+                LOG_FILE.write_text(
+                    "\n".join(lines[-_LOG_KEEP_LINES:]) + "\n",
+                    encoding="utf-8",
+                )
+            except Exception:
+                LOG_FILE.unlink(missing_ok=True)
         with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+            f.write(line)
     except Exception:
         pass
 
@@ -147,27 +162,6 @@ class ClientSession:
         self._in.put({"type": "_closed"})
 
     # ── permission callback (called by agent thread) ────────────────────────
-
-    _SAFE_TOOLS = {
-        "web_search", "fetch_url", "list_dir", "read_file", "wm_add", "wm_get",
-        "wm_list", "wm_clear", "wm_get_context",
-        "memory_recall", "memory_search", "memory_list", "memory_store",
-        "recall_sessions", "list_sessions",
-        "list_tasks", "add_task", "update_task", "delete_task", "move_task",
-        "list_crons", "create_cron", "add_cron", "delete_cron", "run_cron",
-        "sync_status", "sync_now", "list_hosts",
-        "list_subagents",
-        "get_subagent_status", "github_search_code", "github_list_prs",
-        "github_repo_info", "pandas_query", "matplotlib_plot", "get_config",
-        "list_projects", "list_capabilities", "get_weather", "get_time",
-        "calculator", "search_files", "get_cwd",
-        "get_env_var", "set_env_var", "list_env_vars",
-        "send_message", "get_messages",
-        "telegram_send", "telegram_get_updates", "telegram_send_photo",
-        "set_config", "delete_config",
-        "telegram_status", "start_telegram_daemon",
-        "run_command", "write_file", "create_dir",
-    }
 
     def _permission_callback(self, name: str, args: dict) -> bool:
         # Safe read-only tools: auto-allow without client round-trip
