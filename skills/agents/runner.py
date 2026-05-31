@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ._registry import _subagents, _registry_lock
 
-# Max tool-calling iterations per subagent (override via config coding_mode.max_retries * 3)
-_DEFAULT_MAX_ITER = 15
+# Max tool-calling iterations per subagent
+_DEFAULT_MAX_ITER = 30
 
 
 def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
@@ -36,7 +36,7 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
 
         max_iter = int(
             cfg.get("coding_mode", {}).get("max_retries", 3)
-        ) * 4 or _DEFAULT_MAX_ITER
+        ) * 8 or _DEFAULT_MAX_ITER
 
         # Each subagent gets its own isolated working directory
         ws = Path(cfg.get("workspace_path", str(Path.home() / ".Koza" / "workspace")))

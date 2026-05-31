@@ -442,7 +442,7 @@ class Agent:
         self._busy = True
 
         try:
-            MAX_ROUNDS = 10  # safety cap
+            MAX_ROUNDS = 25  # safety cap — allows complex multi-step tasks
             for _round in range(MAX_ROUNDS):
                 if self._cancel.is_set():
                     yield {"type": "interrupted"}

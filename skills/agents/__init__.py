@@ -46,7 +46,7 @@ def spawn_subagent(goal: str, provider: str = "", model: str = "",
     t.start()
 
     if wait:
-        t.join(timeout=180)
+        t.join(timeout=900)  # 15 minutes max for long-running tasks
         with _registry_lock:
             ag     = _subagents[agent_id]
             status = ag["status"]
