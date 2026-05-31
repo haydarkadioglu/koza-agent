@@ -313,7 +313,17 @@ async def _process_message(update, context, agent_factory: Callable,
         dest = str(dl_dir / safe_name)
         await tg_file.download_to_drive(dest)
         file_info = f"[Dosya indirildi: {dest}]"
-        user_text = f"{file_info}\n{user_text}" if user_text else f"{file_info}\nBu dosyayı işle."
+        mime = doc.mime_type or ""
+        if user_text:
+            user_text = f"{file_info}\n{user_text}"
+        else:
+            # Default: read text-based files, just acknowledge binary ones
+            if any(mime.startswith(p) for p in ("text/", "application/json", "application/xml")) or dest.endswith((".py", ".txt", ".md", ".csv", ".yaml", ".yml", ".toml", ".log")):
+                user_text = f"{file_info}\nBu dosyayı oku ve içeriğini özetle."
+            elif dest.endswith(".pdf"):
+                user_text = f"{file_info}\nBu PDF dosyası indirildi. Kullanıcı komut verince işleyeceğim."
+            else:
+                user_text = f"{file_info}\nDosya kaydedildi. Kullanıcı ne yapmamı istediğini söyleyecek."
 
     if not user_text:
         return

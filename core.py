@@ -114,6 +114,8 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "file": ["file"], "folder": ["file"], "directory": ["file"], "read": ["file"],
     "write": ["file"], "delete": ["file"], "list": ["file", "kanban"],
     "dosya indirildi": ["file"], "[dosya": ["file"],  # Telegram file download messages
+    "dosya": ["file"], "attım": ["file"], "gönderdim": ["file"], "kaydet": ["file", "memory"],
+    "pdf": ["file"], "indir": ["file"], "yükle": ["file"],
     # shell
     "run": ["shell", "code"], "command": ["shell"], "terminal": ["shell"], "powershell": ["shell"],
     # web
