@@ -549,12 +549,21 @@ class Agent:
             self.messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
             permanent_failure = False
             for tc in tool_calls:
-                result = self._execute_tool(tc["name"], tc.get("arguments", {}))
+                name, args = tc["name"], tc.get("arguments", {})
+                if self.permission_callback and not self.permission_callback(name, args):
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", name),
+                        "name": name,
+                        "content": "Permission denied by user.",
+                    })
+                    continue
+                result = self._execute_tool(name, args)
                 result_str = str(result)
                 self.messages.append({
                     "role": "tool",
-                    "tool_call_id": tc.get("id", tc["name"]),
-                    "name": tc["name"],
+                    "tool_call_id": tc.get("id", name),
+                    "name": name,
                     "content": result_str,
                 })
                 if "PERMANENT FAILURE" in result_str:

@@ -87,7 +87,39 @@ def pandas_query(file_path: str, query: str) -> str:
             df = pd.read_excel(file_path)
         else:
             df = pd.read_csv(file_path)
-        result = eval(query, {"df": df, "pd": pd})
+
+        # Safe: try df.query() first (SQL-like, no arbitrary code execution)
+        _simple = query.strip()
+        if _simple.lower().startswith("df.query(") or '(' not in _simple:
+            # Pure filter expression — use df.query()
+            try:
+                result = df.query(_simple)
+                return str(result)
+            except Exception:
+                pass  # fall through to restricted eval
+
+        # Restricted eval: only safe pandas/numpy operations, no builtins
+        import numpy as np
+        _safe_globals: dict = {"__builtins__": {}}
+        _safe_locals: dict = {
+            "df": df,
+            "pd": pd,
+            "np": np,
+            "len": len,
+            "list": list,
+            "dict": dict,
+            "str": str,
+            "int": int,
+            "float": float,
+            "bool": bool,
+            "round": round,
+            "sorted": sorted,
+            "sum": sum,
+            "min": min,
+            "max": max,
+            "print": print,
+        }
+        result = eval(query, _safe_globals, _safe_locals)  # noqa: S307
         return str(result)
     except ImportError:
         return "pandas not installed. Run: pip install pandas openpyxl"

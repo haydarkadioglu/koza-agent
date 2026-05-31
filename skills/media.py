@@ -1,4 +1,5 @@
 """Media skill — Spotify, YouTube search, GIF search."""
+import os
 import urllib.request
 import urllib.parse
 import json
@@ -112,7 +113,9 @@ def youtube_search(query: str, limit: int = 5) -> str:
 
 def gif_search(query: str, limit: int = 3) -> str:
     try:
-        key = _tenor_key or "LIVDSRZULELA"  # Tenor demo key
+        key = _tenor_key or os.environ.get("TENOR_API_KEY", "")
+        if not key:
+            return "ERROR: Tenor API key not configured. Set tenor_api_key in config or TENOR_API_KEY env var."
         encoded = urllib.parse.quote_plus(query)
         url = f"https://tenor.googleapis.com/v2/search?q={encoded}&key={key}&limit={limit}"
         req = urllib.request.Request(url, headers={"User-Agent": "KozaAgent/1.0"})
