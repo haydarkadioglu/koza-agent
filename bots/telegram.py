@@ -270,18 +270,27 @@ async def _process_message(update, context, agent_factory: Callable,
     if not override_text and _bot_cfg:
         _allowed = str(_bot_cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")).strip()
         if _allowed and str(chat_id) != _allowed:
-            logger.debug(f"Ignored message from unauthorized chat_id={chat_id}")
+            logger.warning(
+                f"Unauthorized access attempt from chat_id={chat_id} "
+                f"(allowed={_allowed}). Message dropped."
+            )
             return
 
-    # Auto-save chat_id to config on first message (so proactive notifications work)
+    # Auto-save chat_id ONLY if none is configured yet (first-time owner onboarding).
+    # Never overwrite an existing chat_id — that would let a stranger hijack the bot.
     if not override_text and chat_id:
         try:
             from config import load_config, save_config
             _cfg = load_config()
-            _saved = _cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")
-            if str(_saved) != str(chat_id):
+            _saved = str(_cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "")).strip()
+            if not _saved:
+                # First contact — save this chat_id as the owner
                 _cfg.setdefault("messaging", {}).setdefault("telegram", {})["chat_id"] = str(chat_id)
                 save_config(_cfg)
+                logger.info(f"Owner chat_id set to {chat_id} on first contact.")
+            elif _saved != str(chat_id):
+                # chat_id mismatch after owner is set — already rejected above, just log
+                logger.debug(f"chat_id={chat_id} tried to message but owner is {_saved}.")
         except Exception:
             pass
 
@@ -765,20 +774,38 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
         async def on_start(update, context):
             cid = update.effective_chat.id
             uname = update.effective_user.username or update.effective_user.first_name or str(cid)
-            # Persist chat_id to config so future startups can message proactively
+            # Persist chat_id only if not already configured (owner onboarding)
+            owner_set = False
             try:
                 from config import load_config, save_config
                 c = load_config()
-                c.setdefault("messaging", {}).setdefault("telegram", {})["chat_id"] = str(cid)
-                save_config(c)
+                _existing = str(c.get("messaging", {}).get("telegram", {}).get("chat_id", "")).strip()
+                if not _existing:
+                    c.setdefault("messaging", {}).setdefault("telegram", {})["chat_id"] = str(cid)
+                    save_config(c)
+                    owner_set = True
             except Exception:
                 pass
-            await update.message.reply_text(
-                f"👋 Merhaba @{uname}!\n\n"
-                "Ben *Koza*, senin yapay zeka asistanın. Telegram bağlantımız başarıyla kuruldu! 🎉\n\n"
-                "Artık buradan bana istediğini yazabilirsin. Sana nasıl yardımcı olabilirim?",
-                parse_mode="Markdown",
-            )
+
+            if owner_set:
+                await update.message.reply_text(
+                    f"👋 Merhaba @{uname}!\n\n"
+                    "Ben *Koza*, senin yapay zeka asistanın. Telegram bağlantımız başarıyla kuruldu! 🎉\n\n"
+                    f"Chat ID'n (`{cid}`) kaydedildi. Artık buradan bana istediğini yazabilirsin.",
+                    parse_mode="Markdown",
+                )
+            elif str(c.get("messaging", {}).get("telegram", {}).get("chat_id", "")) == str(cid):
+                await update.message.reply_text(
+                    f"👋 Tekrar merhaba @{uname}! Chat ID'n zaten kayıtlı. Nasıl yardımcı olabilirim?",
+                    parse_mode="Markdown",
+                )
+            else:
+                # Different user tried /start — just greet, don't overwrite owner
+                await update.message.reply_text(
+                    "⛔ Bu bot sadece sahibine hizmet eder.\n"
+                    f"Chat ID'n: `{cid}`",
+                    parse_mode="Markdown",
+                )
 
         app.add_handler(_CmdHandler("start", on_start))
 
@@ -826,7 +853,29 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
         app.add_handler(_CmdHandler("version", on_version))
 
-        try:
+        # ── /whoami command: show chat_id (useful for initial setup) ──────────
+        async def on_whoami(update, context):
+            cid = update.effective_chat.id
+            uname = update.effective_user.username or update.effective_user.first_name or str(cid)
+            try:
+                from config import load_config
+                c = load_config()
+                saved = str(c.get("messaging", {}).get("telegram", {}).get("chat_id", "")).strip()
+                is_owner = saved == str(cid)
+            except Exception:
+                is_owner = False
+                saved = "(unknown)"
+            status_line = "✅ Sen sahibisin." if is_owner else f"⛔ Kayıtlı sahip: `{saved}`"
+            await update.message.reply_text(
+                f"👤 *{uname}*\n"
+                f"Chat ID: `{cid}`\n"
+                f"{status_line}",
+                parse_mode="Markdown",
+            )
+
+        app.add_handler(_CmdHandler("whoami", on_whoami))
+
+
             app.run_polling(
                 allowed_updates=["message", "edited_message", "callback_query"],
                 drop_pending_updates=True,

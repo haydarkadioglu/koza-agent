@@ -87,10 +87,12 @@ def sync_status() -> str:
             clients = get_registered_clients(dbpath)
             if clients:
                 lines.append(f"  Clients ({len(clients)})   :")
+                import datetime
+                _now = time.time()
                 for c in clients:
-                    import datetime
                     last = datetime.datetime.fromtimestamp(c["last_seen"]).strftime("%m-%d %H:%M")
-                    lines.append(f"    • {c['host_name'] or c['id'][:8]}  {c['ip_addr']}  last:{last}")
+                    online = "🟢" if (_now - c["last_seen"]) < 300 else "⚫"
+                    lines.append(f"    {online} {c['host_name'] or c['id'][:8]}  {c['ip_addr']}  last:{last}")
             else:
                 lines.append("  Clients       : none registered yet")
         except Exception:
@@ -153,11 +155,13 @@ def list_hosts() -> str:
             clients = get_registered_clients(dbpath)
             if clients:
                 lines.append(f"  Registered clients ({len(clients)}):")
+                import datetime
+                _now = time.time()
                 for c in clients:
-                    import datetime
                     last = datetime.datetime.fromtimestamp(c["last_seen"]).strftime("%Y-%m-%d %H:%M:%S")
                     first = datetime.datetime.fromtimestamp(c["first_seen"]).strftime("%Y-%m-%d")
-                    lines.append(f"    • {c['host_name'] or c['id'][:8]}  IP:{c['ip_addr']}  last:{last}  since:{first}")
+                    online = "🟢" if (_now - c["last_seen"]) < 300 else "⚫"
+                    lines.append(f"    {online} {c['host_name'] or c['id'][:8]}  IP:{c['ip_addr']}  last:{last}  since:{first}")
             else:
                 lines.append("  No clients registered yet.")
                 lines.append("  Clients register automatically on their first sync.")

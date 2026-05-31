@@ -106,6 +106,12 @@ def sync_pull(master_url: str, token: str, db_path: str,
     If since > 0, only fetch rows updated after that timestamp.
     Returns dict of {table: rows_merged}.
     """
+    # Heartbeat: register with master on every sync to keep last_seen current
+    try:
+        register_with_master(master_url, token, db_path)
+    except Exception:
+        pass
+
     tables = tables or list(SYNCABLE_TABLES.keys())
     qs = "tables=" + ",".join(tables)
     if since > 0:
