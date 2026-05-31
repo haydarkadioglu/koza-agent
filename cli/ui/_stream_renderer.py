@@ -61,6 +61,7 @@ class StreamRenderer:
         model_name: str = "",
         token_limit: int = 32_000,
         session_start: float = 0.0,
+        mode: str = "",
     ) -> None:
         self.layout: ChatLayout = layout
         self._text_started: bool = False
@@ -70,6 +71,7 @@ class StreamRenderer:
         self._token_limit: int = token_limit
         self._session_start: float = session_start or time.time()
         self._total_tokens: int = 0
+        self._mode: str = mode
         # Coding mode persona state
         self._current_persona: Optional[str] = None
         # Coding mode status indicator
@@ -100,6 +102,7 @@ class StreamRenderer:
             session_start=self._session_start,
             bg_task_count=self._bg_task_count,
             coding_mode=self._coding_mode_active,
+            mode=self._mode,
         )
 
     def add_tokens(self, count: int) -> None:

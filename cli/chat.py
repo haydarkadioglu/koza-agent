@@ -39,6 +39,9 @@ def _plain_cli(agent, cfg: dict) -> None:
     model_name    = cfg.get("model") or provider_name
     token_limit   = _TOKEN_LIMITS.get(provider_name, 32_000)
 
+    # Mode label shown in status bar (resolved after background services start)
+    _mode_label: list[str] = [""]  # mutable cell updated after service detection
+
     # ── Start background services (Telegram, cron, sync) ──────────────────────
     _active_services = []
 
@@ -79,6 +82,18 @@ def _plain_cli(agent, cfg: dict) -> None:
             pass
 
     _start_background_services()
+
+    # Determine mode label for status bar
+    try:
+        from koza_daemon import get_daemon_port
+        if get_daemon_port() is not None:
+            _mode_label[0] = "🔗 daemon"
+        elif _active_services:
+            _mode_label[0] = "💻 interactive"
+        else:
+            _mode_label[0] = "💻 interactive"
+    except Exception:
+        _mode_label[0] = "💻 interactive"
 
     # ── Sub-agent completion notifier (CLI) ───────────────────────────────────
     def _cli_subagent_notify(agent_id: str, status: str, goal: str, result: str) -> None:
@@ -337,6 +352,7 @@ def _plain_cli(agent, cfg: dict) -> None:
             model_name=model_name,
             token_limit=token_limit,
             session_start=session_start,
+            mode=_mode_label[0],
         )
         # Carry over accumulated token count from previous requests
         renderer._total_tokens = total_tokens
@@ -554,6 +570,7 @@ def _plain_cli(agent, cfg: dict) -> None:
             model_name=model_name,
             token_limit=token_limit,
             session_start=session_start,
+            mode=_mode_label[0],
         )
         coding_enabled = cfg.get("coding_mode", {}).get("enabled", False)
         dispatcher = InputDispatcher(agent, layout, renderer, coding_enabled=coding_enabled)

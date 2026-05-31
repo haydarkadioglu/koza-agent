@@ -26,11 +26,12 @@ def format_status(
     session_start: float,
     bg_task_count: int = 0,
     coding_mode: bool = False,
+    mode: str = "",
 ) -> str:
     """Compose the full status bar string with all segments.
 
     Segments are separated by " │ " (space-pipe-space) delimiters.
-    Includes: state, model, tokens, elapsed time, bg tasks (if > 0),
+    Includes: state, mode (if set), model, tokens, elapsed time, bg tasks (if > 0),
     shortened CWD, and memory usage.
     """
     # Elapsed time
@@ -62,6 +63,8 @@ def format_status(
     if coding_mode:
         segments.append("🎯 Coding Mode")
     segments.append(state_text)
+    if mode:
+        segments.append(mode)
     segments.append(model_name)
     segments.append(tok_str)
     segments.append(s_time)

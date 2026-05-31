@@ -12,13 +12,8 @@ from skills import (
 )
 from tools.registry import ALL_TOOLS, ALL_HANDLERS
 
-# How many recent messages to keep in context (system + last N)
-# Older messages are summarized/compacted to save tokens
-MAX_CONTEXT_MESSAGES = 50
-
-# Tool messages older than this many exchanges get compacted to a single-line note
-# (keeps tool history visible without burning too many tokens)
-TOOL_COMPACT_AFTER = 20
+# Re-export context constants from core_context for backward compatibility
+from core_context import MAX_CONTEXT_MESSAGES, TOOL_COMPACT_AFTER
 
 
 def _detect_capabilities() -> dict:
@@ -273,12 +268,13 @@ class Agent:
     def __init__(self, provider: LLMProvider, db_path: str, cfg: dict = None,
                  on_token: Callable[[str], None] | None = None,
                  channel: str = "cli"):
+        from core_context import ContextWindow
         self.provider = provider
         self.on_token = on_token
         self.channel: str = channel  # persist for use in _refresh_memory_context
-        self.messages: list[dict] = [{"role": "system", "content": build_system_prompt(channel=channel)}]
-        # Rolling summary of conversations older than the context window
-        self._context_summary: str = ""
+        # Context window manages message list, compaction, trimming, rolling summary
+        self._ctx = ContextWindow(provider)
+        self._ctx.messages = [{"role": "system", "content": build_system_prompt(channel=channel)}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop
@@ -312,216 +308,30 @@ class Agent:
                 (ws / sub).mkdir(parents=True, exist_ok=True)
             _shell.set_cwd(str(ws))
 
+    @property
+    def messages(self) -> list[dict]:
+        return self._ctx.messages
+
+    @messages.setter
+    def messages(self, value: list[dict]) -> None:
+        self._ctx.messages = value
+
+    @property
+    def _context_summary(self) -> str:
+        return self._ctx.summary
+
+    @_context_summary.setter
+    def _context_summary(self, value: str) -> None:
+        self._ctx.summary = value
+
     def _drop_dangling_tool_calls(self) -> int:
-        """
-        Permanently remove any trailing assistant+tool_calls from self.messages
-        that don't have matching tool responses. Returns number of messages removed.
-        Used for emergency recovery from API 400 errors.
-        """
-        # Build set of tool_call_ids that have responses
-        result_ids: set[str] = set()
-        for m in self.messages:
-            if m.get("role") == "tool":
-                result_ids.add(m.get("tool_call_id", ""))
-
-        removed = 0
-        clean: list[dict] = []
-        skip_ids: set[str] = set()
-        for m in self.messages:
-            if m.get("role") == "assistant" and m.get("tool_calls"):
-                missing = [tc for tc in m["tool_calls"]
-                           if tc.get("id", tc.get("name", "")) not in result_ids]
-                if missing:
-                    for tc in m["tool_calls"]:
-                        skip_ids.add(tc.get("id", tc.get("name", "")))
-                    removed += 1
-                    continue
-            if m.get("role") == "tool" and m.get("tool_call_id", "") in skip_ids:
-                removed += 1
-                continue
-            clean.append(m)
-        self.messages = clean
-        return removed
-
-    def _compact_tool_messages(self, messages: list[dict]) -> list[dict]:
-        """Replace old tool message pairs with single compact notes.
-
-        Tool call + result pairs older than TOOL_COMPACT_AFTER non-system messages
-        are compressed to a single user-role "[tool log]" message to save tokens
-        while keeping a readable trace of what was done.
-        """
-        non_system = [m for m in messages if m.get("role") != "system"]
-        system_msgs = [m for m in messages if m.get("role") == "system"]
-
-        if len(non_system) <= TOOL_COMPACT_AFTER:
-            return messages
-
-        # Split: older half gets compacted, recent half is kept verbatim
-        cut = len(non_system) - TOOL_COMPACT_AFTER
-        old_msgs = non_system[:cut]
-        recent_msgs = non_system[cut:]
-
-        # Build a compact log from old messages
-        log_lines: list[str] = []
-        skip_ids: set[str] = set()
-        for m in old_msgs:
-            role = m.get("role", "")
-            if role == "user":
-                content = m.get("content", "")
-                if isinstance(content, list):
-                    content = " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
-                if content:
-                    log_lines.append(f"USER: {str(content)[:200]}")
-            elif role == "assistant":
-                content = m.get("content") or ""
-                tool_calls = m.get("tool_calls") or []
-                if tool_calls:
-                    names = ", ".join(tc.get("name", "?") for tc in tool_calls)
-                    for tc in tool_calls:
-                        skip_ids.add(tc.get("id", tc.get("name", "")))
-                    if content:
-                        log_lines.append(f"ASSISTANT: {str(content)[:120]} [called: {names}]")
-                    else:
-                        log_lines.append(f"ASSISTANT called: {names}")
-                elif content:
-                    log_lines.append(f"ASSISTANT: {str(content)[:200]}")
-            elif role == "tool":
-                result = str(m.get("content", ""))[:150]
-                name = m.get("name", "tool")
-                log_lines.append(f"  ↳ {name}: {result}")
-
-        if log_lines:
-            compact_msg = {
-                "role": "user",
-                "content": "[Earlier conversation summary]\n" + "\n".join(log_lines),
-            }
-            return system_msgs + [compact_msg] + recent_msgs
-        return system_msgs + recent_msgs
+        return self._ctx.drop_dangling_tool_calls()
 
     def _maybe_build_rolling_summary(self) -> None:
-        """When messages exceed MAX_CONTEXT_MESSAGES, summarize the overflow into
-        self._context_summary using a lightweight provider call.
-
-        Summary is stored in memory and injected into the system prompt each turn
-        via _refresh_memory_context so context is never truly lost.
-        """
-        rest = [m for m in self.messages if m.get("role") != "system"]
-        overflow_count = len(rest) - MAX_CONTEXT_MESSAGES
-        if overflow_count <= 0:
-            return
-
-        # Take the overflow portion and summarize it
-        overflow = rest[:overflow_count]
-        lines = []
-        for m in overflow:
-            role = m.get("role", "")
-            content = m.get("content") or ""
-            if isinstance(content, list):
-                content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
-            if role in ("user", "assistant") and content:
-                lines.append(f"{role.upper()}: {str(content)[:300]}")
-        if not lines:
-            return
-
-        snippet = "\n".join(lines[-40:])  # cap to avoid token explosion
-        try:
-            resp = self.provider.chat(
-                [
-                    {"role": "system", "content": "You are a concise summarizer."},
-                    {"role": "user",   "content":
-                        f"Summarize the key facts, decisions, and outcomes from this conversation excerpt "
-                        f"in 3-5 bullet points. Be very concise. Focus on: what was asked, what was done, "
-                        f"key values/names/paths mentioned.\n\n{snippet}"},
-                ],
-                tools=None,
-            )
-            summary_text = (resp.get("content") or "").strip()
-            if summary_text:
-                self._context_summary = summary_text
-        except Exception:
-            # If summarization fails, fall back to raw truncation of the excerpt
-            self._context_summary = "\n".join(lines[-10:])
+        self._ctx.maybe_build_rolling_summary()
 
     def _trim_messages(self) -> list[dict]:
-        """
-        Return a windowed view of messages: system prompt + last MAX_CONTEXT_MESSAGES.
-        - Compacts old tool message pairs into single-line notes
-        - Normalizes assistant tool_calls and tool result messages to API format
-        - Ensures no orphan tool messages
-        - Removes dangling assistant+tool_calls
-        """
-        import json
-        system = [m for m in self.messages if m.get("role") == "system"]
-        rest = [m for m in self.messages if m.get("role") != "system"]
-        window = system + rest[-MAX_CONTEXT_MESSAGES:]
-
-        # ── Pass 0: compact old tool pairs to save tokens ─────────────────────
-        window = self._compact_tool_messages(window)
-
-        # ── Pass 1: ensure every tool msg has a valid preceding assistant ─────
-        valid_call_ids: set[str] = set()
-        for m in window:
-            if m.get("role") == "assistant" and m.get("tool_calls"):
-                for tc in m["tool_calls"]:
-                    valid_call_ids.add(tc.get("id", tc.get("name", "")))
-
-        window = [m for m in window
-                  if not (m.get("role") == "tool"
-                          and m.get("tool_call_id", "") not in valid_call_ids)]
-
-        # ── Pass 2: remove dangling assistant+tool_calls pairs ────────────────
-        result_ids: set[str] = set()
-        for m in window:
-            if m.get("role") == "tool":
-                result_ids.add(m.get("tool_call_id", ""))
-
-        skip_ids: set[str] = set()
-        clean: list[dict] = []
-        for m in window:
-            if m.get("role") == "assistant" and m.get("tool_calls"):
-                missing = [tc for tc in m["tool_calls"]
-                           if tc.get("id", tc.get("name", "")) not in result_ids]
-                if missing:
-                    for tc in m["tool_calls"]:
-                        skip_ids.add(tc.get("id", tc.get("name", "")))
-                    continue
-            if m.get("role") == "tool" and m.get("tool_call_id", "") in skip_ids:
-                continue
-            clean.append(m)
-
-        # ── Pass 3: normalize to API format ──────────────────────────────────
-        normalized = []
-        for m in clean:
-            if m.get("role") == "assistant" and m.get("tool_calls"):
-                api_tool_calls = []
-                for tc in m["tool_calls"]:
-                    if "function" in tc:
-                        api_tool_calls.append({"type": "function", **tc} if "type" not in tc else tc)
-                    else:
-                        args = tc.get("arguments", {})
-                        api_tool_calls.append({
-                            "id": tc.get("id", tc.get("name", "")),
-                            "type": "function",
-                            "function": {
-                                "name": tc.get("name", ""),
-                                "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
-                            },
-                        })
-                m = {**m, "tool_calls": api_tool_calls}
-                if "content" not in m:
-                    m = {**m, "content": None}
-            elif m.get("role") == "tool":
-                m = {**m, "content": str(m.get("content", ""))}
-            elif m.get("role") == "assistant" and "content" not in m:
-                m = {**m, "content": ""}
-            normalized.append(m)
-
-        # ── Pass 4: flatten vision (list) content for non-vision providers ───
-        if not getattr(self.provider, "supports_vision", False):
-            from providers.base import LLMProvider as _LLMProvider
-            normalized = _LLMProvider._flatten_messages_for_text(normalized)
-
-        return normalized
+        return self._ctx.trim(getattr(self.provider, "supports_vision", False))
 
     def interrupt(self) -> bool:
         """Cancel the current in-progress stream_chat. Returns True if was busy."""
