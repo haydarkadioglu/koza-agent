@@ -346,8 +346,17 @@ class Agent:
         self.messages.append({"role": "user", "content": user_input})
         tools = _select_tools(user_input)
 
+        _retried_400 = False
         for _ in range(10):  # max tool iterations
-            response = self.provider.chat(self._trim_messages(), tools=tools)
+            try:
+                response = self.provider.chat(self._trim_messages(), tools=tools)
+            except Exception as _e:
+                _emsg = str(_e)
+                if not _retried_400 and ("tool_calls" in _emsg or "400" in _emsg):
+                    _retried_400 = True
+                    self._drop_dangling_tool_calls()
+                    continue
+                raise
             content = response.get("content")
             tool_calls = response.get("tool_calls")
 
