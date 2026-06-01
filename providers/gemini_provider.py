@@ -2,6 +2,7 @@
 
 Auth modes (set via config providers.gemini.auth):
   api_key  — uses providers.gemini.api_key with google-genai SDK
+  adc      — uses local Google Application Default Credentials (Gemini CLI / gcloud login) [legacy]
   cookie   — browser cookie auth via gemini-webapi (no API key)
 """
 import asyncio
@@ -86,19 +87,40 @@ class GeminiProvider(LLMProvider):
                     "or sign in to gemini.google.com in your browser."
                 )
 
-        else:  # api_key
+        elif auth_mode in ("antigravity", "antigravity_manager"):
+            from openai import OpenAI as _OAI
+            base_url = cfg.get("antigravity_url", "http://localhost:5188") + "/v1"
+            self._ag_client = _OAI(base_url=base_url, api_key="antigravity")
+
+        elif auth_mode in ("adc", "gcloud", "google_cli", "gemini_cli"):
+            self._client = self._build_genai_client_from_adc()
+        else:  # api_key (keeps backward-compatible ADC fallback if api_key is empty)
             from google import genai
             api_key = cfg.get("api_key")
             if api_key:
                 self._client = genai.Client(api_key=api_key)
             else:
-                import google.auth
-                credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/generative-language"]
-                )
-                self._client = genai.Client(credentials=credentials)
+                self._client = self._build_genai_client_from_adc()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_genai_client_from_adc():
+        from google import genai
+        import google.auth
+        from google.auth.exceptions import DefaultCredentialsError
+
+        try:
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/generative-language"]
+            )
+        except DefaultCredentialsError as e:
+            raise RuntimeError(
+                "Gemini ADC auth failed: no local Google credentials found.\n"
+                "Run 'gcloud auth application-default login' or sign in with Gemini CLI, "
+                "then retry."
+            ) from e
+        return genai.Client(credentials=credentials)
 
     @staticmethod
     def _auto_extract_cookies() -> tuple[str, str]:
@@ -596,8 +618,8 @@ class GeminiProvider(LLMProvider):
 
     @property
     def supports_vision(self) -> bool:
-        # All Gemini API-key models support vision; cookie mode doesn't (yet)
-        return self._auth_mode == "api_key"
+        # api_key and antigravity modes support vision; cookie mode doesn't (yet)
+        return self._auth_mode in ("api_key", "antigravity", "antigravity_manager")
 
     @property
     def supports_thinking(self) -> bool:
@@ -653,6 +675,22 @@ class GeminiProvider(LLMProvider):
                 "tool_calls": tool_calls if tool_calls else None,
             }
 
+        if self._auth_mode in ("antigravity", "antigravity_manager"):
+            import json as _json
+            kwargs: dict = {"model": self._model, "messages": messages}
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
+            resp = self._ag_client.chat.completions.create(**kwargs)
+            msg = resp.choices[0].message
+            tool_calls = None
+            if msg.tool_calls:
+                tool_calls = [
+                    {"id": tc.id, "name": tc.function.name, "arguments": _json.loads(tc.function.arguments)}
+                    for tc in msg.tool_calls
+                ]
+            return {"content": msg.content, "tool_calls": tool_calls}
+
         # api_key mode
         contents, system_text = self._messages_to_contents(messages)
 
@@ -700,6 +738,42 @@ class GeminiProvider(LLMProvider):
                 yield result["content"]
             return
 
+        if self._auth_mode in ("antigravity", "antigravity_manager"):
+            import json as _json
+            kwargs: dict = {"model": self._model, "messages": messages, "stream": True}
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
+            resp = self._ag_client.chat.completions.create(**kwargs)
+            tool_chunks: dict = {}
+            for chunk in resp:
+                choice = chunk.choices[0]
+                delta = choice.delta
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_chunks:
+                            tool_chunks[idx] = {"id": None, "name": "", "args": ""}
+                        if getattr(tc, "id", None):
+                            tool_chunks[idx]["id"] = tc.id
+                        if tc.function:
+                            if getattr(tc.function, "name", None):
+                                tool_chunks[idx]["name"] += tc.function.name
+                            if getattr(tc.function, "arguments", None):
+                                tool_chunks[idx]["args"] += tc.function.arguments
+                if delta.content:
+                    yield delta.content
+                if choice.finish_reason == "tool_calls":
+                    for idx, tc in tool_chunks.items():
+                        yield {
+                            "__tool_chunk__": True,
+                            "index": idx,
+                            "id": tc["id"] or tc["name"],
+                            "name": tc["name"],
+                            "args_chunk": tc["args"],
+                        }
+            return
+
         # api_key streaming — use shared message converter
         contents, system_text = self._messages_to_contents(messages)
 
@@ -734,6 +808,12 @@ class GeminiProvider(LLMProvider):
     def list_models(self) -> list[str]:
         if self._auth_mode == "cookie":
             return list(_COOKIE_MODELS.keys())
+        if self._auth_mode in ("antigravity", "antigravity_manager"):
+            try:
+                models = self._ag_client.models.list()
+                return [m.id for m in models if "gemini" in m.id.lower()]
+            except Exception:
+                return ["gemini-3.1-pro-high", "gemini-3-flash-agent", "gemini-3.5-flash"]
         try:
             return [m.name for m in self._client.models.list()]
         except Exception:

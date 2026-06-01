@@ -26,7 +26,11 @@ providers:
     api_key: ""
     base_url: "https://api.deepseek.com/v1"
   gemini:
+    auth: "api_key"                           # api_key | adc | cookie | antigravity
     api_key: ""
+    cookie_1psid: ""                          # only for auth: cookie
+    cookie_1psidts: ""                        # optional
+    antigravity_url: "http://localhost:5188"  # only for auth: antigravity
   ollama:
     base_url: "http://localhost:11434"       # local Ollama server
   github:
@@ -99,6 +103,10 @@ cp .env.example .env
 ### Gemini
 1. Get API key at https://aistudio.google.com/
 2. Models: `gemini-2.0-flash`, `gemini-2.5-pro`
+3. Alternative auth modes:
+   - `providers.gemini.auth: adc` → use local Google credentials (Gemini CLI / gcloud ADC)
+   - `providers.gemini.auth: cookie` → use browser cookie session
+   - `providers.gemini.auth: antigravity` → route through Antigravity Manager proxy (localhost:5188)
 
 ### Ollama (Local)
 1. Install from https://ollama.com

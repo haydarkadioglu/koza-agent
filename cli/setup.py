@@ -9,6 +9,7 @@ from cli.setup_constants import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER
 from cli.setup_helpers import (
     _validate_api_key, _playwright_gemini_login,
     _check_playwright_session, _reload_and_patch_media,
+    _check_antigravity_running,
 )
 
 
@@ -121,7 +122,17 @@ def _setup_primary_provider(cfg: dict) -> None:
     _hr("·", "grey")
 
     cur_provider = cfg.get("provider", "")
-    default_idx = PROVIDERS.index(cur_provider) if cur_provider in PROVIDERS else 0
+    cur_gemini_auth = cfg.get("providers", {}).get("gemini", {}).get("auth", "api_key")
+    if cur_provider == "gemini":
+        if cur_gemini_auth == "cookie":
+            cur_provider_choice = "gemini cookie"
+        elif cur_gemini_auth == "antigravity":
+            cur_provider_choice = "gemini antigravity"
+        else:
+            cur_provider_choice = "gemini api"
+    else:
+        cur_provider_choice = cur_provider
+    default_idx = PROVIDERS.index(cur_provider_choice) if cur_provider_choice in PROVIDERS else 0
     try:
         provider_choice = _select_menu("Select provider", PROVIDERS, default_idx=default_idx)
     except (KeyboardInterrupt, EOFError):
@@ -131,8 +142,19 @@ def _setup_primary_provider(cfg: dict) -> None:
         provider = "gemini"; gemini_auth = "api_key"
     elif provider_choice == "gemini cookie":
         provider = "gemini"; gemini_auth = "cookie"
+    elif provider_choice == "gemini antigravity":
+        provider = "gemini"; gemini_auth = "antigravity"
     else:
         provider = provider_choice; gemini_auth = "api_key"
+
+    if provider_choice == "gemini antigravity":
+        ag_url = cfg.get("providers", {}).get("antigravity manager", {}).get("base_url", "http://localhost:5188")
+        ag_running = _check_antigravity_running(ag_url)
+        if ag_running:
+            print(_C(f"  ✓  Antigravity Manager reachable at {ag_url}\n", "green"))
+        else:
+            print(_C(f"  ⚠  Antigravity Manager not reachable at {ag_url}", "yellow"))
+            print(_C("     Make sure it is running before using Koza.\n", "yellow"))
 
     models = PROVIDER_MODELS.get(provider_choice, [""]) + [_OTHER]
     try:
@@ -142,8 +164,12 @@ def _setup_primary_provider(cfg: dict) -> None:
     model = _prompt("Enter model name") if model_choice == _OTHER else model_choice
 
     api_key = ""
+    cookie_setup_done = False
 
-    if provider == "gemini" and gemini_auth == "cookie":
+    if provider_choice == "gemini cookie" and gemini_auth == "cookie" and _check_playwright_session():
+        cookie_setup_done = True
+
+    if provider == "gemini" and gemini_auth == "cookie" and not cookie_setup_done:
         session_ok = _check_playwright_session()
         if session_ok:
             print(_C("  ✓  Gemini browser session found.\n", "green"))
@@ -228,6 +254,9 @@ def _setup_primary_provider(cfg: dict) -> None:
     antigravity_url = "http://localhost:5188"
     if provider == "antigravity manager":
         antigravity_url = _prompt("Antigravity Tools LS URL", default="http://localhost:5188")
+    elif gemini_auth == "antigravity":
+        ag_existing = cfg.get("providers", {}).get("antigravity manager", {}).get("base_url", "http://localhost:5188")
+        antigravity_url = _prompt("Antigravity Manager URL", default=ag_existing)
     openrouter_url = ""
     if provider == "openrouter":
         existing_url = cfg.get("providers", {}).get("openrouter", {}).get("base_url", "")
@@ -244,6 +273,8 @@ def _setup_primary_provider(cfg: dict) -> None:
         cfg.setdefault("providers", {}).setdefault("gemini", {})["auth"] = gemini_auth
         if gemini_auth == "api_key" and api_key:
             cfg["providers"]["gemini"]["api_key"] = api_key
+        if gemini_auth == "antigravity":
+            cfg["providers"]["gemini"]["antigravity_url"] = antigravity_url
     elif api_key:
         cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = api_key
     if provider == "ollama":
@@ -743,7 +774,10 @@ def cmd_provider(args: list) -> None:
                 session_ok = _check_playwright_session()
                 cred = _C("browser ✓", "green") if session_ok else _C("browser ✗", "red")
             elif auth == "cookie":
-                cred = _C("cookie ✓", "green") if key else _C("cookie ✗", "red")
+                cookie_ok = bool(vals.get("cookie_1psid", ""))
+                cred = _C("cookie ✓", "green") if cookie_ok else _C("cookie ✗", "red")
+            elif auth == "adc":
+                cred = _C("cli/adc", "teal")
             else:
                 cred = _C("key ✓", "green") if key else _C("—", "grey")
             marker = _C("◉ active", "teal") if is_active else _C("○", "grey")
@@ -804,6 +838,8 @@ def cmd_provider(args: list) -> None:
             cred = "browser"
         elif auth == "cookie":
             cred = "cookie"
+        elif auth == "adc":
+            cred = "cli/adc"
         elif key:
             cred = "key ✓"
         elif name == "ollama":

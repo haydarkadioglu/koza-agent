@@ -111,7 +111,7 @@ DISCORD_WEBHOOK_URL=...
 | `openai` | `providers.openai.api_key` | GPT-4o, o1, etc. |
 | `anthropic` | `providers.anthropic.api_key` | Claude 3.5 Sonnet, etc. |
 | `deepseek` | `providers.deepseek.api_key` | deepseek-chat, deepseek-reasoner |
-| `gemini` | `providers.gemini.api_key` | Gemini 2.0 Flash, etc. |
+| `gemini` | `providers.gemini.auth` + (`providers.gemini.api_key` if `api_key`) | API key, local ADC (Gemini CLI/gcloud), or cookie session |
 | `ollama` | `providers.ollama.base_url` | Local models (default: localhost:11434) |
 | `github` | `providers.github.token` | GitHub Models (free tier via GitHub token) |
 

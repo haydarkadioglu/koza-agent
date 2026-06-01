@@ -1,5 +1,7 @@
 """Setup helper functions — API key validation, Playwright login, media config."""
 import os
+import shutil
+import subprocess
 
 from cli.ui import _C, _prompt_secret
 
@@ -124,6 +126,44 @@ def _check_playwright_session() -> bool:
     profile_dir = os.path.join(os.path.expanduser("~"), ".koza", "gemini_browser")
     prefs = os.path.join(profile_dir, "Default", "Preferences")
     return os.path.isfile(prefs)
+
+
+def _google_adc_login_interactive() -> bool:
+    """Run an interactive local Google login flow (opens browser) for ADC."""
+    print(_C("\n  Opening Google login flow for Gemini CLI / ADC...\n", "grey"))
+
+    if shutil.which("gcloud"):
+        try:
+            subprocess.run(
+                ["gcloud", "auth", "application-default", "login"],
+                check=True,
+            )
+            print(_C("  ✓  Google ADC login completed.\n", "green"))
+            return True
+        except subprocess.CalledProcessError as e:
+            print(_C(f"  ⚠  gcloud login failed: {e}\n", "yellow"))
+
+    if shutil.which("gemini"):
+        try:
+            subprocess.run(["gemini", "auth", "login"], check=True)
+            print(_C("  ✓  Gemini CLI login completed.\n", "green"))
+            return True
+        except subprocess.CalledProcessError as e:
+            print(_C(f"  ⚠  Gemini CLI login failed: {e}\n", "yellow"))
+
+    print(_C("  ✗  No login tool found.", "red"))
+    print(_C("  Install Google Cloud CLI (gcloud) or Gemini CLI, then retry.\n", "yellow"))
+    return False
+
+
+def _check_antigravity_running(base_url: str = "http://localhost:5188") -> bool:
+    """Return True if Antigravity Manager is reachable at base_url."""
+    try:
+        import urllib.request
+        req = urllib.request.urlopen(f"{base_url}/v1/models", timeout=2)
+        return req.status == 200
+    except Exception:
+        return False
 
 
 def _reload_and_patch_media(provider: str, auth: str, api_key: str = ""):

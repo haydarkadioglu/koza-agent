@@ -19,7 +19,7 @@ def default_config() -> dict:
             "openai":     {"api_key": "", "base_url": "https://api.openai.com/v1"},
             "anthropic":  {"api_key": ""},
             "deepseek":   {"api_key": "", "base_url": "https://api.deepseek.com/v1"},
-            "gemini":     {"api_key": ""},
+            "gemini":     {"api_key": "", "auth": "api_key"},
             "ollama":     {"base_url": "http://localhost:11434"},
             "antigravity manager": {"base_url": "http://localhost:5188"},
             "github":     {"token": ""},
