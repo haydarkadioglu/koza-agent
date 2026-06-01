@@ -27,6 +27,7 @@ def format_status(
     bg_task_count: int = 0,
     coding_mode: bool = False,
     mode: str = "",
+    provider_auth: str = "",
 ) -> str:
     """Compose the full status bar string with all segments.
 
@@ -58,6 +59,15 @@ def format_status(
     # Shortened CWD
     cwd = shorten_path(os.getcwd())
 
+    # Provider auth badge
+    _AUTH_BADGE = {
+        "cookie":      "🍪",
+        "antigravity": "🌀",
+        "api_key":     "🔑",
+        "adc":         "☁",
+    }
+    auth_badge = _AUTH_BADGE.get(provider_auth, "") if provider_auth else ""
+
     # Build segments list
     segments = []
     if coding_mode:
@@ -65,7 +75,8 @@ def format_status(
     segments.append(state_text)
     if mode:
         segments.append(mode)
-    segments.append(model_name)
+    model_label = f"{auth_badge} {model_name}".strip() if auth_badge else model_name
+    segments.append(model_label)
     segments.append(tok_str)
     segments.append(s_time)
     if bg_task_count > 0:

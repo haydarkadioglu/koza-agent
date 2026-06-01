@@ -277,7 +277,7 @@ def _plain_cli(agent, cfg: dict) -> None:
                 print(_C("\n  Goodbye! 👋\n", "yellow"))
                 _hr()
             return None  # signal exit
-        if user_input == "/reset":
+        if user_input == "/reset" or user_input == "/clear":
             agent.reset()
             total_tokens = 0
             layout = _ui_layout[0]
@@ -528,12 +528,19 @@ def _plain_cli(agent, cfg: dict) -> None:
         from cli.input_dispatcher import InputDispatcher
 
         layout = ChatLayout(on_submit=lambda t: None)  # placeholder
+
+        # Derive provider auth mode for status badge
+        _provider_auth = cfg.get("providers", {}).get(provider_name, {}).get("auth", "")
+        if not _provider_auth and provider_name.startswith("gemini"):
+            _provider_auth = cfg.get("providers", {}).get("gemini", {}).get("auth", "")
+
         renderer = StreamRenderer(
             layout,
             model_name=model_name,
             token_limit=token_limit,
             session_start=session_start,
             mode=_mode_label[0],
+            provider_auth=_provider_auth,
         )
         coding_enabled = cfg.get("coding_mode", {}).get("enabled", False)
         dispatcher = InputDispatcher(agent, layout, renderer, coding_enabled=coding_enabled)
@@ -547,6 +554,17 @@ def _plain_cli(agent, cfg: dict) -> None:
             text = text.strip()
             if not text:
                 dispatcher.submit(text)  # empty-Enter interrupt
+                return
+            # Slash hint: lone "/" shows available commands
+            if text == "/":
+                _SLASH_CMDS = [
+                    "/help", "/sessions", "/save", "/clear", "/reset",
+                    "/provider", "/kanban", "/memory", "/mode coding", "/mode off",
+                ]
+                layout.append_output(
+                    _C("  Commands: ", "grey")
+                    + _C("  ".join(_SLASH_CMDS), "cyan") + "\n"
+                )
                 return
             # Check slash commands first
             cmd = _handle_inline(text)
@@ -577,6 +595,12 @@ def _plain_cli(agent, cfg: dict) -> None:
                 dispatcher._show_interrupting_status()
             else:
                 event.app.exit()
+
+        @kb.add('c-l')
+        def _handle_ctrl_l(event):
+            """Ctrl+L: clear output pane."""
+            layout.clear_output()
+            layout.append_output(_C("  ✓  Screen cleared.\n", "grey"))
 
         app = Application(
             layout=layout.create_layout(),
@@ -669,6 +693,10 @@ def _plain_cli(agent, cfg: dict) -> None:
             break
 
         if not user_input:
+            continue
+        # Slash hint in fallback mode too
+        if user_input == "/":
+            print(_C("  Commands: /help /sessions /save /clear /reset /provider /kanban /memory", "grey"))
             continue
         cmd = _handle_inline(user_input)
         if cmd is None:

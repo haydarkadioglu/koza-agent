@@ -42,6 +42,24 @@ class StreamRenderer:
         "github_search_code": "Searching GitHub",
         "crypto_price": "Fetching crypto price", "stock_price": "Fetching stock",
         "get_time": "Checking time", "get_weather": "Checking weather",
+        # Additional tools
+        "search_web": "Searching the web", "browse": "Browsing URL",
+        "read_url": "Reading URL", "open_url": "Opening URL",
+        "create_file": "Creating file", "delete_file": "Deleting file",
+        "move_file": "Moving file", "copy_file": "Copying file",
+        "append_file": "Appending to file", "patch_file": "Patching file",
+        "search_files": "Searching files", "find_files": "Finding files",
+        "run_bash": "Running bash", "execute": "Executing command",
+        "run_script": "Running script", "run_code": "Running code",
+        "kanban_add": "Adding task", "kanban_update": "Updating task",
+        "kanban_list": "Listing tasks", "kanban_delete": "Deleting task",
+        "cron_add": "Scheduling job", "cron_list": "Listing cron jobs",
+        "save_session": "Saving session", "recall_sessions": "Searching sessions",
+        "list_sessions": "Listing sessions",
+        "credential_get": "Fetching credential", "credential_set": "Saving credential",
+        "spawn_subagent": "Spawning sub-agent", "get_subagent_status": "Checking sub-agent",
+        "translate": "Translating text", "summarize": "Summarizing",
+        "diff": "Comparing files",
     }
 
     # Args that are too bulky to show in preview
@@ -62,6 +80,7 @@ class StreamRenderer:
         token_limit: int = 32_000,
         session_start: float = 0.0,
         mode: str = "",
+        provider_auth: str = "",
     ) -> None:
         self.layout: ChatLayout = layout
         self._text_started: bool = False
@@ -72,6 +91,7 @@ class StreamRenderer:
         self._session_start: float = session_start or time.time()
         self._total_tokens: int = 0
         self._mode: str = mode
+        self._provider_auth: str = provider_auth
         # Coding mode persona state
         self._current_persona: Optional[str] = None
         # Coding mode status indicator
@@ -103,6 +123,7 @@ class StreamRenderer:
             bg_task_count=self._bg_task_count,
             coding_mode=self._coding_mode_active,
             mode=self._mode,
+            provider_auth=self._provider_auth,
         )
 
     def add_tokens(self, count: int) -> None:
@@ -345,14 +366,16 @@ class StreamRenderer:
 
     def _open_response_box(self, label: str, response_type: str = "normal") -> None:
         """Open a response box with border color based on response type."""
+        import shutil as _shutil
         color = _RESPONSE_COLORS.get(response_type, "teal")
         self._current_box_color = color
+        tw = max(36, _shutil.get_terminal_size((80, 24)).columns - 12)
         self.layout.append_output(
             "\n"
             + _C("  ╭─ ", color)
             + _timestamp() + " "
             + _C(f"{label} ", color, "bold")
-            + _C("─" * 40, color)
+            + _C("─" * tw, color)
             + "\n"
             + _C("  │ ", color)
         )

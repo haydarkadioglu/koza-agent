@@ -1,6 +1,7 @@
 """Chat layout using prompt_toolkit's split-pane terminal UI."""
 from __future__ import annotations
 
+import shutil
 import threading
 import time
 from typing import Callable, Optional
@@ -9,6 +10,7 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, VSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -61,6 +63,8 @@ class ChatLayout:
             accept_handler=self._on_accept,
             height=Dimension(min=1, max=5),
             dont_extend_height=True,
+            history=InMemoryHistory(),
+            focusable=True,
         )
         # Attach custom key bindings to the TextArea's BufferControl
         self.input_area.control.key_bindings = self._create_input_bindings()
@@ -71,9 +75,8 @@ class ChatLayout:
     def _create_input_bindings(self) -> KeyBindings:
         """Create key bindings for the input area.
 
-        Enter submits the input (calls validate_and_handle which triggers
-        the accept_handler). Escape+Enter (Meta+Enter) inserts a newline
-        for multi-line composition.
+        Enter submits the input. Shift+Enter / Escape+Enter inserts a newline.
+        Up/Down navigate input history when the buffer has a single line.
         """
         from prompt_toolkit.filters import is_done
 
@@ -81,19 +84,39 @@ class ChatLayout:
 
         @kb.add("enter", eager=True, filter=~is_done)
         def _submit(event):
-            """Submit on Enter — override multiline's default newline.
-            Works even after paste (bracketed paste mode)."""
+            """Submit on Enter — override multiline's default newline."""
             buf = event.current_buffer
-            # If completion menu is open, dismiss it first
             if buf.complete_state:
                 buf.complete_state = None
                 return
             buf.validate_and_handle()
 
         @kb.add("escape", "enter")
+        @kb.add("c-j")   # Shift+Enter on many terminals
         def _newline(event):
-            """Insert newline on Escape+Enter (Meta+Enter / Shift+Enter)."""
+            """Insert newline on Shift+Enter / Escape+Enter."""
             event.current_buffer.insert_text("\n")
+
+        @kb.add("up", eager=True)
+        def _history_prev(event):
+            """Navigate to previous history entry when on first line."""
+            buf = event.current_buffer
+            # Only navigate history if cursor is on the first line
+            if buf.document.cursor_position_row == 0:
+                buf.history_backward(count=1)
+            else:
+                buf.cursor_up(count=1)
+
+        @kb.add("down", eager=True)
+        def _history_next(event):
+            """Navigate to next history entry when on last line."""
+            buf = event.current_buffer
+            row = buf.document.cursor_position_row
+            line_count = len(buf.document.lines)
+            if row == line_count - 1:
+                buf.history_forward(count=1)
+            else:
+                buf.cursor_down(count=1)
 
         return kb
 
@@ -172,15 +195,19 @@ class ChatLayout:
             height=Dimension.exact(1),
         )
 
-        # Bottom: input area with Unicode box-drawing border frame
+        # Bottom: input area with Unicode box-drawing border frame (responsive width)
+        def _border_top():
+            w = max(40, shutil.get_terminal_size((80, 24)).columns - 4)
+            return ANSI(f"\033[90m┌{'─' * w}┐\033[0m")
+
+        def _border_bot():
+            w = max(40, shutil.get_terminal_size((80, 24)).columns - 4)
+            return ANSI(f"\033[90m└{'─' * w}┘\033[0m")
+
         framed_input = HSplit([
-            Window(content=FormattedTextControl(
-                lambda: ANSI("\033[90m┌" + "─" * 60 + "┐\033[0m")
-            ), height=Dimension.exact(1)),
+            Window(content=FormattedTextControl(_border_top), height=Dimension.exact(1)),
             self.input_area,
-            Window(content=FormattedTextControl(
-                lambda: ANSI("\033[90m└" + "─" * 60 + "┘\033[0m")
-            ), height=Dimension.exact(1)),
+            Window(content=FormattedTextControl(_border_bot), height=Dimension.exact(1)),
         ])
 
         container = HSplit(
