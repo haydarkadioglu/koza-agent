@@ -244,6 +244,82 @@ def cmd_clean(args: list) -> None:
 
 
 
+def cmd_sessions(args: list) -> None:
+    """Browse, load, or delete saved sessions. Usage: koza sessions [delete <id>]"""
+    from skills.session_memory import get_session_rows, delete_session, load_session
+    import time
+
+    # koza sessions delete <id>
+    if args and args[0] == "delete":
+        if len(args) < 2:
+            print(_C("  ✗  Usage: koza sessions delete <id>", "red"))
+            return
+        try:
+            sid = int(args[1])
+        except ValueError:
+            print(_C(f"  ✗  Invalid session ID: {args[1]}", "red"))
+            return
+        print(delete_session(sid))
+        return
+
+    rows = get_session_rows(limit=20)
+    if not rows:
+        print(_C("  ℹ  No saved sessions.", "grey"))
+        return
+
+    _hr()
+    print(_C("  KOZA  ·  Saved Sessions", "bold", "yellow"))
+    _hr()
+    for r in rows:
+        ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["started"]))
+        summary = f"  {_C(r['summary'][:70], 'grey')}" if r.get("summary") else ""
+        rid = r["id"]
+        print(f"  {_C(f'#{rid}', 'cyan')}  {_C(ts, 'grey')}  {r['title']}{summary}")
+    print()
+
+    labels = []
+    for r in rows:
+        ts = time.strftime("%m-%d %H:%M", time.localtime(r["started"]))
+        labels.append(f"#{r['id']}  {ts}  {r['title'][:50]}")
+    labels.append("— Cancel —")
+
+    try:
+        choice = _select_menu("Select session", labels, default_idx=len(labels) - 1)
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    if choice == "— Cancel —":
+        return
+
+    # Parse selected session id from label
+    sid = int(choice.split()[0].lstrip("#"))
+
+    try:
+        action = _select_menu(f"Session #{sid}", ["Load (resume this session)", "Delete", "Cancel"], default_idx=0)
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    if action.startswith("Load"):
+        msgs = load_session(sid)
+        if not msgs:
+            print(_C(f"  ✗  Session #{sid} not found or empty.", "red"))
+            return
+        user_msgs = [m for m in msgs if m.get("role") in ("user", "assistant")]
+        print(_C(f"\n  ✓  Session #{sid} loaded ({len(user_msgs)} messages).", "green"))
+        print(_C("  Start a new chat to use it:  koza --session {sid}", "grey"))
+        print(_C("  (Full session resume coming in a future update)", "grey"))
+    elif action.startswith("Delete"):
+        try:
+            confirm = input(_C(f"  Delete session #{sid}? Type 'yes' to confirm: ", "red")).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print(_C("  Cancelled.", "grey"))
+            return
+        if confirm == "yes":
+            print(delete_session(sid))
+        else:
+            print(_C("  Cancelled.", "grey"))
+
+
 def cmd_help(args: list) -> None:
     """Print this help text."""
     _hr()
@@ -257,6 +333,7 @@ def cmd_help(args: list) -> None:
         ("setup",          "Configure provider, API keys, fallback"),
         ("config",         "Show current configuration"),
         ("provider",       "Switch active provider / model"),
+        ("sessions",        "Browse, load or delete saved sessions"),
         ("kanban",         "Show Kanban board and cron jobs"),
         ("telegram",       "Configure Telegram bot token"),
         ("sync",           "Multi-host sync (status / pull / push / setup)"),

@@ -58,11 +58,14 @@ def _print_banner(cfg: dict) -> None:
 def _print_inline_help() -> None:
     print(_C("\n  Commands", "bold"))
     cmds = [
-        ("/help",   "Show this help"),
-        ("/kanban", "Show Kanban board & cron jobs"),
-        ("/memory", "Show working memory"),
-        ("/reset",  "Clear conversation history"),
-        ("exit",    "Quit Koza"),
+        ("/help",         "Show this help"),
+        ("/sessions",     "Browse / load / delete saved sessions"),
+        ("/save [title]", "Save current session"),
+        ("/kanban",       "Show Kanban board & cron jobs"),
+        ("/memory",       "Show working memory"),
+        ("/reset",        "Clear conversation history"),
+        ("/provider",     "Switch LLM provider"),
+        ("exit",          "Quit Koza"),
     ]
     for cmd, desc in cmds:
         print(f"  {_C(cmd, 'cyan'):<28}  {desc}")

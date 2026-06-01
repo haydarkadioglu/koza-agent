@@ -339,6 +339,8 @@ def _plain_cli(agent, cfg: dict) -> None:
                 lines.append(_C("\n  Commands", "bold"))
                 cmds = [
                     ("/help",     "Show this help"),
+                    ("/sessions", "Browse / load / delete saved sessions"),
+                    ("/save [title]", "Save current session"),
                     ("/provider", "Switch LLM provider"),
                     ("/kanban",   "Show Kanban board & cron jobs"),
                     ("/memory",   "Show working memory"),
@@ -423,6 +425,99 @@ def _plain_cli(agent, cfg: dict) -> None:
                     else:
                         print(_C(f"  ✗  Failed: {e}\n", "red"))
             return True
+
+        # ── /save [title] ── manually save current session ──────────────────
+        if user_input.startswith("/save"):
+            parts = user_input.split(None, 1)
+            save_title = parts[1].strip() if len(parts) > 1 else ""
+            result = agent.auto_save(title=save_title)
+            layout = _ui_layout[0]
+            msg = _C(f"  ✓  {result}\n", "green") if result else _C("  ✗  Save failed.\n", "red")
+            if layout is not None:
+                layout.append_output(msg)
+            else:
+                print(msg)
+            return True
+
+        # ── /sessions ── browse / load / delete sessions ─────────────────────
+        if user_input == "/sessions":
+            import time as _time
+            from skills.session_memory import get_session_rows, delete_session as _del_session, load_session as _load_session
+            rows = get_session_rows(limit=20)
+            layout = _ui_layout[0]
+
+            def _out(txt):
+                if layout is not None:
+                    layout.append_output(txt)
+                else:
+                    print(txt, end="")
+
+            if not rows:
+                _out(_C("  ℹ  No saved sessions.\n", "grey"))
+                return True
+
+            # Build list display
+            lines = [_C("\n  Saved Sessions\n", "bold")]
+            for r in rows:
+                ts = _time.strftime("%Y-%m-%d %H:%M", _time.localtime(r["started"]))
+                summary = f"  {r['summary'][:60]}" if r.get("summary") else ""
+                rid = r["id"]
+                lines.append(f"  {_C(f'#{rid}', 'cyan')}  {_C(ts, 'grey')}  {r['title']}{summary}\n")
+            _out("\n".join(lines) + "\n")
+
+            # Build selection menu
+            labels = []
+            for r in rows:
+                ts = _time.strftime("%m-%d %H:%M", _time.localtime(r["started"]))
+                labels.append(f"#{r['id']}  {ts}  {r['title'][:45]}")
+            labels.append("— Cancel —")
+
+            try:
+                choice = _select_menu("Select session", labels, default_idx=len(labels) - 1)
+            except (KeyboardInterrupt, EOFError):
+                return True
+
+            if choice == "— Cancel —":
+                return True
+
+            sid = int(choice.split()[0].lstrip("#"))
+
+            try:
+                action = _select_menu(f"Session #{sid}", ["Load (resume)", "Delete", "Cancel"], default_idx=0)
+            except (KeyboardInterrupt, EOFError):
+                return True
+
+            if action.startswith("Load"):
+                msgs = _load_session(sid)
+                if not msgs:
+                    _out(_C(f"  ✗  Session #{sid} not found or empty.\n", "red"))
+                    return True
+                # Restore messages into agent (keep system prompt)
+                sys_msg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
+                agent.messages = ([sys_msg] if sys_msg else []) + msgs
+                agent._context_summary = ""
+                if _ui_renderer[0]:
+                    _ui_renderer[0]._total_tokens = 0
+                user_msgs = [m for m in msgs if m.get("role") in ("user", "assistant")]
+                _out(_C(f"  ✓  Session #{sid} loaded ({len(user_msgs)} messages). Continue chatting!\n", "green"))
+                # Show last 5 messages as preview
+                for m in user_msgs[-5:]:
+                    role_label = _C("  You:  ", "blue") if m["role"] == "user" else _C("  Koza: ", "teal")
+                    content = (m.get("content") or "")[:120]
+                    _out(role_label + content + "\n")
+                _out("\n")
+            elif action.startswith("Delete"):
+                try:
+                    confirm = input(_C(f"  Delete session #{sid}? Type 'yes': ", "red")).strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    _out(_C("  Cancelled.\n", "grey"))
+                    return True
+                if confirm == "yes":
+                    _out(_C(f"  {_del_session(sid)}\n", "green"))
+                else:
+                    _out(_C("  Cancelled.\n", "grey"))
+            return True
+
         return False
 
     # ── Main loop — prompt_toolkit Application (split-pane UI) ──────────────────
