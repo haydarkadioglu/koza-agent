@@ -4,6 +4,18 @@ from typing import Generator
 import json
 from .base import LLMProvider
 
+# Models (or substrings) known to support image input via OpenRouter
+_VISION_KEYWORDS = (
+    "gpt-4o", "gpt-4-turbo", "gpt-4v",
+    "o1", "o3", "o4",
+    "claude-3", "claude-opus", "claude-sonnet", "claude-haiku",
+    "gemini",
+    "llava", "bakllava", "pixtral",
+    "vision", "vl-",
+    "qwen2-vl", "qwen-vl",
+    "mistral-pixtral",
+)
+
 
 class OpenRouterProvider(LLMProvider):
     def __init__(self, cfg: dict):
@@ -24,7 +36,12 @@ class OpenRouterProvider(LLMProvider):
     @property
     def supports_thinking(self) -> bool:
         m = self._model.lower()
-        return any(k in m for k in ("o1", "o3", "o4", "deepseek-r1", "reasoner"))
+        return any(k in m for k in ("o1", "o3", "o4", "deepseek-r1", "reasoner", "r1", "qwq", "thinking"))
+
+    @property
+    def supports_vision(self) -> bool:
+        m = self._model.lower()
+        return any(k in m for k in _VISION_KEYWORDS)
 
     def chat(self, messages, tools=None, stream=False):
         kwargs = {"model": self._model, "messages": messages}
@@ -94,14 +111,25 @@ class OpenRouterProvider(LLMProvider):
     def list_models(self) -> list[str]:
         try:
             models = self._client.models.list()
-            return [m.id for m in models.data[:50]]
+            return [m.id for m in models.data[:100]]
         except Exception:
             return [
-                "openai/gpt-4o",
-                "openai/gpt-4o-mini",
-                "anthropic/claude-3.5-sonnet",
-                "google/gemini-2.0-flash-exp",
-                "deepseek/deepseek-chat",
+                # OpenAI
+                "openai/gpt-4o", "openai/gpt-4o-mini",
+                "openai/o3", "openai/o4-mini",
+                # Anthropic
+                "anthropic/claude-opus-4", "anthropic/claude-sonnet-4-5",
+                "anthropic/claude-haiku-3-5",
+                # Google
+                "google/gemini-2.5-pro", "google/gemini-2.5-flash",
+                "google/gemini-2.0-flash-001",
+                # DeepSeek
+                "deepseek/deepseek-r1", "deepseek/deepseek-chat-v3-0324",
+                # Meta Llama
+                "meta-llama/llama-4-maverick", "meta-llama/llama-4-scout",
                 "meta-llama/llama-3.3-70b-instruct",
-                "mistralai/mixtral-8x7b-instruct",
+                # Qwen
+                "qwen/qwen3-235b-a22b", "qwen/qwq-32b",
+                # Mistral
+                "mistralai/mistral-large-2411", "mistralai/mistral-small-3.1-24b-instruct",
             ]

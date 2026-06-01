@@ -228,6 +228,14 @@ def _setup_primary_provider(cfg: dict) -> None:
     antigravity_url = "http://localhost:5188"
     if provider == "antigravity manager":
         antigravity_url = _prompt("Antigravity Tools LS URL", default="http://localhost:5188")
+    openrouter_url = ""
+    if provider == "openrouter":
+        existing_url = cfg.get("providers", {}).get("openrouter", {}).get("base_url", "")
+        custom = _prompt(
+            "Custom base URL (Enter to use openrouter.ai default)",
+            default=existing_url or "",
+        )
+        openrouter_url = custom.strip() or ""
 
     # Patch cfg
     cfg["provider"] = provider
@@ -242,6 +250,8 @@ def _setup_primary_provider(cfg: dict) -> None:
         cfg.setdefault("providers", {}).setdefault("ollama", {})["base_url"] = ollama_url
     if provider == "antigravity manager":
         cfg.setdefault("providers", {}).setdefault("antigravity manager", {})["base_url"] = antigravity_url
+    if provider == "openrouter" and openrouter_url:
+        cfg.setdefault("providers", {}).setdefault("openrouter", {})["base_url"] = openrouter_url
     print(_C(f"\n  ✓  Primary provider set to {provider} / {model}\n", "green"))
 
 
