@@ -87,9 +87,15 @@ def _plain_cli(agent, cfg: dict) -> None:
     try:
         from koza_daemon import get_daemon_port
         if get_daemon_port() is not None:
-            _mode_label[0] = "🔗 services"
+            # Show which background services are active
+            _svc_names = [s.replace(" (daemon)", "") for s in _active_services]
+            if _svc_names:
+                _mode_label[0] = "🔗 " + "+".join(_svc_names)
+            else:
+                _mode_label[0] = "🔗 bg"
         elif _active_services:
-            _mode_label[0] = "💻 interactive"
+            _svc_names = [s.replace(" (daemon)", "") for s in _active_services]
+            _mode_label[0] = "💻 " + "+".join(_svc_names)
         else:
             _mode_label[0] = "💻 interactive"
     except Exception:
