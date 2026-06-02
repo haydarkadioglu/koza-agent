@@ -84,12 +84,13 @@ _TOOL_GROUPS: dict[str, list[str]] = {
                    "twilio_call_status", "twilio_list_messages", "twilio_lookup_phone",
                    "twilio_account_info"],
     "github":     ["github_search_code", "github_create_issue", "github_list_prs",
-                   "github_repo_info", "github_clone_repo"],
+                   "github_repo_info", "github_clone_repo", "github_prepare_repo"],
     "finance":    ["crypto_price", "stock_price", "crypto_top"],
     "media":      ["spotify_search", "youtube_search", "gif_search", "youtube_download"],
     "system":     ["get_os_info", "get_env_var", "list_processes"],
     "research":   ["arxiv_search", "wikipedia_search", "polymarket_search"],
-    "security":   ["port_scan", "http_headers_check", "ssl_check", "whois_lookup"],
+    "security":   ["port_scan", "http_headers_check", "ssl_check", "whois_lookup",
+                   "kali_tool_status", "kali_run_recon"],
     "smarthome":  ["hue_list_lights", "hue_set_light", "mqtt_publish", "home_assistant_call"],
     "social":     ["twitter_search", "reddit_search", "mastodon_post",
                    "bluesky_search", "bluesky_post", "hackernews_top", "hackernews_search",
@@ -139,7 +140,7 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "send message": ["message"], "message": ["message"],
     # github
     "github": ["github"], "git": ["github", "devops"], "repo": ["github"],
-    "pull request": ["github"], "issue": ["github"],
+    "clone": ["github"], "repo çek": ["github"], "pull request": ["github"], "issue": ["github"],
     # finance
     "crypto": ["finance"], "bitcoin": ["finance"], "stock": ["finance"], "price": ["finance"],
     "ethereum": ["finance"],
@@ -152,7 +153,8 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "arxiv": ["research"], "paper": ["research"], "wikipedia": ["research"], "research": ["research"],
     # security
     "port": ["security"], "ssl": ["security"], "whois": ["security"], "scan": ["security"],
-    "security": ["security"],
+    "security": ["security"], "kali": ["security"], "pentest": ["security"],
+    "nmap": ["security"], "nikto": ["security"], "whatweb": ["security"], "nuclei": ["security"],
     # smarthome
     "hue": ["smarthome"], "light": ["smarthome"], "mqtt": ["smarthome"],
     "home assistant": ["smarthome"],

@@ -21,7 +21,7 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
     "devops": ["docker_run", "git_operations", "webhook_listen"],
 
     # GitHub operations
-    "github": ["github_search_code", "github_create_issue", "github_pr_review", "github_clone_repo"],
+    "github": ["github_search_code", "github_create_issue", "github_list_prs", "github_repo_info", "github_clone_repo", "github_prepare_repo"],
 
     # Research tools
     "research": ["arxiv_search", "wikipedia_search", "web_search", "fetch_url"],
@@ -33,7 +33,7 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
     "messaging": ["send_telegram", "send_email"],
 
     # Security / network tools
-    "security": ["port_scan", "http_headers_check", "whois_lookup", "ssl_check"],
+    "security": ["port_scan", "http_headers_check", "whois_lookup", "ssl_check", "kali_tool_status", "kali_run_recon"],
 
     # Creative tools (diagrams, images)
     "creative": ["architecture_diagram", "ascii_art", "image_gen"],

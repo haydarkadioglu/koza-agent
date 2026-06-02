@@ -137,6 +137,7 @@ Save and recall full conversation sessions.
 | `github_list_prs` | List pull requests |
 | `github_repo_info` | Get repository metadata |
 | `github_clone_repo` | Clone a repository locally |
+| `github_prepare_repo` | Clone or update a repository in Koza's stable workspace and set the working directory |
 
 ### 🔧 DevOps (`skills/devops.py`)
 | Tool | Description |
@@ -237,6 +238,8 @@ Save and recall full conversation sessions.
 | `http_headers_check` | Inspect HTTP response headers |
 | `ssl_check` | Check SSL certificate details |
 | `whois_lookup` | WHOIS domain lookup |
+| `kali_tool_status` | Check installed Kali-style recon tools and show safe examples |
+| `kali_run_recon` | Run allowlisted recon tools against an authorized target |
 
 ---
 

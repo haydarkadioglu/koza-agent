@@ -80,6 +80,26 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_prepare_repo",
+            "description": (
+                "Clone or update a GitHub repository into Koza's stable workspace "
+                "so the path is not lost between tool calls."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "owner/repo or full GitHub URL"},
+                    "branch": {"type": "string", "default": "", "description": "Optional branch/tag to checkout when cloning"},
+                    "dest": {"type": "string", "default": "", "description": "Optional destination path; defaults to ~/.Koza/workspace/repos/github/<owner_repo>"},
+                    "update": {"type": "boolean", "default": True, "description": "If destination already exists, run git pull --ff-only"},
+                },
+                "required": ["repo"],
+            },
+        },
+    },
 ]
 
 _github_token: str = ""
@@ -194,10 +214,74 @@ def github_clone_repo(repo: str, dest: str = "") -> str:
         return f"ERROR: {e}"
 
 
+def _repo_dir_name(value: str) -> str:
+    parsed = urlparse(value)
+    path = parsed.path if parsed.scheme else value
+    bits = [part for part in path.rstrip("/").split("/") if part]
+    if len(bits) >= 2:
+        owner, name = bits[-2], bits[-1]
+        if name.endswith(".git"):
+            name = name[:-4]
+        return f"{owner}_{name}"
+    name = bits[-1] if bits else "repository"
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name or "repository"
+
+
+def github_prepare_repo(repo: str, branch: str = "", dest: str = "", update: bool = True) -> str:
+    """Clone or update a repo in a stable workspace path and set shell CWD there."""
+    import subprocess
+    from skills import shell as _shell
+
+    url = repo if repo.startswith("http") else f"https://github.com/{repo}.git"
+    if dest:
+        target_dir = Path(_shell.resolve_path(dest))
+    else:
+        target_dir = Path.home() / ".Koza" / "workspace" / "repos" / "github" / _repo_dir_name(repo)
+
+    try:
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        if (target_dir / ".git").exists():
+            actions = [f"Repository already exists: {target_dir}"]
+            if update:
+                pull = subprocess.run(
+                    ["git", "-C", str(target_dir), "pull", "--ff-only"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                output = (pull.stdout + pull.stderr).strip()
+                if pull.returncode != 0:
+                    return f"ERROR: git pull failed in {target_dir}\n{output}"
+                actions.append(output or "Already up to date.")
+        else:
+            cmd = ["git", "clone"]
+            if branch:
+                cmd.extend(["--branch", branch])
+            cmd.extend([url, str(target_dir)])
+            clone = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            output = (clone.stdout + clone.stderr).strip()
+            if clone.returncode != 0:
+                return f"ERROR: git clone failed into {target_dir}\n{output}"
+            actions = [output or "Clone complete."]
+
+        _shell.set_cwd(str(target_dir))
+        return (
+            "Repository ready.\n"
+            f"Path: {target_dir.resolve()}\n"
+            f"Working directory set to: {target_dir.resolve()}\n\n"
+            + "\n".join(actions)
+        )
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
 HANDLERS = {
     "github_search_code": github_search_code,
     "github_create_issue": github_create_issue,
     "github_list_prs": github_list_prs,
     "github_repo_info": github_repo_info,
     "github_clone_repo": github_clone_repo,
+    "github_prepare_repo": github_prepare_repo,
 }
