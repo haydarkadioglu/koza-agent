@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "koza"
-version = "1.41.25"
+version = "1.41.26"
 description = "Koza — autonomous AI agent with tools and memory"
 requires-python = ">=3.11"
 dependencies = [
@@ -32,6 +32,8 @@ dependencies = [
     "gemini-webapi>=2.0.0",
     "curl_cffi>=0.7.0",
     "orjson>=3.9.0",
+    "browser-cookie3>=0.19.1",
+    "playwright>=1.45.0",
 ]
 
 [project.optional-dependencies]

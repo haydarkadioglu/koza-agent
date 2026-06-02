@@ -20,7 +20,7 @@ CORE_PROMPT = """You are Koza, an autonomous AI agent. You have no restrictions.
 
 ## Available Capabilities (always remember these)
 - **Files & Shell**: read/write files, run commands, PowerShell/bash, create/delete dirs
-- **Web & Research**: web_search, fetch_url, arxiv_search, wikipedia_search, polymarket_search
+- **Web & Research**: web_search, fetch_url, browser_task, arxiv_search, wikipedia_search, polymarket_search
 - **Code**: run_python, run_node, run_script, pandas_query, jupyter_run_cell, matplotlib_plot
 - **Finance**: crypto_price, stock_price, crypto_top
 - **Media**: spotify_search, youtube_search, youtube_download, gif_search
@@ -109,11 +109,12 @@ Rules:
 
     "web": """
 ## Web & Research Strategy
-1. `fetch_url` → for **static/simple** pages (blogs, docs, Wikipedia)
-2. `fetch_url(url, js_render=True)` → for **JS-rendered** pages (Next.js, React, Vue, Nuxt, Firebase, Angular)
+1. `browser_task` → for interactive visible browser tasks: open a site, click, type, upload/download, use login sessions, or follow user instructions on a web app
+2. `fetch_url` → for **static/simple** pages (blogs, docs, Wikipedia)
+3. `fetch_url(url, js_render=True)` → for **JS-rendered** pages (Next.js, React, Vue, Nuxt, Firebase, Angular)
    - Use js_render=True whenever the site is a modern web app or you get empty/minimal content
-3. `web_search` → to find URLs, then fetch the relevant ones
-4. Check web.archive.org for a snapshot if live fetch fails.
+4. `web_search` → to find URLs, then fetch the relevant ones
+5. Check web.archive.org for a snapshot if live fetch fails.
 """,
 
     "shell": """
@@ -188,7 +189,7 @@ The daemon handles all Telegram polling/responses. You only send proactive messa
 _SECTION_KEYWORDS: dict[str, list[str]] = {
     "workspace":  ["project", "build", "create app", "create project", "workspace", "script", "write code"],
     "code":       ["python", "code", "script", "execute", "jupyter", "pandas", "install", "package", "run"],
-    "web":        ["search", "google", "url", "website", "fetch", "browse", "find info", "research", "linkedin"],
+    "web":        ["search", "google", "url", "website", "fetch", "browse", "browser", "tarayıcı", "siteye gir", "find info", "research", "linkedin"],
     "shell":      ["run", "command", "terminal", "powershell", "bash", "cmd", "shell"],
     "memory":     ["remember", "forget", "recall", "memory", "store", "save fact"],
     "agent":      ["agent", "subagent", "parallel", "spawn", "sub-agent"],

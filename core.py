@@ -66,7 +66,7 @@ _SYSTEM_CAPS: dict = {}
 _TOOL_GROUPS: dict[str, list[str]] = {
     "file":       ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
     "shell":      ["run_command"],
-    "web":        ["web_search", "fetch_url"],
+    "web":        ["web_search", "fetch_url", "browser_task"],
     "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot"],
     "kanban":     ["create_task", "list_tasks", "move_task", "update_task", "delete_task"],
     "cron":       ["create_cron", "list_crons", "delete_cron"],
@@ -115,7 +115,7 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "run": ["shell", "code"], "command": ["shell"], "terminal": ["shell"], "powershell": ["shell"],
     # web
     "search": ["web", "research"], "google": ["web"], "url": ["web"], "website": ["web"],
-    "browser": ["web"], "fetch": ["web"],
+    "browser": ["web"], "tarayıcı": ["web"], "siteye gir": ["web"], "fetch": ["web"],
     # code
     "python": ["code"], "script": ["code"], "code": ["code"], "execute": ["code", "shell"],
     "jupyter": ["code"], "pandas": ["code"], "plot": ["code"],
@@ -604,9 +604,9 @@ class Agent:
                 available = []
                 unavailable = []
                 if _SYSTEM_CAPS.get("playwright"):
-                    available.append("Playwright/headless browser (js_render=True works)")
+                    available.append("Playwright visible browser automation (browser_task) and headless render (js_render=True)")
                 else:
-                    unavailable.append("Playwright/headless browser (js_render=True will fail — skip it)")
+                    unavailable.append("Playwright browser automation (browser_task/js_render=True will fail — skip it)")
                 if _SYSTEM_CAPS.get("docker"):
                     available.append("Docker")
                 else:
@@ -693,6 +693,12 @@ class Agent:
         if not handler:
             return f"Unknown tool: {name}"
         try:
+            if name == "browser_task":
+                try:
+                    from skills import browser_control as _browser_control
+                    _browser_control.set_permission_callback(self.permission_callback)
+                except Exception:
+                    pass
             result = handler(**args)
             # Auto-log tool call to working memory
             arg_preview = ", ".join(f"{k}={str(v)[:40]}" for k, v in args.items())

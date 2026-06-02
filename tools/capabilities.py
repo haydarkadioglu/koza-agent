@@ -6,7 +6,7 @@ a focused tool set without listing individual tool names.
 
 CAPABILITY_GROUPS: dict[str, list[str]] = {
     # Web access and searching
-    "browser": ["fetch_url", "web_search"],
+    "browser": ["fetch_url", "web_search", "browser_task"],
 
     # Local filesystem operations
     "files": ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],

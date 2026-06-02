@@ -3,7 +3,7 @@ from typing import Callable
 
 from skills import (
     filesystem, shell, web, code_runner, system_info, kanban, cron,
-    agents, creative, datascience, devops, email_skill, finance,
+    agents, browser_control, creative, datascience, devops, email_skill, finance,
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
@@ -28,6 +28,7 @@ ALL_TOOLS: list[dict] = _normalize(
     filesystem.TOOL_DEFINITIONS
     + shell.TOOL_DEFINITIONS
     + web.TOOL_DEFINITIONS
+    + browser_control.TOOL_DEFINITIONS
     + code_runner.TOOL_DEFINITIONS
     + system_info.TOOL_DEFINITIONS
     + kanban.TOOL_DEFINITIONS
@@ -62,6 +63,7 @@ ALL_HANDLERS: dict[str, Callable] = {
     **filesystem.HANDLERS,
     **shell.HANDLERS,
     **web.HANDLERS,
+    **browser_control.HANDLERS,
     **code_runner.HANDLERS,
     **system_info.HANDLERS,
     **kanban.HANDLERS,

@@ -33,6 +33,7 @@ class StreamRenderer:
     # Tool names → friendly labels
     _TOOL_LABELS = {
         "web_search": "Searching the web", "fetch_url": "Fetching URL",
+        "browser_task": "Using browser",
         "run_command": "Running command", "run_python": "Running Python",
         "run_node": "Running Node.js", "read_file": "Reading file",
         "write_file": "Writing file", "list_dir": "Listing directory",

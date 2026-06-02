@@ -25,6 +25,7 @@ Koza exposes **96 tools** across 25+ skill categories. The agent selects and cal
 |---|---|
 | `web_search` | Search the web via DuckDuckGo |
 | `fetch_url` | Fetch the content of a URL |
+| `browser_task` | Open a visible browser and perform an interactive website task |
 
 ### 🐍 Code Runner (`skills/code_runner.py`)
 | Tool | Description |
