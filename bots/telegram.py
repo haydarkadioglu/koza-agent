@@ -656,22 +656,22 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             notifier.initialize(application.bot, loop, chat_id)
             notifier.schedule_daily_summary()
 
-            # ── Startup message (only if bot was truly restarted) ─────────────
-            # Throttle: don't send if already sent within the last 5 minutes.
+            # ── Startup message: only when daemon/bot truly restarted ─────────
+            # Compare current PID with last known PID. New PID = fresh start → send.
             if chat_id:
-                import time as _time, pathlib as _pl
-                _flag = _pl.Path.home() / ".koza-agent" / "tg_startup.ts"
-                _now = _time.time()
-                _last = float(_flag.read_text()) if _flag.exists() else 0.0
-                if _now - _last > 300:  # 5 minute cooldown
+                import os as _os, pathlib as _pl
+                _pid_file = _pl.Path.home() / ".koza-agent" / "tg_bot.pid"
+                _cur_pid = str(_os.getpid())
+                _last_pid = _pid_file.read_text().strip() if _pid_file.exists() else ""
+                if _cur_pid != _last_pid:
                     try:
                         await application.bot.send_message(
                             chat_id=chat_id,
                             text="🟢 *Koza yeniden başlatıldı* — hazırım! 🚀",
                             parse_mode="Markdown",
                         )
-                        _flag.parent.mkdir(parents=True, exist_ok=True)
-                        _flag.write_text(str(_now))
+                        _pid_file.parent.mkdir(parents=True, exist_ok=True)
+                        _pid_file.write_text(_cur_pid)
                     except Exception:
                         pass
 
