@@ -294,9 +294,9 @@ async def _process_message(update, context, agent_factory: Callable,
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text=(
-                            f"✅ @{_uname} bağlantın kuruldu!\n\n"
-                            f"Chat ID'n (`{chat_id}`) kaydedildi. "
-                            "Artık proaktif bildirimler ve komutlar bu hesaba gelecek."
+                            f"✅ @{_uname} connected!\n\n"
+                            f"Your Chat ID (`{chat_id}`) has been saved. "
+                            "Proactive notifications and commands will be sent to this account."
                         ),
                         parse_mode="Markdown",
                     )
@@ -667,7 +667,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                     try:
                         await application.bot.send_message(
                             chat_id=chat_id,
-                            text="🟢 *Koza yeniden başlatıldı* — hazırım! 🚀",
+                            text="🟢 *Koza is back online* — ready! 🚀",
                             parse_mode="Markdown",
                         )
                         _pid_file.parent.mkdir(parents=True, exist_ok=True)
@@ -852,21 +852,21 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
 
             if owner_set:
                 await update.message.reply_text(
-                    f"👋 Merhaba @{uname}!\n\n"
-                    "Ben *Koza*, senin yapay zeka asistanın. Telegram bağlantımız başarıyla kuruldu! 🎉\n\n"
-                    f"Chat ID'n (`{cid}`) kaydedildi. Artık buradan bana istediğini yazabilirsin.",
+                    f"👋 Hello @{uname}!\n\n"
+                    "I'm *Koza*, your AI assistant. Telegram connection established! 🎉\n\n"
+                    f"Your Chat ID (`{cid}`) has been saved. You can now message me from here.",
                     parse_mode="Markdown",
                 )
             elif str(c.get("messaging", {}).get("telegram", {}).get("chat_id", "")) == str(cid):
                 await update.message.reply_text(
-                    f"👋 Tekrar merhaba @{uname}! Chat ID'n zaten kayıtlı. Nasıl yardımcı olabilirim?",
+                    f"👋 Welcome back @{uname}! Your Chat ID is already registered. How can I help?",
                     parse_mode="Markdown",
                 )
             else:
                 # Different user tried /start — just greet, don't overwrite owner
                 await update.message.reply_text(
-                    "⛔ Bu bot sadece sahibine hizmet eder.\n"
-                    f"Chat ID'n: `{cid}`",
+                    "⛔ This bot serves its owner only.\n"
+                    f"Your Chat ID: `{cid}`",
                     parse_mode="Markdown",
                 )
 
