@@ -65,6 +65,8 @@ Both scripts will:
 
 ```bash
 koza              # Launch (setup wizard on first start)
+koza tui          # Launch Textual cockpit UI
+koza start --ui tui   # Launch with TUI for this run
 koza setup        # Re-run setup wizard
 koza config       # Show current configuration (keys masked)
 koza kanban       # Open Kanban board

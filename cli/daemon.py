@@ -13,15 +13,28 @@ def cmd_start(args: list) -> None:
     """Start Koza — create agent in-process, start background services, run CLI."""
     from config import load_config, config_exists
     session_id: int | None = None
-    if args and args[0] in ("--session", "session"):
-        if len(args) < 2:
-            print(_C("  ✗  Usage: koza start --session <id>", "red"))
-            return
-        try:
-            session_id = int(args[1])
-        except ValueError:
-            print(_C(f"  ✗  Invalid session ID: {args[1]}", "red"))
-            return
+    ui_mode: str | None = None
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg in ("--session", "session"):
+            if idx + 1 >= len(args):
+                print(_C("  ✗  Usage: koza start --session <id>", "red"))
+                return
+            try:
+                session_id = int(args[idx + 1])
+            except ValueError:
+                print(_C(f"  ✗  Invalid session ID: {args[idx + 1]}", "red"))
+                return
+            idx += 2
+        elif arg == "--ui":
+            if idx + 1 >= len(args) or args[idx + 1] not in ("plain", "tui"):
+                print(_C("  ✗  Usage: koza start --ui plain|tui", "red"))
+                return
+            ui_mode = args[idx + 1]
+            idx += 2
+        else:
+            idx += 1
 
     if not config_exists():
         print(_C("  No config found. Running setup first…\n", "grey"))
@@ -29,6 +42,14 @@ def cmd_start(args: list) -> None:
         cmd_setup([])
 
     cfg = load_config()
+    selected_ui = ui_mode or cfg.get("ui", {}).get("default", "plain")
+    if selected_ui == "tui":
+        from cli.tui_cmd import cmd_tui
+        tui_args = []
+        if session_id is not None:
+            tui_args = ["--session", str(session_id)]
+        cmd_tui(tui_args)
+        return
 
     # If no provider configured, run setup
     if not cfg.get("provider"):

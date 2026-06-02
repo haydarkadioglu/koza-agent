@@ -76,6 +76,10 @@ def default_config() -> dict:
             "max_retries": 3,       # max retry count when tests fail
             "auto_test":   True,    # run Test Engineer after every coding task
         },
+        "ui": {
+            "default": "plain",          # plain | tui
+            "refresh_interval_ms": 1500,
+        },
     }
 
 
@@ -91,6 +95,8 @@ def load_config() -> dict:
                     cfg["providers"].setdefault(p, {}).update(pval)
             elif key == "multi_host" and isinstance(val, dict):
                 cfg["multi_host"].update(val)
+            elif key == "ui" and isinstance(val, dict):
+                cfg["ui"].update(val)
             else:
                 cfg[key] = val
     # ENV overrides

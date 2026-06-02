@@ -350,6 +350,7 @@ def cmd_help(args: list) -> None:
     print(_C("  COMMANDS\n", "bold"))
     cmds = [
         ("(none) / start", "Start interactive chat (default)"),
+        ("tui",            "Start Textual cockpit UI"),
         ("setup",          "Configure provider, API keys, fallback"),
         ("config",         "Show current configuration"),
         ("provider",       "Switch active provider / model"),
@@ -368,7 +369,7 @@ def cmd_help(args: list) -> None:
     for cmd, desc in cmds:
         print(f"    {_C(f'{cmd:<22}', 'cyan')}  {desc}")
     print(_C("\n  EXAMPLES\n", "bold"))
-    examples = ["koza", "koza setup", "koza config", "koza sync status", "koza version"]
+    examples = ["koza", "koza tui", "koza start --ui tui", "koza setup", "koza config", "koza sync status", "koza version"]
     for ex in examples:
         print(f"    {_C(ex, 'white')}")
     print(_C("\n  CHAT COMMANDS  (inside chat)\n", "bold"))
