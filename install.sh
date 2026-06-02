@@ -105,13 +105,26 @@ fi
 
 # ── Install package ──────────────────────────────────────────────────────────
 info "Installing Koza and dependencies (this may take a minute) …"
-"${VENV_PIP}" install --quiet --upgrade pip
-"${VENV_PIP}" install --quiet -e "${INSTALL_DIR}"
+PIP_FLAGS=(--quiet --no-cache-dir --prefer-binary)
+
+if ! "${VENV_PIP}" install "${PIP_FLAGS[@]}" --upgrade pip; then
+    error "pip upgrade failed."
+fi
+
+if ! "${VENV_PIP}" install "${PIP_FLAGS[@]}" -e "${INSTALL_DIR}"; then
+    warn "pip install failed. If the previous line says 'Killed', the server likely ran out of RAM/swap."
+    dim "Check memory: free -h"
+    dim "Temporary swap fix:"
+    dim "  sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile"
+    dim "  sudo mkswap /swapfile && sudo swapon /swapfile"
+    dim "Then rerun the installer."
+    exit 1
+fi
 success "Koza installed."
 
 # ── Install optional Telegram dep ───────────────────────────────────────────
 info "Installing optional dependencies (telegram bot) …"
-"${VENV_PIP}" install --quiet "python-telegram-bot>=20.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
+"${VENV_PIP}" install "${PIP_FLAGS[@]}" "python-telegram-bot>=20.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
 
 # ── koza entry point (created by pip install -e .) ───────────────────────────
 VENV_KOZA="${VENV_DIR}/bin/koza"
