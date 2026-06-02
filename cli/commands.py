@@ -63,6 +63,73 @@ def cmd_kanban(args: list) -> None:
     print(list_crons())
     print()
 
+
+def cmd_logs(args: list) -> None:
+    """Show Koza daemon logs. Usage: koza logs [-n 100] [--follow]"""
+    import time
+    from koza_daemon import LOG_FILE
+
+    limit = 100
+    follow = False
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg in ("-n", "--lines"):
+            if idx + 1 >= len(args):
+                print(_C("  ✗  Usage: koza logs [-n <lines>] [--follow]", "red"))
+                return
+            try:
+                limit = max(1, int(args[idx + 1]))
+            except ValueError:
+                print(_C(f"  ✗  Invalid line count: {args[idx + 1]}", "red"))
+                return
+            idx += 2
+        elif arg in ("-f", "--follow", "follow"):
+            follow = True
+            idx += 1
+        else:
+            print(_C(f"  ✗  Unknown logs option: {arg}", "red"))
+            print(_C("  Usage: koza logs [-n <lines>] [--follow]", "grey"))
+            return
+
+    _hr()
+    print(_C("  KOZA  ·  Logs", "bold", "yellow"))
+    print(_C(f"  File: {LOG_FILE}", "grey"))
+    _hr()
+
+    if not LOG_FILE.exists():
+        print(_C("\n  ✗  No daemon log file found yet.", "red"))
+        print(_C("  Start Koza once, or check daemon status with: koza status\n", "grey"))
+        return
+
+    def _read_tail() -> list[str]:
+        try:
+            lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+            return lines[-limit:]
+        except Exception as exc:
+            return [f"ERROR reading log: {exc}"]
+
+    for line in _read_tail():
+        print("  " + line)
+    print()
+
+    if not follow:
+        return
+
+    print(_C("  Following logs. Press Ctrl+C to stop.\n", "grey"))
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as fh:
+            fh.seek(0, 2)
+            while True:
+                line = fh.readline()
+                if line:
+                    print("  " + line.rstrip())
+                else:
+                    time.sleep(0.5)
+    except KeyboardInterrupt:
+        print(_C("\n  Stopped following logs.\n", "grey"))
+
+
 def cmd_telegram(args: list) -> None:
     """Configure Telegram bot token. Once configured, the daemon runs it automatically."""
     from config import load_config, save_config, config_exists
@@ -357,6 +424,7 @@ def cmd_help(args: list) -> None:
         ("sessions",        "Browse, load or delete saved sessions"),
         ("kanban",         "Show Kanban board and cron jobs"),
         ("telegram",       "Configure Telegram bot token"),
+        ("logs",           "Show daemon logs"),
         ("sync",           "Multi-host sync (status / pull / push / setup)"),
         ("status",         "Show daemon status"),
         ("quit",           "Stop Koza daemon"),
@@ -369,7 +437,7 @@ def cmd_help(args: list) -> None:
     for cmd, desc in cmds:
         print(f"    {_C(f'{cmd:<22}', 'cyan')}  {desc}")
     print(_C("\n  EXAMPLES\n", "bold"))
-    examples = ["koza", "koza tui", "koza start --ui tui", "koza setup", "koza config", "koza sync status", "koza version"]
+    examples = ["koza", "koza tui", "koza start --ui tui", "koza setup", "koza config", "koza logs -n 100", "koza sync status", "koza version"]
     for ex in examples:
         print(f"    {_C(ex, 'white')}")
     print(_C("\n  CHAT COMMANDS  (inside chat)\n", "bold"))

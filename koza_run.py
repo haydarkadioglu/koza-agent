@@ -5,7 +5,7 @@ import sys
 from cli.setup import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER  # noqa: F401
 from cli.daemon import cmd_start, cmd_status, cmd_quit
 from cli.setup import cmd_setup, cmd_provider
-from cli.commands import cmd_config, cmd_kanban, cmd_sessions, cmd_uninstall, cmd_telegram, cmd_version, cmd_update, cmd_help, cmd_clean, cmd_sync
+from cli.commands import cmd_config, cmd_kanban, cmd_sessions, cmd_uninstall, cmd_telegram, cmd_version, cmd_update, cmd_help, cmd_clean, cmd_sync, cmd_logs
 from cli.tui_cmd import cmd_tui
 from cli.voice_cmd import cmd_voice
 from cli.coding_cmd import cmd_coding
@@ -21,6 +21,7 @@ _COMMANDS = {
     "kanban":    cmd_kanban,
     "sessions":  cmd_sessions,
     "telegram":  cmd_telegram,
+    "logs":      cmd_logs,
     "status":    cmd_status,
     "quit":      cmd_quit,
     "stop":      cmd_quit,

@@ -87,7 +87,7 @@ def _plain_cli(agent, cfg: dict) -> None:
     try:
         from koza_daemon import get_daemon_port
         if get_daemon_port() is not None:
-            _mode_label[0] = "🔗 daemon"
+            _mode_label[0] = "🔗 services"
         elif _active_services:
             _mode_label[0] = "💻 interactive"
         else:

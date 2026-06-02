@@ -303,13 +303,17 @@ def get_messages(platform: str, limit: int = 10) -> str:
 
 def telegram_status() -> str:
     try:
-        from koza_daemon import get_daemon_port, PID_FILE
+        from koza_daemon import get_daemon_port, PID_FILE, LOG_FILE
         port = get_daemon_port()
         if port is not None:
             pid = PID_FILE.read_text().strip() if PID_FILE.exists() else "?"
-            return f"Telegram/background daemon appears to be running (PID {pid}, port marker {port})."
-    except Exception:
-        pass
+            return (
+                f"Background daemon detected (PID {pid}, port marker {port}). "
+                "This does not prove Telegram API polling is healthy. "
+                f"Check logs with `koza logs` or inspect {LOG_FILE}."
+            )
+    except Exception as e:
+        return f"ERROR checking Telegram daemon: {e}"
     return "Telegram daemon is not running. Use start_telegram_daemon after saving the token."
 
 
@@ -333,11 +337,11 @@ def start_telegram_daemon(token: str = "") -> str:
 
         from koza_daemon import get_daemon_port, start_services_background
         if get_daemon_port() is not None:
-            return "Telegram daemon already running."
+            return "Background daemon already running; Telegram API connectivity is not verified. Check `koza logs`."
         ok = start_services_background(cfg)
         if ok:
-            return "Telegram bot started in the background. Send /start or a message to the bot now."
-        return "Telegram daemon could not be started. Run `koza status` and check daemon logs."
+            return "Telegram daemon launched. Send /start or a message to the bot, then check `koza logs` if it does not respond."
+        return "Telegram daemon could not be started. Run `koza status` and `koza logs`."
     except Exception as e:
         return f"ERROR starting Telegram daemon: {e}"
 

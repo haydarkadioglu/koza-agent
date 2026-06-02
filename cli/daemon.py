@@ -148,13 +148,13 @@ def cmd_start(args: list) -> None:
             if _daemon_port is None:
                 # Spawn a detached background process for Telegram + services
                 if start_as_background(python_exe=__import__("sys").executable):
-                    print(_C("  ✓  Background services started (Telegram bot running in background)\n", "teal"))
+                    print(_C("  ✓  Background services started (Telegram daemon launched)\n", "teal"))
                 else:
                     # Fallback: run in-process (will stop when console closes)
                     _start_telegram_inprocess(cfg)
                     print(_C("  ✓  Telegram bot started (in-process — will stop when console closes)\n", "yellow"))
             else:
-                print(_C("  ✓  Background services already running (Telegram bot active)\n", "teal"))
+                print(_C("  ✓  Background services already running (daemon detected; Telegram not verified)\n", "teal"))
         except Exception as _e:
             # Fallback: in-process
             _start_telegram_inprocess(cfg)
@@ -181,12 +181,14 @@ def _start_telegram_inprocess(cfg: dict) -> None:
 
 def cmd_status(args: list) -> None:
     """Show whether background services are running."""
-    from koza_daemon import get_daemon_port, PID_FILE
+    from koza_daemon import get_daemon_port, PID_FILE, LOG_FILE
     port = get_daemon_port()
     if port is not None:
         pid = PID_FILE.read_text().strip()
         mode = "services-only" if port == 0 else f"port {port}"
         print(_C(f"\n  ✓  Koza background services running  (PID {pid}, {mode})\n", "green"))
+        print(_C("  Note: this only verifies the daemon process, not Telegram API connectivity.", "grey"))
+        print(_C(f"  Logs: {LOG_FILE}\n", "grey"))
     else:
         print(_C("\n  ✗  No background services running.\n", "grey"))
 

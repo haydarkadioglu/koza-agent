@@ -78,7 +78,11 @@ def telegram_send(chat_id: str, text: str) -> str:
 
 
 def telegram_status() -> str:
-    return "Telegram bot is running." if _bot_running else "Telegram bot is not running. Start with: koza telegram"
+    return (
+        "Telegram in-process bot thread is marked running; Telegram API connectivity is not verified."
+        if _bot_running
+        else "Telegram bot is not running. Start with: koza telegram"
+    )
 
 
 def start_telegram_daemon(token: str = "") -> str:
@@ -97,7 +101,7 @@ def start_telegram_daemon(token: str = "") -> str:
         from koza_daemon import start_services_background, get_daemon_port
         port = get_daemon_port()
         if port is not None:
-            return "✅ Telegram daemon already running."
+            return "Background daemon already running; Telegram API connectivity is not verified. Check `koza logs`."
 
         ok = start_services_background(cfg)
         if ok:
