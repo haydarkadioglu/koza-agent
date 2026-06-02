@@ -101,6 +101,11 @@ class StreamRenderer:
         self._bg_task_count: int = 0
         # Current response box border color
         self._current_box_color: str = "teal"
+        # Compact tool box state. Tool output is intentionally separated from
+        # response boxes so streaming text can resume cleanly after tool calls.
+        self._tool_box_open: bool = False
+        self._tool_box_color: str = "cyan"
+        self._tool_box_started: float = 0.0
         # Spinner widget for animated status in status bar
         self._spinner: OutputSpinner = OutputSpinner(layout)
         self._spinner._format_status = self._format_status
@@ -157,7 +162,10 @@ class StreamRenderer:
             self.layout.set_status(self._format_status(
                 _C(f"⚙ {label}…", "cyan")
             ))
-            # Store tool name for inline completion on tool_done
+            self._close_response_if_open()
+            self._close_persona_box()
+            self._open_tool_box(name, label, arg_str)
+            # Store tool name for completion on tool_done
             self._pending_tool = name
             self._pending_tool_arg = arg_str[:50] if arg_str else ""
 
@@ -165,12 +173,17 @@ class StreamRenderer:
             name = event["name"]
             elapsed = event.get("elapsed", 0)
             self._spinner.stop()
-            # Single-line: ⚙ tool_name (args) → ✓ 0.05s
-            line = _C(f"  ⚙ {name}", "cyan")
-            if getattr(self, '_pending_tool_arg', ''):
-                line += _C(f" ({self._pending_tool_arg})", "grey")
-            line += _C(f" → ✓ {elapsed:.2f}s", "green")
-            self.layout.append_output(line + "\n")
+            result_preview = self._summarize_tool_result(event.get("result"))
+            if not self._tool_box_open:
+                label = self._TOOL_LABELS.get(name, f"Running {name}")
+                self._open_tool_box(name, label, getattr(self, "_pending_tool_arg", ""))
+            self._append_tool_line(
+                _C("✓ ", "green") + _C(name, "white")
+                + _C(f" completed in {elapsed:.2f}s", "green")
+            )
+            if result_preview:
+                self._append_tool_line(_C(result_preview, "grey"))
+            self._close_tool_box(f"{elapsed:.2f}s")
             self._pending_tool = None
             self._pending_tool_arg = ""
             self._spinner.start("Thinking…")
@@ -180,6 +193,8 @@ class StreamRenderer:
 
         elif etype == "text":
             token = event.get("token", "")
+            if self._tool_box_open:
+                self._close_tool_box()
             if not self._text_started:
                 self._text_started = True
                 self._spinner.stop()
@@ -206,6 +221,7 @@ class StreamRenderer:
 
         elif etype == "interrupted":
             self._spinner.stop()
+            self._close_tool_box("interrupted")
             self._flush_line_buf()
             if self._text_started:
                 self._close_response_box("(interrupted)")
@@ -218,14 +234,16 @@ class StreamRenderer:
         elif etype == "tool_denied":
             name = event.get("name", "")
             self._spinner.stop()
-            self.layout.append_output(
-                _C("  │ ", self._current_box_color)
-                + _C(f"✗ {name} (denied)", "red") + "\n"
-            )
+            self._close_response_if_open()
+            if not self._tool_box_open:
+                self._open_tool_box(name or "tool", f"Permission: {name or 'tool'}", "")
+            self._append_tool_line(_C(f"✗ {name} denied", "red"))
+            self._close_tool_box("denied")
 
         elif etype == "error":
             message = event.get("message", "Unknown error")
             self._spinner.stop()
+            self._close_tool_box("error")
             self._flush_line_buf()
             if self._text_started:
                 # Error inside an open response box — show error and close
@@ -365,6 +383,14 @@ class StreamRenderer:
 
     # ── Response box helpers ──────────────────────────────────────────────────
 
+    def _close_response_if_open(self, suffix: str = "") -> None:
+        """Close an open response box before rendering another block."""
+        if self._text_started:
+            self._flush_line_buf()
+            self._close_response_box(suffix)
+            self._text_started = False
+            self._current_box_color = "teal"
+
     def _open_response_box(self, label: str, response_type: str = "normal") -> None:
         """Open a response box with border color based on response type."""
         import shutil as _shutil
@@ -384,10 +410,69 @@ class StreamRenderer:
     def _close_response_box(self, suffix: str = "") -> None:
         """Close the current response box using the stored box color."""
         color = self._current_box_color
+        suffix_text = _C(f"  {suffix}", "grey") if suffix else ""
         self.layout.append_output(
             "\n" + _C("  ╰─", color)
-            + _C(f"  {suffix}", "grey") + "\n\n"
+            + suffix_text + "\n\n"
         )
+
+    # ── Tool box helpers ──────────────────────────────────────────────────────
+
+    def _open_tool_box(self, name: str, label: str, arg_str: str = "") -> None:
+        """Open a compact box for one tool call."""
+        import shutil as _shutil
+        if self._tool_box_open:
+            self._close_tool_box()
+        self._tool_box_open = True
+        self._tool_box_started = time.time()
+        tw = max(36, _shutil.get_terminal_size((80, 24)).columns - 12)
+        self.layout.append_output(
+            "\n"
+            + _C("  ╭─ ", self._tool_box_color)
+            + _timestamp() + " "
+            + _C("Tool ", self._tool_box_color, "bold")
+            + _C("─" * tw, self._tool_box_color)
+            + "\n"
+        )
+        self._append_tool_line(
+            _C("⚙ ", "cyan") + _C(label, "white")
+            + _C(f" [{name}]", "grey")
+        )
+        if arg_str:
+            self._append_tool_line(_C(arg_str[:140], "grey"))
+
+    def _append_tool_line(self, text: str) -> None:
+        """Append one line inside the current tool box."""
+        self.layout.append_output(_C("  │ ", self._tool_box_color) + text + "\n")
+
+    def _close_tool_box(self, suffix: str = "") -> None:
+        """Close the current tool box, if one is open."""
+        if not self._tool_box_open:
+            return
+        if not suffix and self._tool_box_started:
+            suffix = f"{time.time() - self._tool_box_started:.2f}s"
+        suffix_text = _C(f"  {suffix}", "grey") if suffix else ""
+        self.layout.append_output(
+            _C("  ╰─", self._tool_box_color)
+            + suffix_text + "\n\n"
+        )
+        self._tool_box_open = False
+        self._tool_box_started = 0.0
+
+    def _summarize_tool_result(self, result: object) -> str:
+        """Return a short, non-secret-ish preview for a tool result."""
+        if result is None:
+            return ""
+        text = str(result).strip().replace("\r", "")
+        if not text:
+            return ""
+        first = next((line.strip() for line in text.split("\n") if line.strip()), "")
+        if not first:
+            return ""
+        lowered = first.lower()
+        if any(word in lowered for word in ("token", "secret", "password", "api_key", "apikey")):
+            return "result hidden"
+        return first[:140] + ("..." if len(first) > 140 else "")
 
     # ── Tool argument helpers ─────────────────────────────────────────────────
 
@@ -442,6 +527,7 @@ class StreamRenderer:
         """Close the response box with timing info."""
         # Stop spinner to ensure it's cleaned up
         self._spinner.stop()
+        self._close_tool_box()
         # Close any open persona box first
         self._close_persona_box()
         if self._text_started:
@@ -459,3 +545,5 @@ class StreamRenderer:
         self._line_buf = ""
         self._current_persona = None
         self._current_box_color = "teal"
+        self._tool_box_open = False
+        self._tool_box_started = 0.0
