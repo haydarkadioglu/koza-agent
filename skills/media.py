@@ -3,6 +3,7 @@ import os
 import urllib.request
 import urllib.parse
 import json
+from pathlib import Path
 
 TOOL_DEFINITIONS = [
     {
@@ -137,11 +138,26 @@ def gif_search(query: str, limit: int = 3) -> str:
 def youtube_download(url: str, audio_only: bool = False, output_dir: str = ".") -> str:
     try:
         import subprocess
-        cmd = ["yt-dlp", url, "-P", output_dir]
+        from skills.shell import resolve_path
+
+        resolved_output_dir = Path(resolve_path(output_dir))
+        resolved_output_dir.mkdir(parents=True, exist_ok=True)
+        before = {p for p in resolved_output_dir.rglob("*") if p.is_file()}
+
+        cmd = ["yt-dlp", url, "-P", str(resolved_output_dir)]
         if audio_only:
             cmd += ["-x", "--audio-format", "mp3"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        return (result.stdout + result.stderr).strip()[-1000:] or "Download complete."
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            return f"ERROR: yt-dlp failed in {resolved_output_dir}\n{output[-1000:]}"
+
+        after = {p for p in resolved_output_dir.rglob("*") if p.is_file()}
+        created = sorted(after - before, key=lambda p: p.stat().st_mtime, reverse=True)
+        created_lines = "\n".join(f"- {p}" for p in created[:5])
+        files_block = f"\nFiles:\n{created_lines}" if created_lines else ""
+        output_block = f"\n\nOutput:\n{output[-1000:]}" if output else ""
+        return f"Download complete.\nDirectory: {resolved_output_dir}{files_block}{output_block}"
     except FileNotFoundError:
         return "yt-dlp not installed. Run: pip install yt-dlp"
     except Exception as e:

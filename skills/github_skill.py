@@ -1,6 +1,8 @@
 """GitHub skill — code search, issues, PRs, repo operations via PyGithub."""
 import urllib.request
 import json
+from pathlib import Path
+from urllib.parse import urlparse
 
 TOOL_DEFINITIONS = [
     {
@@ -160,11 +162,34 @@ def github_repo_info(repo: str) -> str:
 
 def github_clone_repo(repo: str, dest: str = "") -> str:
     import subprocess
+    from skills import shell as _shell
+
     url = repo if repo.startswith("http") else f"https://github.com/{repo}.git"
-    cmd = ["git", "clone", url] + ([dest] if dest else [])
+
+    def _repo_dir_name(value: str) -> str:
+        parsed = urlparse(value)
+        path = parsed.path if parsed.scheme else value
+        name = path.rstrip("/").split("/")[-1]
+        if name.endswith(".git"):
+            name = name[:-4]
+        return name or "repository"
+
+    base_dir = Path(_shell.get_cwd()).resolve()
+    if dest:
+        target_dir = Path(_shell.resolve_path(dest))
+        cmd = ["git", "clone", url, str(target_dir)]
+    else:
+        target_dir = base_dir / _repo_dir_name(repo)
+        cmd = ["git", "clone", url]
+
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        return (result.stdout + result.stderr).strip() or "Cloned successfully."
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=str(base_dir))
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            return f"ERROR: git clone failed in {base_dir}\n{output}"
+        _shell.set_cwd(str(target_dir))
+        details = f"\n\nOutput:\n{output}" if output else ""
+        return f"Cloned successfully.\nPath: {target_dir}\nWorking directory set to: {target_dir}{details}"
     except Exception as e:
         return f"ERROR: {e}"
 
