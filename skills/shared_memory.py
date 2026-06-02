@@ -6,6 +6,7 @@ context when spawned.
 """
 import sqlite3
 import time
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -15,6 +16,8 @@ _db_path: str = ""
 def init_db(db_path: str) -> None:
     global _db_path
     _db_path = db_path
+    if db_path != ":memory:":
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with _conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS shared_memory (
@@ -65,7 +68,8 @@ def init_db(db_path: str) -> None:
 
 @contextmanager
 def _conn():
-    conn = sqlite3.connect(_db_path, check_same_thread=False)
+    conn = sqlite3.connect(_db_path, timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -143,7 +147,7 @@ def memory_search(query: str, limit: int = 10) -> str:
     lines = []
     for r in rows:
         ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["updated_at"]))
-        snippet = r["value"][:120].replace("\n", " ")
+        snippet = _redact_secret_text(r["value"])[:120].replace("\n", " ")
         lines.append(f"🧠 [{r['key']}] ({r['tags'] or 'no tags'}) [{ts}]\n   {snippet}")
     return f"Found {len(rows)} memor{'y' if len(rows)==1 else 'ies'} for '{query}':\n\n" + "\n\n".join(lines)
 
@@ -212,8 +216,30 @@ def get_relevant_context(query: str, limit: int = 5) -> str:
             ).fetchall()
     if not rows:
         return ""
-    lines = [f"- [{r['key']}]: {r['value'][:200]}" for r in rows]
+    lines = [f"- [{r['key']}]: {_safe_memory_snippet(r['value'])}" for r in rows]
     return "## Shared Memory (relevant facts):\n" + "\n".join(lines)
+
+
+_SECRET_PATTERNS = [
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}\b"),
+    re.compile(r"\bghp_[A-Za-z0-9_]{16,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{16,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{16,}\b"),
+    re.compile(r"\b\d{8,12}:[A-Za-z0-9_\-]{30,50}\b"),
+    re.compile(r"(?i)\b(api[_\s-]?key|token|secret|password)\s*[:=]\s*\S{8,}"),
+]
+
+
+def _redact_secret_text(text: str) -> str:
+    value = str(text or "")
+    for pattern in _SECRET_PATTERNS:
+        value = pattern.sub(lambda m: f"{m.group(1)}=[REDACTED]" if m.lastindex else "[REDACTED]", value)
+    return value
+
+
+def _safe_memory_snippet(text: str, limit: int = 200) -> str:
+    value = _redact_secret_text(text).replace("\n", " ").strip()
+    return value[:limit] + ("..." if len(value) > limit else "")
 
 
 # ─── Credential vault — stored in ~/.Koza/.env ───────────────────────────────

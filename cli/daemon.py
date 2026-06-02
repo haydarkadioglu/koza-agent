@@ -12,6 +12,17 @@ from cli.chat import _plain_cli
 def cmd_start(args: list) -> None:
     """Start Koza — create agent in-process, start background services, run CLI."""
     from config import load_config, config_exists
+    session_id: int | None = None
+    if args and args[0] in ("--session", "session"):
+        if len(args) < 2:
+            print(_C("  ✗  Usage: koza start --session <id>", "red"))
+            return
+        try:
+            session_id = int(args[1])
+        except ValueError:
+            print(_C(f"  ✗  Invalid session ID: {args[1]}", "red"))
+            return
+
     if not config_exists():
         print(_C("  No config found. Running setup first…\n", "grey"))
         from cli.setup import cmd_setup
@@ -33,6 +44,15 @@ def cmd_start(args: list) -> None:
         from providers.factory import get_provider
         from core import Agent
         agent = Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
+        if session_id is not None:
+            from skills.session_memory import load_session
+            msgs = load_session(session_id)
+            if not msgs:
+                print(_C(f"  ✗  Session #{session_id} not found or empty.\n", "red"))
+                return
+            sys_msg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
+            agent.messages = ([sys_msg] if sys_msg else []) + msgs
+            print(_C(f"  ✓  Session #{session_id} loaded.\n", "green"))
     except Exception as exc:
         _print_error(exc, fatal=True)
         return

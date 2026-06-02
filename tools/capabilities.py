@@ -27,7 +27,7 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
     "research": ["arxiv_search", "wikipedia_search", "web_search", "fetch_url"],
 
     # Persistent + working memory
-    "memory": ["memory_store", "memory_recall", "memory_search", "wm_add", "wm_get"],
+    "memory": ["memory_store", "memory_recall", "memory_search", "wm_add", "wm_get", "wm_list"],
 
     # Messaging channels
     "messaging": ["send_telegram", "send_email"],

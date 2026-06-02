@@ -246,8 +246,29 @@ def cmd_clean(args: list) -> None:
 
 def cmd_sessions(args: list) -> None:
     """Browse, load, or delete saved sessions. Usage: koza sessions [delete <id>]"""
-    from skills.session_memory import get_session_rows, delete_session, load_session
+    from config import load_config
+    from skills.session_memory import get_session_rows, delete_session, init_db, load_session
     import time
+
+    cfg = load_config()
+    init_db(cfg["db_path"])
+
+    # koza sessions load <id>
+    if args and args[0] == "load":
+        if len(args) < 2:
+            print(_C("  ✗  Usage: koza sessions load <id>", "red"))
+            return
+        try:
+            sid = int(args[1])
+        except ValueError:
+            print(_C(f"  ✗  Invalid session ID: {args[1]}", "red"))
+            return
+        if not load_session(sid):
+            print(_C(f"  ✗  Session #{sid} not found or empty.", "red"))
+            return
+        from cli.daemon import cmd_start
+        cmd_start(["--session", str(sid)])
+        return
 
     # koza sessions delete <id>
     if args and args[0] == "delete":
@@ -306,8 +327,7 @@ def cmd_sessions(args: list) -> None:
             return
         user_msgs = [m for m in msgs if m.get("role") in ("user", "assistant")]
         print(_C(f"\n  ✓  Session #{sid} loaded ({len(user_msgs)} messages).", "green"))
-        print(_C("  Start a new chat to use it:  koza --session {sid}", "grey"))
-        print(_C("  (Full session resume coming in a future update)", "grey"))
+        print(_C(f"  Start a chat with it:  koza sessions load {sid}", "grey"))
     elif action.startswith("Delete"):
         try:
             confirm = input(_C(f"  Delete session #{sid}? Type 'yes' to confirm: ", "red")).strip().lower()

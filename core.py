@@ -72,7 +72,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "cron":       ["create_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
                    "credential_set", "credential_get", "credential_list",
-                   "wm_add", "wm_get", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
+                   "wm_add", "wm_get", "wm_list", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents",
                    "cancel_subagent", "subagent_get_result", "subagent_update",
                    "start_coding_session", "list_capabilities",
@@ -693,6 +693,11 @@ class Agent:
         if not handler:
             return f"Unknown tool: {name}"
         try:
+            if name == "save_session" and not args.get("messages"):
+                return self.auto_save(
+                    title=str(args.get("title") or ""),
+                    summary=str(args.get("summary") or ""),
+                )
             if name == "browser_task":
                 try:
                     from skills import browser_control as _browser_control

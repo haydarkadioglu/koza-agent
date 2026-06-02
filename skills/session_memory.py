@@ -11,6 +11,8 @@ _db_path: str = ""
 def init_db(db_path: str) -> None:
     global _db_path
     _db_path = db_path
+    if db_path != ":memory:":
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with _conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
@@ -22,11 +24,14 @@ def init_db(db_path: str) -> None:
                 summary   TEXT NOT NULL DEFAULT ''
             )
         """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_title ON sessions(title)")
 
 
 @contextmanager
 def _conn():
-    conn = sqlite3.connect(_db_path)
+    conn = sqlite3.connect(_db_path, timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -170,8 +175,8 @@ def delete_session(session_id: int) -> str:
     if not _db_path:
         return "Session DB not initialized."
     with _conn() as conn:
-        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-    return f"Session #{session_id} deleted."
+        deleted = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,)).rowcount
+    return f"Session #{session_id} deleted." if deleted else f"Session #{session_id} not found."
 
 
 # ─── Registry ────────────────────────────────────────────────────────────────

@@ -72,6 +72,7 @@ Short-term ring buffer — last 20 events always injected into the system prompt
 |---|---|
 | `wm_add` | Add an event to working memory |
 | `wm_get` | Retrieve working memory entries |
+| `wm_list` | Retrieve working memory entries (legacy alias) |
 | `wm_clear` | Clear working memory |
 
 ### 💾 Shared Memory (`skills/shared_memory.py`)

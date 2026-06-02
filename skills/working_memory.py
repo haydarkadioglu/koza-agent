@@ -9,6 +9,7 @@ Contrast with shared_memory (permanent, retrieved only on demand).
 import sqlite3
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 _db_path: str = ""
 MAX_ENTRIES = 20  # ring buffer size
@@ -17,6 +18,8 @@ MAX_ENTRIES = 20  # ring buffer size
 def init_db(db_path: str) -> None:
     global _db_path
     _db_path = db_path
+    if db_path != ":memory:":
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with _conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS working_memory (
@@ -27,11 +30,14 @@ def init_db(db_path: str) -> None:
                 ts         REAL NOT NULL
             )
         """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_wm_ts ON working_memory(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_wm_event_type ON working_memory(event_type)")
 
 
 @contextmanager
 def _conn():
-    conn = sqlite3.connect(_db_path, check_same_thread=False)
+    conn = sqlite3.connect(_db_path, timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -56,16 +62,17 @@ def _trim() -> None:
 
 # ─── Core operations ─────────────────────────────────────────────────────────
 
-def wm_add(summary: str, detail: str = "", event_type: str = "action") -> None:
+def wm_add(summary: str, detail: str = "", event_type: str = "action") -> str:
     """Add an event to working memory (internal, called automatically)."""
     if not _db_path:
-        return
+        return "Working memory not initialized."
     with _conn() as conn:
         conn.execute(
             "INSERT INTO working_memory (event_type, summary, detail, ts) VALUES (?,?,?,?)",
             (event_type, summary[:200], detail[:500], time.time()),
         )
     _trim()
+    return "Working memory event added."
 
 
 def wm_get_context(limit: int = MAX_ENTRIES) -> str:
@@ -106,6 +113,11 @@ def wm_list(limit: int = MAX_ENTRIES) -> str:
     return f"Working memory ({len(rows)} recent events):\n" + "\n".join(lines)
 
 
+def wm_get(limit: int = MAX_ENTRIES) -> str:
+    """Alias for wm_list, kept aligned with prompts/docs."""
+    return wm_list(limit)
+
+
 def wm_clear() -> str:
     """Clear all working memory entries."""
     if not _db_path:
@@ -118,6 +130,29 @@ def wm_clear() -> str:
 # ─── Tool definitions ─────────────────────────────────────────────────────────
 
 TOOL_DEFINITIONS = [
+    {
+        "name": "wm_add",
+        "description": "Add a short event to working memory for the current session.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "description": "Short event summary"},
+                "detail": {"type": "string", "default": "", "description": "Optional detail"},
+                "event_type": {"type": "string", "default": "action", "description": "Event type, e.g. user/tool/action/error"},
+            },
+            "required": ["summary"],
+        },
+    },
+    {
+        "name": "wm_get",
+        "description": "Show recent working memory entries. Alias for wm_list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 20, "description": "How many recent events to show"},
+            },
+        },
+    },
     {
         "name": "wm_list",
         "description": (
@@ -139,6 +174,8 @@ TOOL_DEFINITIONS = [
 ]
 
 HANDLERS: dict = {
+    "wm_add":   lambda summary, detail="", event_type="action": wm_add(summary, detail, event_type),
+    "wm_get":   lambda limit=20: wm_get(int(limit)),
     "wm_list":  lambda limit=20: wm_list(int(limit)),
     "wm_clear": lambda **_: wm_clear(),
 }

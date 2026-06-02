@@ -47,6 +47,7 @@ Koza uses a **dual-memory architecture**: short-term working memory and long-ter
 ```
 wm_add(summary, detail, event_type)   # add an event manually
 wm_get(limit)                          # retrieve recent events
+wm_list(limit)                         # retrieve recent events (legacy alias)
 wm_clear()                             # wipe working memory
 ```
 
@@ -77,7 +78,7 @@ memory_store(key, value, tags)     # store a permanent fact
 memory_recall(query)               # recall by keyword/key
 memory_search(query, limit)        # fuzzy search across all memories
 memory_list(limit)                 # list recent memories
-memory_delete(memory_id)           # delete a specific memory
+memory_delete(key)                 # delete a specific memory by key
 ```
 
 ### Example usage (chat)
