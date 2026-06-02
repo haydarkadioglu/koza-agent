@@ -12,7 +12,7 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
     "files": ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
 
     # Code execution
-    "code": ["run_python", "run_node", "run_command", "run_script"],
+    "code": ["run_python", "run_node", "run_command", "run_script", "start_tracked_coding_task"],
 
     # Data science / analysis
     "data": ["pandas_query", "jupyter_run_cell", "matplotlib_plot"],
@@ -28,6 +28,10 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
 
     # Persistent + working memory
     "memory": ["memory_store", "memory_recall", "memory_search", "wm_add", "wm_get", "wm_list"],
+
+    # Work tracking
+    "kanban": ["create_task", "create_task_plan", "list_tasks", "move_task", "update_task", "delete_task"],
+    "cron": ["create_cron", "create_once_cron", "list_crons", "delete_cron"],
 
     # Messaging channels
     "messaging": ["send_telegram", "send_email"],

@@ -49,6 +49,7 @@ Koza exposes **96 tools** across 25+ skill categories. The agent selects and cal
 | Tool | Description |
 |---|---|
 | `create_task` | Create a Kanban task (todo/doing/done) |
+| `create_task_plan` | Create multiple Kanban tasks from a checklist |
 | `list_tasks` | List all tasks with status |
 | `move_task` | Move task to a different column |
 | `update_task` | Update task title or notes |
@@ -58,6 +59,7 @@ Koza exposes **96 tools** across 25+ skill categories. The agent selects and cal
 | Tool | Description |
 |---|---|
 | `create_cron` | Schedule a recurring job (cron expression) |
+| `create_once_cron` | Schedule a one-time follow-up or agent job |
 | `list_crons` | List all scheduled jobs |
 | `delete_cron` | Delete a scheduled job |
 
@@ -126,7 +128,9 @@ Save and recall full conversation sessions.
 | Tool | Description |
 |---|---|
 | `spawn_subagent` | Spawn an autonomous sub-agent in a background thread |
+| `start_tracked_coding_task` | Start coding work with Kanban tracking and a one-shot follow-up |
 | `get_subagent_status` | Check status/result of a sub-agent |
+| `subagent_get_result` | Fetch the full result of a completed sub-agent |
 | `list_subagents` | List all sub-agents this session |
 
 ### 🐙 GitHub (`skills/github_skill.py`)

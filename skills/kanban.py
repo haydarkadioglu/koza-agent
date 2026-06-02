@@ -27,6 +27,26 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "create_task_plan",
+            "description": "Create multiple Kanban tasks from a newline-separated implementation checklist.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Parent plan title"},
+                    "steps": {"type": "string", "description": "One task per line"},
+                    "column": {
+                        "type": "string",
+                        "enum": ["todo", "in_progress", "done", "auto"],
+                        "default": "todo",
+                    },
+                },
+                "required": ["title", "steps"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_tasks",
             "description": "List Kanban tasks, optionally filtered by column.",
             "parameters": {
@@ -120,6 +140,24 @@ def create_task(title: str, description: str = "", column: str = "todo") -> str:
         return f"Task created (id={cur.lastrowid}): [{column}] {title}"
 
 
+def create_task_plan(title: str, steps: str, column: str = "todo") -> str:
+    now = datetime.utcnow().isoformat()
+    cleaned_steps = [s.strip(" -\t") for s in steps.splitlines() if s.strip(" -\t")]
+    if not cleaned_steps:
+        return "ERROR: No plan steps provided."
+    created: list[tuple[int, str]] = []
+    with _conn() as conn:
+        for idx, step in enumerate(cleaned_steps, start=1):
+            cur = conn.execute(
+                "INSERT INTO kanban_tasks (title, description, column, created_at, updated_at) VALUES (?,?,?,?,?)",
+                (f"{title}: {step}", f"Plan: {title}\nStep {idx}/{len(cleaned_steps)}", column, now, now),
+            )
+            created.append((cur.lastrowid, step))
+    lines = [f"Task plan created: {title} ({len(created)} tasks)"]
+    lines.extend(f"- id={task_id}: {step}" for task_id, step in created)
+    return "\n".join(lines)
+
+
 def list_tasks(column: str = "") -> str:
     with _conn() as conn:
         if column:
@@ -142,31 +180,39 @@ def list_tasks(column: str = "") -> str:
 def move_task(task_id: int, column: str) -> str:
     now = datetime.utcnow().isoformat()
     with _conn() as conn:
-        conn.execute(
+        cur = conn.execute(
             "UPDATE kanban_tasks SET column=?, updated_at=? WHERE id=?",
             (column, now, task_id),
         )
+    if cur.rowcount == 0:
+        return f"Task {task_id} not found."
     return f"Task {task_id} moved to [{column}]"
 
 
 def update_task(task_id: int, title: str = "", description: str = "") -> str:
     now = datetime.utcnow().isoformat()
     with _conn() as conn:
+        changed = 0
         if title:
-            conn.execute("UPDATE kanban_tasks SET title=?, updated_at=? WHERE id=?", (title, now, task_id))
+            changed += conn.execute("UPDATE kanban_tasks SET title=?, updated_at=? WHERE id=?", (title, now, task_id)).rowcount
         if description:
-            conn.execute("UPDATE kanban_tasks SET description=?, updated_at=? WHERE id=?", (description, now, task_id))
+            changed += conn.execute("UPDATE kanban_tasks SET description=?, updated_at=? WHERE id=?", (description, now, task_id)).rowcount
+    if changed == 0:
+        return f"Task {task_id} not found or no update fields provided."
     return f"Task {task_id} updated."
 
 
 def delete_task(task_id: int) -> str:
     with _conn() as conn:
-        conn.execute("DELETE FROM kanban_tasks WHERE id=?", (task_id,))
+        cur = conn.execute("DELETE FROM kanban_tasks WHERE id=?", (task_id,))
+    if cur.rowcount == 0:
+        return f"Task {task_id} not found."
     return f"Task {task_id} deleted."
 
 
 HANDLERS = {
     "create_task": create_task,
+    "create_task_plan": create_task_plan,
     "list_tasks": list_tasks,
     "move_task": move_task,
     "update_task": update_task,

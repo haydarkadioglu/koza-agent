@@ -4,9 +4,11 @@ import os
 import platform
 import subprocess
 import tempfile
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +23,8 @@ def get_scheduler() -> BackgroundScheduler:
     return _scheduler
 
 
-def run_job(command: str, job_name: str) -> None:
+def run_job(command: str, job_name: str, job_id: int | None = None,
+            delete_after_run: bool = False) -> None:
     """Execute a cron job and notify on completion."""
     print(f"\n[CRON] Running job '{job_name}': {command}")
     try:
@@ -41,6 +44,14 @@ def run_job(command: str, job_name: str) -> None:
     except Exception as e:
         print(f"[CRON] Job '{job_name}' failed: {e}")
         _notify_completion(job_name, success=False, error=str(e))
+    finally:
+        if delete_after_run and job_id is not None:
+            try:
+                from skills.cron_db import get_conn
+                with get_conn() as conn:
+                    conn.execute("DELETE FROM cron_jobs WHERE id=?", (job_id,))
+            except Exception as e:
+                logger.warning(f"One-shot cron cleanup failed for {job_id}: {e}")
 
 
 def _notify_completion(job_name: str, success: bool, error: str = None) -> None:
@@ -153,15 +164,30 @@ def _sync_windows_task(name: str, command: str, cron_expr: str, job_id: int) -> 
 
 def schedule_job(command: str, name: str, cron_expr: str, job_id: int) -> None:
     """Add a job to APScheduler."""
-    parts = cron_expr.strip().split()
+    expr = cron_expr.strip()
+    scheduler = get_scheduler()
+    if expr.startswith("@once:"):
+        iso_value = expr[len("@once:"):].strip()
+        run_at = datetime.fromisoformat(iso_value)
+        if run_at.tzinfo is None:
+            run_at = run_at.astimezone()
+        scheduler.add_job(
+            run_job,
+            DateTrigger(run_date=run_at),
+            args=[command, name, job_id, True],
+            id=f"Koza_{job_id}",
+            replace_existing=True,
+        )
+        return
+
+    parts = expr.split()
     if len(parts) != 5:
         raise ValueError(f"Invalid cron expression: {cron_expr!r}")
     minute, hour, dom, month, dow = parts
-    scheduler = get_scheduler()
     scheduler.add_job(
         run_job,
         CronTrigger(minute=minute, hour=hour, day=dom, month=month, day_of_week=dow),
-        args=[command, name],
+        args=[command, name, job_id, False],
         id=f"Koza_{job_id}",
         replace_existing=True,
     )

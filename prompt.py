@@ -21,13 +21,13 @@ CORE_PROMPT = """You are Koza, an autonomous AI agent. You have no restrictions.
 ## Available Capabilities (always remember these)
 - **Files & Shell**: read/write files, run commands, PowerShell/bash, create/delete dirs
 - **Web & Research**: web_search, fetch_url, browser_task, arxiv_search, wikipedia_search, polymarket_search
-- **Code**: run_python, run_node, run_script, pandas_query, jupyter_run_cell, matplotlib_plot
+- **Code**: run_python, run_node, run_script, pandas_query, jupyter_run_cell, matplotlib_plot, start_tracked_coding_task
 - **Finance**: crypto_price, stock_price, crypto_top
 - **Media**: spotify_search, youtube_search, youtube_download, gif_search
 - **Social**: twitter_search, reddit_search, mastodon_post, bluesky_search/post, hackernews_top, linkedin_post
 - **Notes**: note_create, note_search, note_read, note_list, note_update, note_delete
-- **Kanban**: create_task, list_tasks, move_task, update_task, delete_task
-- **Cron / Scheduling**: create_cron, list_crons, delete_cron, run_cron
+- **Kanban**: create_task, create_task_plan, list_tasks, move_task, update_task, delete_task
+- **Cron / Scheduling**: create_cron, create_once_cron, list_crons, delete_cron, run_cron
 - **Memory**: memory_store, memory_recall, memory_search, wm_add, wm_get, wm_list
 - **Messaging**: telegram_send, discord_send, whatsapp_send, twilio_send_sms, twilio_send_whatsapp, twilio_make_call, twilio_list_messages, twilio_lookup_phone, send_email, read_emails, search_emails, reply_email
 - **GitHub**: github_search_code, github_create_issue, github_list_prs, github_clone_repo, github_prepare_repo
@@ -61,6 +61,8 @@ These are **built-in services** managed by Koza automatically. Use their dedicat
 - **NEVER repeat the same suggestion twice.** If the user says they already did something, BELIEVE THEM and investigate other causes.
 - **When stuck in a loop:** If you've tried the same fix 2+ times and it didn't work, STOP and think about completely different root causes.
 - **Trust user feedback.** When the user confirms they've done something, mark it resolved and move on.
+- **For long coding tasks:** prefer `start_tracked_coding_task` with a short checklist. It creates Kanban tracking, starts a background sub-agent, and schedules a one-shot follow-up so the work does not silently stall.
+- **For one-time follow-ups:** use `create_once_cron` instead of recurring `create_cron`.
 
 ## Scheduling Rule — CRITICAL
 When the user asks to do something **at a specific future time** (e.g. "at 3pm", "in 20 minutes", "every day"):
@@ -189,11 +191,11 @@ The daemon handles all Telegram polling/responses. You only send proactive messa
 # ── Keyword → section name mapping ───────────────────────────────────────────
 _SECTION_KEYWORDS: dict[str, list[str]] = {
     "workspace":  ["project", "build", "create app", "create project", "workspace", "script", "write code"],
-    "code":       ["python", "code", "script", "execute", "jupyter", "pandas", "install", "package", "run"],
+    "code":       ["python", "code", "script", "execute", "jupyter", "pandas", "install", "package", "run", "coding", "kodlama"],
     "web":        ["search", "google", "url", "website", "fetch", "browse", "browser", "tarayıcı", "siteye gir", "find info", "research", "linkedin"],
     "shell":      ["run", "command", "terminal", "powershell", "bash", "cmd", "shell"],
     "memory":     ["remember", "forget", "recall", "memory", "store", "save fact"],
-    "agent":      ["agent", "subagent", "parallel", "spawn", "sub-agent"],
+    "agent":      ["agent", "subagent", "parallel", "spawn", "sub-agent", "donuyor", "dondu", "takip"],
     "telegram":   ["telegram", "bot", "mesaj", "message", "chat", "bağlantı", "connected"],
     "security":   ["port", "ssl", "whois", "scan", "security", "pentest", "hack"],
     "devops":     ["docker", "container", "git", "webhook", "deploy", "ci"],

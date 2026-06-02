@@ -55,6 +55,67 @@ def spawn_subagent(goal: str, provider: str = "", model: str = "",
     return f"Sub-agent {agent_id} launched (background). Use get_subagent_status('{agent_id}') to check."
 
 
+def start_tracked_coding_task(goal: str, checklist: str = "", followup_minutes: int = 10,
+                              capabilities: str = "files,code,github,devops") -> str:
+    """Start a coding sub-agent with Kanban tracking and a one-shot follow-up check."""
+    import re
+    from skills.kanban import create_task, create_task_plan, move_task, update_task
+    from skills.cron import create_once_cron
+
+    title = goal.strip()[:80] or "Coding task"
+    if checklist.strip():
+        task_result = create_task_plan(title, checklist, column="todo")
+        task_id_match = re.search(r"id=(\d+)", task_result)
+        if task_id_match:
+            move_task(int(task_id_match.group(1)), "in_progress")
+    else:
+        task_result = create_task(title, "Tracked coding task. Background agent will update progress.", "in_progress")
+        task_id_match = re.search(r"id=(\d+)", task_result)
+    task_id = int(task_id_match.group(1)) if task_id_match else 0
+
+    agent_goal = (
+        f"{goal}\n\n"
+        "Work autonomously. Keep changes scoped, verify with tests or checks when possible, "
+        "and report the exact files changed plus remaining blockers. "
+        f"If you use Kanban, update task id {task_id}."
+    )
+    launched = spawn_subagent(agent_goal, capabilities=capabilities, wait=False)
+    agent_match = re.search(r"Sub-agent\s+([a-f0-9]{8})", launched)
+    agent_id = agent_match.group(1) if agent_match else ""
+
+    if task_id and agent_id:
+        update_task(
+            task_id,
+            description=(
+                "Tracked coding task.\n"
+                f"Sub-agent: {agent_id}\n"
+                f"Goal: {goal}\n"
+                f"Follow-up after: {followup_minutes} minutes"
+            ),
+        )
+
+    followup = ""
+    if agent_id:
+        followup_instruction = (
+            f"Check sub-agent {agent_id} for coding task '{title}'. "
+            f"If it is done, summarize result and move kanban task {task_id} to done if that task exists. "
+            f"If it is still running, report current status and schedule another one-shot follow-up in "
+            f"{max(5, int(followup_minutes))} minutes using create_once_cron."
+        )
+        followup = create_once_cron(
+            name=f"coding follow-up {agent_id}",
+            command=f"@agent: {followup_instruction}",
+            delay_minutes=max(1, int(followup_minutes)),
+        )
+
+    return (
+        "Tracked coding task started.\n"
+        f"Kanban:\n{task_result}\n\n"
+        f"Sub-agent: {agent_id or launched}\n"
+        f"Follow-up:\n{followup or 'No follow-up scheduled.'}"
+    )
+
+
 def cancel_subagent(agent_id: str) -> str:
     """Cancel a running sub-agent by sending it a cancellation signal."""
     with _registry_lock:
@@ -721,6 +782,23 @@ TOOL_DEFINITIONS = [
             "required": ["goal"],
         },
     },
+    {
+        "name": "start_tracked_coding_task",
+        "description": (
+            "Start a coding task in the background, create Kanban tracking, and schedule "
+            "a one-time follow-up check so long tasks do not appear frozen."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string", "description": "The coding task to complete"},
+                "checklist": {"type": "string", "default": "", "description": "Optional newline-separated checklist to create Kanban tasks"},
+                "followup_minutes": {"type": "integer", "default": 10, "description": "Minutes until the first automatic status check"},
+                "capabilities": {"type": "string", "default": "files,code,github,devops", "description": "Capability groups for the background sub-agent"},
+            },
+            "required": ["goal"],
+        },
+    },
 ]
 
 
@@ -736,6 +814,8 @@ HANDLERS: dict = {
                                 subagent_update(agent_id, new_goal, provider, model, tools, capabilities),
     "cancel_subagent":      lambda agent_id: cancel_subagent(agent_id),
     "start_coding_session": lambda goal, max_retries=3: start_coding_session(goal, int(max_retries)),
+    "start_tracked_coding_task": lambda goal, checklist="", followup_minutes=10, capabilities="files,code,github,devops":
+                                start_tracked_coding_task(goal, checklist, int(followup_minutes), capabilities),
     "create_project":       lambda name, description="": create_project(name, description),
     "list_projects":        lambda **_: list_projects(),
     "clean_workspace":      lambda scope="all": clean_workspace(scope),

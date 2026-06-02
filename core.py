@@ -68,14 +68,14 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "shell":      ["run_command"],
     "web":        ["web_search", "fetch_url", "browser_task"],
     "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot"],
-    "kanban":     ["create_task", "list_tasks", "move_task", "update_task", "delete_task"],
-    "cron":       ["create_cron", "list_crons", "delete_cron"],
+    "kanban":     ["create_task", "create_task_plan", "list_tasks", "move_task", "update_task", "delete_task"],
+    "cron":       ["create_cron", "create_once_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
                    "credential_set", "credential_get", "credential_list",
                    "wm_add", "wm_get", "wm_list", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents",
                    "cancel_subagent", "subagent_get_result", "subagent_update",
-                   "start_coding_session", "list_capabilities",
+                   "start_coding_session", "start_tracked_coding_task", "list_capabilities",
                    "create_project", "list_projects", "extract_project"],
     "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
                    "telegram_send_photo", "telegram_send_video",
@@ -120,10 +120,14 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # code
     "python": ["code"], "script": ["code"], "code": ["code"], "execute": ["code", "shell"],
     "jupyter": ["code"], "pandas": ["code"], "plot": ["code"],
+    "coding": ["code", "agent", "kanban", "cron"], "kodlama": ["code", "agent", "kanban", "cron"],
+    "donuyor": ["agent", "kanban", "cron"], "dondu": ["agent", "kanban", "cron"],
     # kanban / tasks
     "task": ["kanban"], "kanban": ["kanban"], "todo": ["kanban"], "doing": ["kanban"],
+    "checklist": ["kanban"], "plan": ["kanban"],
     # cron / schedule
     "schedule": ["cron"], "cron": ["cron"], "every day": ["cron"], "recurring": ["cron"],
+    "tek sefer": ["cron"], "one-shot": ["cron"], "follow-up": ["cron"], "takip": ["cron", "kanban"],
     # memory
     "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
     "session": ["memory"],
