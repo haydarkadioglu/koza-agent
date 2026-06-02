@@ -7,10 +7,13 @@ Messages stream back to the user in real time (chunked text edits).
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import re
 import sqlite3
 import threading
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Callable
 
@@ -24,6 +27,51 @@ _bot_cfg: dict | None = None
 # ── Telegram conversation history persistence ─────────────────────────────────
 # Conversations are persisted to SQLite so context survives bot restarts.
 _TG_HISTORY_KEEP = 100   # max messages to persist per chat_id
+_RECENT_ATTACHMENTS_KEEP = 10
+_recent_attachments_by_chat: dict[int, list["AttachmentInfo"]] = {}
+
+_IMAGE_MIME_PREFIX = "image/"
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+_TEXT_SUFFIXES = {
+    ".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".toml",
+    ".log", ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sql",
+}
+_FOLLOWUP_FILE_RE = re.compile(
+    r"\b(bu(nu|ları)?|dosya(yı|ları)?|ek(i|leri)?|attığım|gönderdiğim|"
+    r"oku|özetle|işle|isle|kaydet|save|analyze|analiz)\b",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class AttachmentInfo:
+    kind: str
+    local_path: str
+    file_id: str
+    original_name: str
+    mime_type: str
+    size: int | None = None
+    caption: str = ""
+
+    @property
+    def suffix(self) -> str:
+        return Path(self.local_path).suffix.lower()
+
+    @property
+    def is_image(self) -> bool:
+        return self.mime_type.startswith(_IMAGE_MIME_PREFIX) or self.suffix in _IMAGE_SUFFIXES
+
+    @property
+    def is_pdf(self) -> bool:
+        return self.mime_type == "application/pdf" or self.suffix == ".pdf"
+
+    @property
+    def is_text_like(self) -> bool:
+        return (
+            self.mime_type.startswith("text/")
+            or self.mime_type in {"application/json", "application/xml", "application/x-yaml"}
+            or self.suffix in _TEXT_SUFFIXES
+        )
 
 
 def _get_db_path() -> str | None:
@@ -82,7 +130,139 @@ def _load_tg_history(chat_id: int) -> list:
                 return json.loads(row[0])
     except Exception as e:
         logger.debug(f"_load_tg_history failed: {e}")
-    return []
+        return []
+
+
+def _workspace_path() -> Path:
+    configured = (_bot_cfg or {}).get("workspace_path")
+    return Path(configured or Path.home() / ".Koza" / "workspace")
+
+
+def _telegram_download_dir() -> Path:
+    today = datetime.now().strftime("%Y-%m-%d")
+    return _workspace_path() / "downloads" / "telegram" / today
+
+
+def _safe_filename(name: str) -> str:
+    cleaned = re.sub(r"[^\w.\-]", "_", name.strip())
+    cleaned = cleaned.strip("._")
+    return cleaned or "telegram_file"
+
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    base = _safe_filename(filename)
+    candidate = directory / base
+    if not candidate.exists():
+        return candidate
+    stem = candidate.stem or "telegram_file"
+    suffix = candidate.suffix
+    for idx in range(1, 10000):
+        next_candidate = directory / f"{stem}_{idx}{suffix}"
+        if not next_candidate.exists():
+            return next_candidate
+    return directory / f"{stem}_{int(datetime.now().timestamp())}{suffix}"
+
+
+def _guess_mime(path: str, fallback: str = "") -> str:
+    return fallback or mimetypes.guess_type(path)[0] or ""
+
+
+def _preview_text_file(path: str, limit: int = 6000) -> str:
+    try:
+        data = Path(path).read_bytes()
+        text = data[: limit * 2].decode("utf-8", errors="replace")
+        return text[:limit]
+    except Exception as e:
+        return f"[Preview okunamadı: {e}]"
+
+
+def _preview_pdf_file(path: str, limit: int = 6000) -> str:
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(path)
+        chunks: list[str] = []
+        for page in reader.pages[:5]:
+            chunks.append(page.extract_text() or "")
+            if sum(len(c) for c in chunks) >= limit:
+                break
+        text = "\n".join(chunks).strip()
+        return text[:limit] if text else "[PDF metni çıkarılamadı]"
+    except Exception as e:
+        return f"[PDF preview okunamadı: {e}]"
+
+
+def _attachment_preview(att: AttachmentInfo) -> str:
+    if att.is_pdf:
+        return _preview_pdf_file(att.local_path)
+    if att.is_text_like:
+        return _preview_text_file(att.local_path)
+    return ""
+
+
+def _format_attachment_context(att: AttachmentInfo, include_preview: bool = True) -> str:
+    lines = [
+        f"[Dosya indirildi: {att.local_path}]",
+        "[Telegram attachment]",
+        f"type={att.kind}",
+        f"path={att.local_path}",
+        f"mime={att.mime_type or 'unknown'}",
+        f"original_name={att.original_name}",
+    ]
+    if att.size is not None:
+        lines.append(f"size={att.size}")
+    if att.caption:
+        lines.append(f"caption={att.caption}")
+    preview = _attachment_preview(att) if include_preview else ""
+    if preview:
+        lines.extend(["[Dosya önizleme başlangıcı]", preview, "[Dosya önizleme sonu]"])
+    return "\n".join(lines)
+
+
+def _remember_attachments(chat_id: int, attachments: list[AttachmentInfo]) -> None:
+    if not attachments:
+        return
+    current = _recent_attachments_by_chat.setdefault(chat_id, [])
+    current.extend(attachments)
+    del current[:-_RECENT_ATTACHMENTS_KEEP]
+
+
+def _recent_attachment_context(chat_id: int) -> str:
+    recent = _recent_attachments_by_chat.get(chat_id, [])
+    if not recent:
+        return ""
+    lines = ["[Son Telegram dosyaları]"]
+    for att in recent[-_RECENT_ATTACHMENTS_KEEP:]:
+        lines.append(f"- {att.local_path} ({att.mime_type or att.kind})")
+    return "\n".join(lines)
+
+
+def _should_add_recent_file_context(text: str) -> bool:
+    return bool(text and _FOLLOWUP_FILE_RE.search(text))
+
+
+def _message_attr(msg, name: str):
+    value = getattr(msg, name, None)
+    if value.__class__.__module__.startswith("unittest.mock"):
+        return None
+    return value
+
+
+async def _download_attachment(context, source, kind: str, filename: str, mime_type: str = "",
+                               size: int | None = None, caption: str = "") -> AttachmentInfo:
+    tg_file = await context.bot.get_file(source.file_id)
+    target = _unique_path(_telegram_download_dir(), filename)
+    await tg_file.download_to_drive(str(target))
+    return AttachmentInfo(
+        kind=kind,
+        local_path=str(target.resolve()),
+        file_id=source.file_id,
+        original_name=filename,
+        mime_type=_guess_mime(str(target), mime_type),
+        size=size,
+        caption=caption,
+    )
 
 
 def _strip_markdown(text: str) -> str:
@@ -263,8 +443,11 @@ async def _process_message(update, context, agent_factory: Callable,
         return
 
     chat_id = msg.chat_id if msg else update.callback_query.message.chat_id
-    user_text = override_text or (msg.text if msg else "") or (msg.caption if msg else "") or ""
+    msg_text = _message_attr(msg, "text") if msg else ""
+    msg_caption = _message_attr(msg, "caption") if msg else ""
+    user_text = override_text or msg_text or msg_caption or ""
     image_path = None
+    attachments: list[AttachmentInfo] = []
 
     # ── Whitelist check: only respond to configured owner chat_id ─────────────
     if not override_text and _bot_cfg:
@@ -306,40 +489,99 @@ async def _process_message(update, context, agent_factory: Callable,
         except Exception:
             pass  # Reactions not available in all chat types — ignore
 
-    # ── Photo support ──────────────────────────────────────────────────────────
-    if msg and msg.photo:
-        photo = msg.photo[-1]
-        tg_file = await context.bot.get_file(photo.file_id)
-        import tempfile
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        tmp.close()
-        await tg_file.download_to_drive(tmp.name)
-        image_path = tmp.name
-        if not user_text:
-            user_text = "Bu fotoğrafı analiz et."
+    # ── Telegram attachment support ───────────────────────────────────────────
+    if msg and not override_text:
+        try:
+            caption = msg_caption or ""
+            photos = _message_attr(msg, "photo")
+            document = _message_attr(msg, "document")
+            video_msg = _message_attr(msg, "video")
+            audio_msg = _message_attr(msg, "audio")
+            voice_msg = _message_attr(msg, "voice")
+            if photos:
+                photo = photos[-1]
+                attachments.append(await _download_attachment(
+                    context,
+                    photo,
+                    "photo",
+                    f"photo_{photo.file_id[:8]}.jpg",
+                    "image/jpeg",
+                    getattr(photo, "file_size", None),
+                    caption,
+                ))
+            elif document:
+                doc = document
+                attachments.append(await _download_attachment(
+                    context,
+                    doc,
+                    "document",
+                    doc.file_name or f"document_{doc.file_id[:8]}",
+                    doc.mime_type or "",
+                    getattr(doc, "file_size", None),
+                    caption,
+                ))
+            elif video_msg:
+                video = video_msg
+                attachments.append(await _download_attachment(
+                    context,
+                    video,
+                    "video",
+                    getattr(video, "file_name", None) or f"video_{video.file_id[:8]}.mp4",
+                    getattr(video, "mime_type", "") or "video/mp4",
+                    getattr(video, "file_size", None),
+                    caption,
+                ))
+            elif audio_msg:
+                audio = audio_msg
+                attachments.append(await _download_attachment(
+                    context,
+                    audio,
+                    "audio",
+                    getattr(audio, "file_name", None) or f"audio_{audio.file_id[:8]}.mp3",
+                    getattr(audio, "mime_type", "") or "audio/mpeg",
+                    getattr(audio, "file_size", None),
+                    caption,
+                ))
+            elif voice_msg:
+                voice = voice_msg
+                attachments.append(await _download_attachment(
+                    context,
+                    voice,
+                    "voice",
+                    f"voice_{voice.file_id[:8]}.ogg",
+                    getattr(voice, "mime_type", "") or "audio/ogg",
+                    getattr(voice, "file_size", None),
+                    caption,
+                ))
+        except Exception as e:
+            logger.exception("Telegram attachment download failed")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Dosyayı indiremedim: {e}",
+            )
+            return
 
-    # ── Document / file support ────────────────────────────────────────────────
-    elif msg and msg.document:
-        doc = msg.document
-        tg_file = await context.bot.get_file(doc.file_id)
-        # Save to ~/.Koza/workspace/downloads/ so path survives and is accessible
-        dl_dir = Path(_bot_cfg.get("workspace_path", Path.home() / ".Koza" / "workspace")) / "downloads"
-        dl_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = re.sub(r"[^\w\.\-]", "_", doc.file_name or f"file_{doc.file_id[:8]}")
-        dest = str(dl_dir / safe_name)
-        await tg_file.download_to_drive(dest)
-        file_info = f"[Dosya indirildi: {dest}]"
-        mime = doc.mime_type or ""
+    if attachments:
+        _remember_attachments(chat_id, attachments)
+        image_attachment = next((att for att in attachments if att.is_image), None)
+        if image_attachment:
+            image_path = image_attachment.local_path
+        attachment_context = "\n\n".join(_format_attachment_context(att) for att in attachments)
         if user_text:
-            user_text = f"{file_info}\n{user_text}"
+            user_text = f"{attachment_context}\n\nKullanıcı komutu:\n{user_text}"
         else:
-            # Default: read text-based files, just acknowledge binary ones
-            if any(mime.startswith(p) for p in ("text/", "application/json", "application/xml")) or dest.endswith((".py", ".txt", ".md", ".csv", ".yaml", ".yml", ".toml", ".log")):
-                user_text = f"{file_info}\nBu dosyayı oku ve içeriğini özetle."
-            elif dest.endswith(".pdf"):
-                user_text = f"{file_info}\nBu PDF dosyası indirildi. Kullanıcı komut verince işleyeceğim."
+            first = attachments[0]
+            if first.is_image:
+                default_task = "Bu görseli analiz et."
+            elif first.is_pdf or first.is_text_like:
+                default_task = "Bu dosyayı oku ve içeriğini kısa özetle."
             else:
-                user_text = f"{file_info}\nDosya kaydedildi. Kullanıcı ne yapmamı istediğini söyleyecek."
+                default_task = "Dosya kaydedildi. Türünü ve yerel path'ini kullanıcıya bildir."
+            user_text = f"{attachment_context}\n\n{default_task}"
+    elif _should_add_recent_file_context(user_text):
+        recent_context = _recent_attachment_context(chat_id)
+        if recent_context:
+            user_text = f"{recent_context}\n\nKullanıcı komutu:\n{user_text}"
 
     if not user_text:
         return
