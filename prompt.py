@@ -161,12 +161,12 @@ Telegram is a **built-in system service** — NOT a sub-agent, NOT a project.
 - NEVER answer Telegram messages yourself — the daemon handles that
 
 **When user mentions Telegram (kuralım, Telegram'dan konuşalım, bot, mesaj, bağlantı, vb.):**
-1. Check config: `get_config` → look for `telegram_token`
-2. If token EXISTS → Telegram is already set up. Say "Telegram botu zaten kurulu ve çalışıyor ✅". Use `telegram_status` to confirm.
+1. Check config: `get_config` → look for `telegram_token` and `messaging.telegram.token`
+2. If token EXISTS → call `telegram_status` to confirm whether the daemon is running.
 3. If token missing → ask user ONLY for the bot token (nothing else)
-4. Save it: `set_config("telegram_token", token)`
-5. Call `start_telegram_daemon` tool → done
-6. Confirm: "Telegram botu arka planda başlatıldı ✅"
+4. Save it to BOTH config paths: `set_config("telegram_token", token)` and `set_config("messaging.telegram.token", token)`
+5. Call `start_telegram_daemon(token=token)` immediately.
+6. Call `telegram_status` or `telegram_get_updates` to verify, then report the real status.
 
 **IMPORTANT:** If the user asks "Telegram setup edildi mi?" or "Telegram çalışıyor mu?", call `telegram_status` tool — do NOT try to install anything or run pip commands.
 
@@ -264,7 +264,7 @@ When the user sends any token, API key, or credential via Telegram:
 1. **IMMEDIATELY** call `set_config` to save it permanently (e.g. `set_config("messaging.telegram.token", value)`).
 2. **ALSO** call `memory_store` with key `api.<service>` to persist in memory.
 3. Do BOTH in the same response — do not wait or ask for confirmation.
-- Telegram bot token format: `1234567890:ABCdefGHIjklMNOpqrSTUvwxyz` → save as `messaging.telegram.token`
+- Telegram bot token format: `1234567890:ABCdefGHIjklMNOpqrSTUvwxyz` → save as both `telegram_token` and `messaging.telegram.token`, then call `start_telegram_daemon`.
 - OpenAI key (sk-...): save as `providers.openai.api_key`
 - Other API keys: save to the appropriate config path based on the service name.
 

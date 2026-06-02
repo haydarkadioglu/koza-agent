@@ -73,12 +73,14 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
                    "credential_set", "credential_get", "credential_list",
                    "wm_add", "wm_get", "wm_list", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
+    "config":     ["get_config", "set_config", "delete_config"],
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents",
                    "cancel_subagent", "subagent_get_result", "subagent_update",
                    "start_coding_session", "start_tracked_coding_task", "list_capabilities",
                    "create_project", "list_projects", "extract_project"],
     "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
                    "telegram_send_photo", "telegram_send_video",
+                   "telegram_status", "start_telegram_daemon",
                    "discord_send", "discord_get_messages", "whatsapp_send",
                    "twilio_send_sms", "twilio_send_whatsapp", "twilio_make_call",
                    "twilio_call_status", "twilio_list_messages", "twilio_lookup_phone",
@@ -132,12 +134,16 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
     "session": ["memory"],
     # credentials
-    "token": ["memory"], "api key": ["memory"], "apikey": ["memory"], "credential": ["memory"],
-    "password": ["memory"], "secret": ["memory"], "key": ["memory"],
+    "token": ["memory", "config"], "api key": ["memory", "config"], "apikey": ["memory", "config"],
+    "credential": ["memory", "config"], "password": ["memory", "config"], "secret": ["memory", "config"],
+    "key": ["memory", "config"],
     # agents
     "agent": ["agent"], "subagent": ["agent"], "parallel": ["agent"],
     # messaging
-    "telegram": ["message"], "discord": ["message"], "whatsapp": ["message"],
+    "telegram": ["message", "config"],
+    "telegram bot": ["message", "config"],
+    "telegram token": ["message", "config", "memory"],
+    "discord": ["message"], "whatsapp": ["message"],
     "twilio": ["message"], "sms gönder": ["message"], "arama yap": ["message"],
     "twilio_send": ["message"], "send sms": ["message"], "make call": ["message"],
     "telefon ara": ["message"], "numaraya mesaj": ["message"],
@@ -668,6 +674,11 @@ class Agent:
                     # Also save at the flat key used by the daemon
                     _cfg["telegram_token"] = tg_token
                     save_config(_cfg)
+                    working_memory.wm_add(
+                        summary="Telegram bot token saved to config.",
+                        detail="Next step: call start_telegram_daemon and then telegram_status.",
+                        event_type="config",
+                    )
                 except Exception:
                     pass
 

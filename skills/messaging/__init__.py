@@ -301,6 +301,47 @@ def get_messages(platform: str, limit: int = 10) -> str:
     return f"get_messages not supported for {platform}."
 
 
+def telegram_status() -> str:
+    try:
+        from koza_daemon import get_daemon_port, PID_FILE
+        port = get_daemon_port()
+        if port is not None:
+            pid = PID_FILE.read_text().strip() if PID_FILE.exists() else "?"
+            return f"Telegram/background daemon appears to be running (PID {pid}, port marker {port})."
+    except Exception:
+        pass
+    return "Telegram daemon is not running. Use start_telegram_daemon after saving the token."
+
+
+def start_telegram_daemon(token: str = "") -> str:
+    """Persist token if provided and start the services-only daemon."""
+    try:
+        from config import load_config, save_config
+        cfg = load_config()
+        if token:
+            token = token.strip()
+            cfg["telegram_token"] = token
+            cfg.setdefault("messaging", {}).setdefault("telegram", {})["token"] = token
+            save_config(cfg)
+
+        tok = (
+            cfg.get("telegram_token", "").strip()
+            or cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
+        )
+        if not tok:
+            return "ERROR: Telegram token is not configured."
+
+        from koza_daemon import get_daemon_port, start_services_background
+        if get_daemon_port() is not None:
+            return "Telegram daemon already running."
+        ok = start_services_background(cfg)
+        if ok:
+            return "Telegram bot started in the background. Send /start or a message to the bot now."
+        return "Telegram daemon could not be started. Run `koza status` and check daemon logs."
+    except Exception as e:
+        return f"ERROR starting Telegram daemon: {e}"
+
+
 # ── Tool definitions ──────────────────────────────────────────────────────────
 
 TOOL_DEFINITIONS = [
@@ -351,6 +392,22 @@ TOOL_DEFINITIONS = [
                 "limit":  {"type": "integer", "description": "Max updates"},
                 "offset": {"type": "integer", "description": "Offset for pagination"},
             },
+        },
+    },
+    {
+        "name": "telegram_status",
+        "description": "Check whether the Telegram/background daemon appears to be running.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "start_telegram_daemon",
+        "description": "Start Telegram bot background service. Saves the token first if provided.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "token": {"type": "string", "description": "Optional Telegram bot token"},
+            },
+            "required": [],
         },
     },
     {
@@ -438,6 +495,8 @@ HANDLERS = {
                                 _tg.send(text, chat_id=chat_id, parse_mode=parse_mode),
     "telegram_get_updates": lambda limit=10, offset=0:
                                 _tg.get_updates(int(limit), int(offset)),
+    "telegram_status":      lambda **_: telegram_status(),
+    "start_telegram_daemon": lambda token="": start_telegram_daemon(token),
     "telegram_set_webhook": lambda webhook_url: _tg.set_webhook(webhook_url),
     "discord_send":         lambda text, channel_id="": _dc.send(text, channel_id=channel_id),
     "discord_get_messages": lambda channel_id="", limit=10:
