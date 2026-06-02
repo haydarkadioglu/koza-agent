@@ -656,19 +656,24 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             notifier.initialize(application.bot, loop, chat_id)
             notifier.schedule_daily_summary()
 
-            # ── Send startup welcome if chat_id is configured ─────────────────
+            # ── Startup message (only if bot was truly restarted) ─────────────
+            # Throttle: don't send if already sent within the last 5 minutes.
             if chat_id:
-                try:
-                    await application.bot.send_message(
-                        chat_id=chat_id,
-                        text=(
-                            "🟢 *Koza bağlantısı kuruldu!*\n\n"
-                            "Telegram üzerinden bana mesaj yazabilirsin. Hazırım! 🚀"
-                        ),
-                        parse_mode="Markdown",
-                    )
-                except Exception:
-                    pass  # chat_id geçersiz veya bot henüz başlatılmamış olabilir
+                import time as _time, pathlib as _pl
+                _flag = _pl.Path.home() / ".koza-agent" / "tg_startup.ts"
+                _now = _time.time()
+                _last = float(_flag.read_text()) if _flag.exists() else 0.0
+                if _now - _last > 300:  # 5 minute cooldown
+                    try:
+                        await application.bot.send_message(
+                            chat_id=chat_id,
+                            text="🟢 *Koza yeniden başlatıldı* — hazırım! 🚀",
+                            parse_mode="Markdown",
+                        )
+                        _flag.parent.mkdir(parents=True, exist_ok=True)
+                        _flag.write_text(str(_now))
+                    except Exception:
+                        pass
 
             # ── Sub-agent completion notifications via SubAgentNotifier ──────
             _tg_loop = loop
