@@ -39,6 +39,9 @@ dependencies = [
 
 [project.optional-dependencies]
 tui = ["textual>=0.61.0"]
+full = [
+    "textual>=0.61.0",
+]
 
 [project.scripts]
 koza = "koza_run:main"

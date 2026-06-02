@@ -103,6 +103,21 @@ fi
 
 [[ ! -f "${VENV_PIP}" ]] && error "Cannot create a virtualenv with pip.\n      Try: sudo apt install python3-venv python3-pip"
 
+# ── Low-memory install mode ──────────────────────────────────────────────────
+# Tiny VPS instances can kill pip while resolving/installing the full optional
+# stack. In that case, install Koza editable with no deps and add only the core
+# runtime dependencies. Heavy tools remain available after manual pip install.
+mem_kb="$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+swap_kb="$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+LOW_MEMORY_INSTALL="${KOZA_LIGHT_INSTALL:-auto}"
+if [[ "${LOW_MEMORY_INSTALL}" == "auto" ]]; then
+    if [[ "${mem_kb:-0}" -lt 1100000 || ( "${mem_kb:-0}" -lt 1800000 && "${swap_kb:-0}" -lt 524288 ) ]]; then
+        LOW_MEMORY_INSTALL="1"
+    else
+        LOW_MEMORY_INSTALL="0"
+    fi
+fi
+
 # ── Install package ──────────────────────────────────────────────────────────
 info "Installing Koza and dependencies (this may take a minute) …"
 PIP_FLAGS=(--quiet --no-cache-dir --prefer-binary)
@@ -111,7 +126,35 @@ if ! "${VENV_PIP}" install "${PIP_FLAGS[@]}" --upgrade pip; then
     error "pip upgrade failed."
 fi
 
-if ! "${VENV_PIP}" install "${PIP_FLAGS[@]}" -e "${INSTALL_DIR}"; then
+if [[ "${LOW_MEMORY_INSTALL}" == "1" ]]; then
+    warn "Low-memory system detected (${mem_kb} KiB RAM, ${swap_kb} KiB swap). Installing core dependencies only."
+    CORE_DEPS=(
+        "setuptools>=68"
+        "wheel"
+        "prompt_toolkit>=3.0.0"
+        "openai>=1.30.0"
+        "anthropic>=0.28.0"
+        "requests>=2.31.0"
+        "apscheduler>=3.10.4"
+        "psutil>=5.9.8"
+        "pyyaml>=6.0.1"
+        "python-dotenv>=1.0.1"
+        "packaging>=23.0"
+        "pygments>=2.17.0"
+        "orjson>=3.9.0"
+    )
+    if ! "${VENV_PIP}" install "${PIP_FLAGS[@]}" "${CORE_DEPS[@]}"; then
+        warn "Core dependency install failed. If the previous line says 'Killed', add swap and rerun."
+        dim "  fallocate -l 4G /swapfile && chmod 600 /swapfile"
+        dim "  mkswap /swapfile && swapon /swapfile"
+        exit 1
+    fi
+    if ! "${VENV_PIP}" install "${PIP_FLAGS[@]}" --no-deps -e "${INSTALL_DIR}"; then
+        error "Koza editable install failed."
+    fi
+    warn "Optional heavy features were skipped: TUI/Textual, data science, browser automation, media downloads, some Google/Gemini helpers."
+    dim "Install them later inside the venv if needed."
+elif ! "${VENV_PIP}" install "${PIP_FLAGS[@]}" -e "${INSTALL_DIR}"; then
     warn "pip install failed. If the previous line says 'Killed', the server likely ran out of RAM/swap."
     dim "Check memory: free -h"
     dim "Temporary swap fix:"
@@ -123,8 +166,13 @@ fi
 success "Koza installed."
 
 # ── Install optional Telegram dep ───────────────────────────────────────────
-info "Installing optional dependencies (telegram bot) …"
-"${VENV_PIP}" install "${PIP_FLAGS[@]}" "python-telegram-bot>=20.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
+if [[ "${LOW_MEMORY_INSTALL}" == "1" && "${KOZA_INSTALL_TELEGRAM:-0}" != "1" ]]; then
+    warn "Skipping optional Telegram dependency in low-memory mode."
+    dim "Install later with: ${VENV_PIP} install --no-cache-dir --prefer-binary 'python-telegram-bot>=20.0'"
+else
+    info "Installing optional dependencies (telegram bot) …"
+    "${VENV_PIP}" install "${PIP_FLAGS[@]}" "python-telegram-bot>=20.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
+fi
 
 # ── koza entry point (created by pip install -e .) ───────────────────────────
 VENV_KOZA="${VENV_DIR}/bin/koza"
