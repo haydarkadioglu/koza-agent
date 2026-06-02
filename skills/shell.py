@@ -3,7 +3,6 @@ import os
 import platform
 import subprocess
 import threading
-from pathlib import Path
 
 # Tracks the current working directory across tool calls.
 # Lock protects against concurrent sub-agent CWD changes.
@@ -20,16 +19,6 @@ def set_cwd(path: str) -> None:
     global _CWD
     with _cwd_lock:
         _CWD = os.path.abspath(path)
-
-
-def resolve_path(path: str = ".") -> str:
-    """Resolve absolute and relative paths against Koza's tracked CWD."""
-    expanded = Path(os.path.expanduser(path or "."))
-    with _cwd_lock:
-        current_cwd = _CWD
-    if not expanded.is_absolute():
-        expanded = Path(current_cwd) / expanded
-    return str(expanded.resolve())
 
 
 TOOL_DEFINITIONS = [
@@ -65,8 +54,8 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
     if stripped.lower().startswith("cd ") or stripped.lower() == "cd":
         parts = stripped.split(None, 1)
         target = parts[1] if len(parts) > 1 else os.path.expanduser("~")
-        new_dir = resolve_path(target)
         with _cwd_lock:
+            new_dir = os.path.abspath(os.path.join(_CWD, os.path.expanduser(target)))
             if os.path.isdir(new_dir):
                 _CWD = new_dir
                 return f"Changed directory to: {_CWD}"
@@ -74,7 +63,7 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
 
     with _cwd_lock:
         current_cwd = _CWD
-    effective_cwd = resolve_path(cwd) if cwd else current_cwd
+    effective_cwd = os.path.abspath(os.path.join(current_cwd, os.path.expanduser(cwd))) if cwd else current_cwd
 
     system = platform.system()
     try:
