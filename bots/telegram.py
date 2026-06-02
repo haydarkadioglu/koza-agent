@@ -288,6 +288,20 @@ async def _process_message(update, context, agent_factory: Callable,
                 _cfg.setdefault("messaging", {}).setdefault("telegram", {})["chat_id"] = str(chat_id)
                 save_config(_cfg)
                 logger.info(f"Owner chat_id set to {chat_id} on first contact.")
+                # Notify the user that their chat_id was saved
+                _uname = update.effective_user.username or update.effective_user.first_name or str(chat_id)
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=(
+                            f"✅ @{_uname} bağlantın kuruldu!\n\n"
+                            f"Chat ID'n (`{chat_id}`) kaydedildi. "
+                            "Artık proaktif bildirimler ve komutlar bu hesaba gelecek."
+                        ),
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    pass
             elif _saved != str(chat_id):
                 # chat_id mismatch after owner is set — already rejected above, just log
                 logger.debug(f"chat_id={chat_id} tried to message but owner is {_saved}.")
