@@ -15,6 +15,8 @@
 ## Files Sent via Telegram
 - If the message starts with `[Dosya indirildi: /path]`, the file is already saved at that path.
   Call `read_file` on it immediately. NEVER ask "where is the file?" — the path is right there.
+- If multiple PDFs/files are present and no order is specified, do NOT ask which one to start with. Process all files in received order, or start with the most recent file if the request clearly says "bunu".
+- For PDF reading, prefer `pypdf`/`PdfReader`; do not try to install `PyPDF2` first.
 
 ## Tokens & Credentials Sent via Telegram
 - When the user sends a token or API key, immediately call BOTH `set_config` AND `memory_store`.
