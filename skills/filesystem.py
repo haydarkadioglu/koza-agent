@@ -20,6 +20,7 @@ TOOL_DEFINITIONS = [
             "name": "read_file",
             "description": (
                 "Read the contents of a file. "
+                "PDF files are automatically extracted to text with pypdf. "
                 "Use absolute paths (e.g. /home/user/file.txt or C:/Users/user/file.txt). "
                 "Use '~' to refer to the user's home directory (e.g. ~/file.txt). "
                 "Relative paths resolve from the current working directory (NOT home)."
@@ -94,9 +95,50 @@ TOOL_DEFINITIONS = [
 ]
 
 
+def _read_pdf(path: Path) -> str:
+    """Extract text from a PDF file using pypdf, with PyPDF2 as fallback."""
+    try:
+        from pypdf import PdfReader
+    except Exception as e:
+        try:
+            from PyPDF2 import PdfReader
+        except Exception as fallback_error:
+            return (
+                "ERROR: PDF reading requires pypdf. "
+                "Install it with: python -m pip install pypdf\n"
+                f"pypdf import error: {e}\n"
+                f"PyPDF2 fallback error: {fallback_error}"
+            )
+
+    try:
+        with path.open("rb") as pdf_file:
+            reader = PdfReader(pdf_file)
+            page_count = len(reader.pages)
+            parts = []
+            for idx, page in enumerate(reader.pages, start=1):
+                try:
+                    text = page.extract_text() or ""
+                except Exception as e:
+                    text = f"[Could not extract page {idx}: {e}]"
+                text = text.strip()
+                if text:
+                    parts.append(f"--- Page {idx} ---\n{text}")
+        if not parts:
+            return (
+                f"PDF read successfully but no extractable text was found: {path}\n"
+                "The PDF may be scanned/image-only and needs OCR."
+            )
+        return f"PDF: {path}\nPages: {page_count}\n\n" + "\n\n".join(parts)
+    except Exception as e:
+        return f"ERROR reading PDF: {e}"
+
+
 def read_file(path: str) -> str:
     try:
-        return _resolve(path).read_text(encoding="utf-8")
+        p = _resolve(path)
+        if p.suffix.lower() == ".pdf":
+            return _read_pdf(p)
+        return p.read_text(encoding="utf-8")
     except Exception as e:
         return f"ERROR: {e}"
 

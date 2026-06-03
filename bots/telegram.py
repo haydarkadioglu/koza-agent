@@ -357,8 +357,8 @@ async def _process_message(update, context, agent_factory: Callable,
             # Default: read text-based files, just acknowledge binary ones
             if any(mime.startswith(p) for p in ("text/", "application/json", "application/xml")) or dest.endswith((".py", ".txt", ".md", ".csv", ".yaml", ".yml", ".toml", ".log")):
                 user_text = f"{file_info}\nBu dosyayı oku ve içeriğini özetle."
-            elif dest.endswith(".pdf"):
-                user_text = f"{file_info}\nBu PDF dosyası indirildi. Kullanıcı komut verince işleyeceğim."
+            elif dest.lower().endswith(".pdf") or mime == "application/pdf":
+                user_text = f"{file_info}\nBu PDF dosyasını oku ve içeriğini özetle."
             else:
                 user_text = f"{file_info}\nDosya kaydedildi. Kullanıcı ne yapmamı istediğini söyleyecek."
 
