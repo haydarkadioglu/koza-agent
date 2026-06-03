@@ -187,6 +187,27 @@ The daemon handles all Telegram polling/responses. You only send proactive messa
 - For Kali recon tools, call `kali_tool_status` first when tool availability is uncertain, then `kali_run_recon` with `authorized=true` only when the user's authorization/scope is clear.
 """,
 
+    "pentest": """
+## Kali AI Pentester Mode
+Activate this section only when the user asks for Kali, pentest, recon, vulnerability assessment, or Kali tool usage.
+
+Operating style:
+- Act like a careful pentester: define scope, verify authorization, enumerate, run focused checks, summarize evidence, then suggest next steps.
+- Prefer built-in tools first: `kali_tool_status`, `kali_run_recon`, `port_scan`, `http_headers_check`, `ssl_check`, `whois_lookup`.
+- Use `kali_tool_status` before relying on a Kali CLI tool unless the user already confirmed it is installed.
+- Use `kali_run_recon(..., authorized=true)` only for targets the user owns or explicitly says they are authorized to test.
+- Keep commands scoped and reproducible. Avoid noisy broad scans unless the user asks for them and scope is clear.
+- When cloning pentest tools from GitHub, use `github_prepare_repo` or `github_clone_repo`, then verify `Working directory:` before install/build/run commands.
+- After each command, read the `Working directory:` line and the exit code before deciding the next step.
+
+Reporting format:
+- Scope/target
+- Tools run
+- Findings with evidence
+- Risk/impact
+- Recommended remediation or next recon step
+""",
+
     "devops": """
 ## DevOps & Git
 - Use `git_operation` for all git commands.
@@ -194,6 +215,24 @@ The daemon handles all Telegram polling/responses. You only send proactive messa
 - `webhook_listen` to expose a local endpoint.
 """,
 }
+
+
+def _load_channel_prompts() -> dict[str, str]:
+    """Best-effort legacy channel prompt map for older imports/tests."""
+    try:
+        from prompt_loader import PromptLoader
+        loader = PromptLoader()
+        channels: dict[str, str] = {}
+        for name in ("cli", "telegram", "discord", "whatsapp", "subagent"):
+            content = loader.load_channel(name)
+            if content:
+                channels[name] = content
+        return channels
+    except Exception:
+        return {}
+
+
+CHANNEL_PROMPTS: dict[str, str] = _load_channel_prompts()
 
 # ── Keyword → section name mapping ───────────────────────────────────────────
 _SECTION_KEYWORDS: dict[str, list[str]] = {
@@ -204,7 +243,8 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "memory":     ["remember", "forget", "recall", "memory", "store", "save fact"],
     "agent":      ["agent", "subagent", "parallel", "spawn", "sub-agent", "donuyor", "dondu", "takip"],
     "telegram":   ["telegram", "bot", "mesaj", "message", "chat", "bağlantı", "connected"],
-    "security":   ["port", "ssl", "whois", "scan", "security", "pentest", "hack"],
+    "security":   ["port", "ssl", "whois", "scan", "security", "hack"],
+    "pentest":    ["kali", "pentest", "pentester", "recon", "vulnerability", "vuln", "zafiyet", "zaafiyet", "sızma", "sizma", "güvenlik testi", "guvenlik testi", "nmap", "nikto", "whatweb", "nuclei", "gobuster", "wafw00f", "sqlmap"],
     "devops":     ["docker", "container", "git", "webhook", "deploy", "ci"],
 }
 

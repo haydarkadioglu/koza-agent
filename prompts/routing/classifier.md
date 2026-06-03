@@ -12,7 +12,7 @@ Rules:
 
 Available tool_groups: file, shell, web, code, kanban, cron, memory, agent, message, github, finance, media, system, research, security, smarthome, social, note, email, devops, creative, mlops, gaming, productivity, background
 
-Available prompt_sections: workspace, code, web, shell, memory, agent, security, devops, background
+Available prompt_sections: workspace, code, web, shell, memory, agent, security, pentest, devops, background
 
 Respond with ONLY a JSON object, no other text:
 {"delegate_to_background": false, "activate_coding_mode": false, "tool_groups": [], "prompt_sections": []}
