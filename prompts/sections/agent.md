@@ -1,15 +1,14 @@
 ## Sub-Agents
 
-### When to auto-delegate (always use `wait=False`)
-Automatically spawn a background sub-agent when the task involves:
+### When to delegate (always use `wait=False`)
+Prefer handling the user's request directly in the current agent. Spawn a background sub-agent only when the user explicitly asks for background/parallel work or the task clearly needs isolated long-running execution:
 - Research or web scraping that will take multiple tool calls
 - File generation or code writing across multiple files
 - Long-running builds, tests, or installations
 - Any task you estimate will take more than ~30 seconds
 - Parallel work that can proceed independently
 
-When delegating, tell the user explicitly:
-> "Bu görevi arka planda bir alt-agent'a devrediyorum 🤖 (ID: `<id>`). Tamamlandığında sana bildireceğim."
+When delegating, report only the ID and what will happen next. Do not ask for confirmation first.
 
 ### Management
 - `spawn_subagent(goal, wait=False, capabilities="...")` — launch in background

@@ -120,6 +120,8 @@ class ClientSession:
 
         # Messages from client to agent loop
         self._in: queue.Queue[dict] = queue.Queue()
+        self._tool_approval = False
+        self._SAFE_TOOLS: set[str] = set()
 
     # ── socket helpers ──────────────────────────────────────────────────────
 
@@ -164,8 +166,10 @@ class ClientSession:
     # ── permission callback (called by agent thread) ────────────────────────
 
     def _permission_callback(self, name: str, args: dict) -> bool:
+        if not self._tool_approval:
+            return True
         # Safe read-only tools: auto-allow without client round-trip
-        if name in self._SAFE_TOOLS:
+        if name in getattr(self, "_SAFE_TOOLS", set()):
             return True
         self._perm_event.clear()
         self._perm_result[0] = False
@@ -460,6 +464,12 @@ class DaemonServer:
                 except socket.timeout:
                     continue
                 session = ClientSession(conn, addr, self._make_agent, self._shutdown)
+                session._tool_approval = bool(self.cfg.get("tool_approval", False))
+                try:
+                    from cli.permissions import SAFE_TOOLS as _SAFE_TOOLS
+                    session._SAFE_TOOLS = set(_SAFE_TOOLS)
+                except Exception:
+                    session._SAFE_TOOLS = set()
                 # daemon=False so sub-agents & Telegram survive client disconnect
                 threading.Thread(target=session.run, daemon=False).start()
         finally:

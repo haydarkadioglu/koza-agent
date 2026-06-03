@@ -183,7 +183,7 @@ _TOOLS_REQUIRING_APPROVAL = {
 }
 
 
-def _make_permission_callback(chat_id: int, bot, loop, kb_manager):
+def _make_permission_callback(chat_id: int, bot, loop, kb_manager, approval_enabled: bool = False):
     """Create a permission callback that uses inline buttons for tool confirmation.
 
     Only tools in _TOOLS_REQUIRING_APPROVAL prompt the user. All other tools
@@ -192,6 +192,8 @@ def _make_permission_callback(chat_id: int, bot, loop, kb_manager):
 
     def permission_callback(tool_name: str, tool_args: dict) -> bool:
         """Block until user approves/rejects via inline button (or timeout)."""
+        if not approval_enabled:
+            return True
         # Auto-approve safe tools — no inline button needed
         if tool_name not in _TOOLS_REQUIRING_APPROVAL:
             return True
@@ -362,7 +364,11 @@ async def _process_message(update, context, agent_factory: Callable,
     permission_cb = None
     if kb_manager and bot_loop:
         permission_cb = _make_permission_callback(
-            chat_id, context.bot, bot_loop, kb_manager
+            chat_id,
+            context.bot,
+            bot_loop,
+            kb_manager,
+            bool(cfg.get("tool_approval", False)),
         )
     agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
 

@@ -93,6 +93,7 @@ def make_permission_callback(cfg: dict):
     _session_allowed:   set[str] = set()
     _permanent_allowed: set[str] = set(cfg.get("allowed_tools", []))
     _session_allow_all            = [False]
+    _approval_enabled = bool(cfg.get("tool_approval", False))
 
     # Check prompt_toolkit availability once
     try:
@@ -130,6 +131,8 @@ def make_permission_callback(cfg: dict):
         return False
 
     def _ask_permission(name: str, args: dict) -> bool:
+        if not _approval_enabled:
+            return True
         if _session_allow_all[0]:
             return True
         if name in SAFE_TOOLS or name in _session_allowed or name in _permanent_allowed:
