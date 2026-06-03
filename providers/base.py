@@ -145,3 +145,43 @@ class LLMProvider(ABC):
                 m = {**m, "content": LLMProvider._extract_text_content(m["content"])}
             result.append(m)
         return result
+
+    @staticmethod
+    def _normalize_openai_messages(messages: list[dict]) -> list[dict]:
+        """Convert Koza's internal tool-call shape to OpenAI chat format.
+
+        Koza stores tool calls internally as {"id", "name", "arguments"}.
+        OpenAI-compatible APIs require each assistant tool call to include
+        {"type": "function", "function": {"name", "arguments"}}.
+        """
+        normalized: list[dict] = []
+        for msg in messages:
+            m = dict(msg)
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                api_tool_calls = []
+                for tc in m.get("tool_calls") or []:
+                    if not isinstance(tc, dict):
+                        continue
+                    if "function" in tc:
+                        api_tool_calls.append(
+                            {"type": "function", **tc} if "type" not in tc else tc
+                        )
+                        continue
+
+                    args = tc.get("arguments", {})
+                    api_tool_calls.append({
+                        "id": tc.get("id") or tc.get("name") or "call",
+                        "type": "function",
+                        "function": {
+                            "name": tc.get("name", ""),
+                            "arguments": (
+                                json.dumps(args) if isinstance(args, dict) else str(args)
+                            ),
+                        },
+                    })
+                m["tool_calls"] = api_tool_calls
+                m["content"] = m.get("content")
+            elif m.get("role") == "tool":
+                m["content"] = str(m.get("content", ""))
+            normalized.append(m)
+        return normalized

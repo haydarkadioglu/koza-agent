@@ -168,10 +168,10 @@ success "Koza installed."
 # ── Install optional Telegram dep ───────────────────────────────────────────
 if [[ "${LOW_MEMORY_INSTALL}" == "1" && "${KOZA_INSTALL_TELEGRAM:-0}" != "1" ]]; then
     warn "Skipping optional Telegram dependency in low-memory mode."
-    dim "Install later with: ${VENV_PIP} install --no-cache-dir --prefer-binary 'python-telegram-bot>=20.0'"
+    dim "Install later with: ${VENV_PIP} install --no-cache-dir --prefer-binary 'python-telegram-bot>=21.0'"
 else
     info "Installing optional dependencies (telegram bot) …"
-    "${VENV_PIP}" install "${PIP_FLAGS[@]}" "python-telegram-bot>=20.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
+    "${VENV_PIP}" install "${PIP_FLAGS[@]}" "python-telegram-bot>=21.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
 fi
 
 # ── koza entry point (created by pip install -e .) ───────────────────────────

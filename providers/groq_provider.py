@@ -22,7 +22,7 @@ class GroqProvider(LLMProvider):
         return "deepseek-r1" in self._model.lower()
 
     def chat(self, messages, tools=None, stream=False):
-        kwargs = {"model": self._model, "messages": messages}
+        kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages)}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -38,7 +38,7 @@ class GroqProvider(LLMProvider):
         return {"content": msg.content, "tool_calls": tool_calls}
 
     def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
-        kwargs = {"model": self._model, "messages": messages, "stream": True}
+        kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages), "stream": True}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"

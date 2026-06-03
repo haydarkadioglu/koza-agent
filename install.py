@@ -117,7 +117,7 @@ ok("Koza installed.")
 
 info("Installing optional dependencies (Telegram bot) …")
 try:
-    run([str(venv_python), "-m", "pip", "install", "--quiet", "python-telegram-bot>=20.0"])
+    run([str(venv_python), "-m", "pip", "install", "--quiet", "python-telegram-bot>=21.0"])
     ok("python-telegram-bot installed.")
 except subprocess.CalledProcessError:
     warn("python-telegram-bot install failed (optional, Telegram bot won't work).")

@@ -29,7 +29,7 @@ class OpenAIProvider(LLMProvider):
         return "gpt-4o" in m or "gpt-4-turbo" in m or "gpt-4v" in m or m.startswith("o")
 
     def chat(self, messages, tools=None, stream=False):
-        kwargs = {"model": self._model, "messages": messages}
+        kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages)}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -44,7 +44,7 @@ class OpenAIProvider(LLMProvider):
         return {"content": msg.content, "tool_calls": tool_calls}
 
     def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str | dict, None, None]:
-        kwargs = {"model": self._model, "messages": messages, "stream": True}
+        kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages), "stream": True}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"

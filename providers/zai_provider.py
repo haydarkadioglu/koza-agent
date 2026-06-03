@@ -22,7 +22,7 @@ class ZAIProvider(LLMProvider):
 
     def chat(self, messages, tools=None, stream=False):
         import json
-        kwargs = {"model": self._model, "messages": messages}
+        kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages)}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -38,7 +38,7 @@ class ZAIProvider(LLMProvider):
 
     def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
         import json
-        kwargs = {"model": self._model, "messages": messages, "stream": True}
+        kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages), "stream": True}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"

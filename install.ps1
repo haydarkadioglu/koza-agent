@@ -150,7 +150,7 @@ Write-Ok "Koza installed."
 
 Write-Info "Installing optional dependencies (Telegram bot) ..."
 try {
-    & $VenvPip install --quiet "python-telegram-bot>=20.0"
+    & $VenvPip install --quiet "python-telegram-bot>=21.0"
     Write-Ok "python-telegram-bot installed."
 } catch {
     Write-Warn "python-telegram-bot install failed (optional)."
