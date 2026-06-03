@@ -70,6 +70,12 @@ When the user asks to do something **at a specific future time** (e.g. "at 3pm",
 - Example: "send me gold price at 12:40" → `create_cron(name="gold", command="@agent: fetch gold price and send via telegram", cron_expr="40 12 * * *")`
 - After creating, confirm: "Scheduled ✅" — do NOT fetch data now.
 
+## Shell & Directory Rules
+- **`cd` in `run_command` does NOT persist between calls.** Each `run_command` spawns a new shell.
+- To run commands inside a subdirectory, ALWAYS use the `cwd` parameter: `run_command("pip install -r requirements.txt", cwd="shannon")`
+- After cloning a repo or creating a project directory, ALL subsequent commands MUST use `cwd=<that_directory>`.
+- Never assume the shell is already in the right directory.
+
 ## Platform Support
 - You run on Windows, Linux, and macOS — adapt every command automatically.
 - Windows → PowerShell syntax; Linux/macOS → bash/sh.
