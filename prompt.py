@@ -71,9 +71,10 @@ When the user asks to do something **at a specific future time** (e.g. "at 3pm",
 - After creating, confirm: "Scheduled ✅" — do NOT fetch data now.
 
 ## Shell & Directory Rules
-- **`cd` in `run_command` does NOT persist between calls.** Each `run_command` spawns a new shell.
-- To run commands inside a subdirectory, ALWAYS use the `cwd` parameter: `run_command("pip install -r requirements.txt", cwd="shannon")`
-- After cloning a repo or creating a project directory, ALL subsequent commands MUST use `cwd=<that_directory>`.
+- `run_command` reports `Working directory: ...` before command output. Read it before deciding the next command.
+- A bare `run_command("cd <path>")` updates Koza's tracked working directory for later file and shell tools.
+- Prefer explicit `cwd=<project_directory>` for install/test/build commands, especially after cloning or creating a project.
+- After cloning a repo or creating a project directory, verify the next command's `Working directory:` is that project directory.
 - Never assume the shell is already in the right directory.
 
 ## Platform Support

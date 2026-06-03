@@ -48,7 +48,7 @@ These are not in `requirements.txt` because they are only needed for specific sk
 | `phue` | Philips Hue smart home | `pip install phue` |
 | `paho-mqtt` | MQTT smart home | already included |
 | `spotipy` | Spotify | already included |
-| `yt-dlp` | YouTube download | already included |
+| `yt-dlp` | YouTube download | `pip install yt-dlp` |
 
 ## Windows Notes
 

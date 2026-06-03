@@ -56,8 +56,13 @@ def format_status(
     except (ImportError, Exception):
         pass
 
-    # Shortened CWD
-    cwd = shorten_path(os.getcwd())
+    # Shortened CWD. Prefer Koza's tracked shell CWD over the Python process CWD,
+    # because run_command can intentionally move between project directories.
+    try:
+        from skills.shell import get_cwd
+        cwd = shorten_path(get_cwd())
+    except Exception:
+        cwd = shorten_path(os.getcwd())
 
     # Provider auth badge
     _AUTH_BADGE = {
