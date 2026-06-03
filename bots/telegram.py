@@ -228,8 +228,12 @@ def _make_permission_callback(chat_id: int, bot, loop, kb_manager, approval_enab
         asyncio.run_coroutine_threadsafe(_timeout(), loop)
 
         # Wait for resolution (blocks the agent thread)
+        async def _wait_for_resolution():
+            return await future
+
         try:
-            result = future.result(timeout=310)  # slightly longer than async timeout
+            waiter = asyncio.run_coroutine_threadsafe(_wait_for_resolution(), loop)
+            result = waiter.result(timeout=310)  # slightly longer than async timeout
         except Exception:
             result = False
 
@@ -242,13 +246,14 @@ def _get_or_create_agent(chat_id: int, agent_factory: Callable, permission_cb=No
     with _agents_lock:
         if chat_id not in _agents:
             agent = agent_factory(channel="telegram")
-            agent.permission_callback = permission_cb
             # Restore persisted conversation history
             history = _load_tg_history(chat_id)
             if history:
                 agent.messages.extend(history)
                 logger.debug(f"Restored {len(history)} messages for chat_id={chat_id}")
             _agents[chat_id] = agent
+        agent = _agents[chat_id]
+        agent.permission_callback = permission_cb
         return _agents[chat_id]
 
 
