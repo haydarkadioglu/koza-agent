@@ -98,7 +98,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
                    "bluesky_search", "bluesky_post", "hackernews_top", "hackernews_search",
                    "linkedin_post", "threads_post", "instagram_post", "instagram_get_profile"],
     "note":       ["note_create", "note_search", "note_read", "note_list"],
-    "email":      ["send_email", "read_emails", "search_emails", "reply_email"],
+    "email":      ["send_email", "read_emails", "search_emails", "reply_email", "send_batch_emails", "email_log", "email_setup"],
     "devops":     ["git_operation", "docker_run", "webhook_listen"],
     "creative":   ["ascii_art", "architecture_diagram", "generate_image"],
     "mlops":      ["run_eval", "model_benchmark", "huggingface_model_info"],
@@ -108,6 +108,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "vision":     ["vision_analyze", "image_info", "take_screenshot", "get_last_screenshot"],
     "skill":      ["skill_save", "skill_load", "skill_list", "skill_delete"],
     "plugin":     ["plugin_list", "plugin_info", "plugin_enable", "plugin_disable"],
+    "delegation": ["delegate_task", "delegate_tasks"],
 }
 
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -213,6 +214,12 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # plugins
     "plugin": ["plugin"], "plugins": ["plugin"], "eklenti": ["plugin"],
     "plug-in": ["plugin"], "extension": ["plugin"],
+    # delegation
+    "delegate": ["delegation", "agent"], "parallel": ["delegation", "agent"],
+    "batch": ["delegation", "kanban"], "multi task": ["delegation"],
+    "subtask": ["delegation", "kanban"], "delege et": ["delegation"],
+    "alt agent": ["delegation", "agent"], "concurrent": ["delegation"],
+    "background task": ["delegation", "agent"],
 }
 
 # ── Core tools always included ────────────────────────────────────────────────

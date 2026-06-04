@@ -3,6 +3,9 @@ import smtplib
 import imaplib
 import email as _email
 import ssl as _ssl
+import csv
+import os
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -240,6 +243,59 @@ TOOL_DEFINITIONS = [
                 },
                 "required": ["message_id", "reply_body", "reply_to_sender"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_batch_emails",
+            "description": (
+                "Send the same email to multiple recipients in batch. "
+                "Supports personalization with {name} placeholder in subject/body. "
+                "Each recipient gets an individual email (not CC/BCC). "
+                "Automatically logs all sent emails to ~/.Koza/email_log.csv"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recipients": {
+                        "type": "array",
+                        "description": (
+                            "List of recipients. Simple list: ['a@x.com', 'b@x.com']. "
+                            "For personalization: [{'to': 'a@x.com', 'name': 'Ali'}, ...]"
+                        ),
+                        "items": {},
+                    },
+                    "subject": {"type": "string", "description": "Email subject. Use {name} for personalization."},
+                    "body": {"type": "string", "description": "Email body. Use {name} for personalization."},
+                    "html": {"type": "boolean", "default": False},
+                    "personalized": {"type": "boolean", "default": False, "description": "Set true if recipients is list of {to, name} dicts."},
+                    "sender_name": {"type": "string", "default": ""},
+                    "attachments": {"type": "array", "items": {"type": "string"}, "default": []},
+                },
+                "required": ["recipients", "subject", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "email_log",
+            "description": "Show recent sent email log from ~/.Koza/email_log.csv.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "default": 20, "description": "How many recent entries to show."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "email_setup",
+            "description": "Interactive email setup wizard. Configures SMTP/IMAP credentials and saves to Koza config. Walks through App Password setup for Gmail.",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]
@@ -570,9 +626,185 @@ def _build_imap_criteria(query: str, since_date: str = "") -> str:
     return " ".join(criteria_parts) if criteria_parts else "ALL"
 
 
+# ─── Sent Email Log ───────────────────────────────────────────────────────────
+
+_EMAIL_LOG_PATH = Path.home() / ".Koza" / "email_log.csv"
+
+
+def _log_sent_email(to_addr: str, subject: str, status: str, note: str = "") -> None:
+    """Log a sent email to CSV for tracking."""
+    _EMAIL_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    file_exists = _EMAIL_LOG_PATH.exists()
+    try:
+        with open(_EMAIL_LOG_PATH, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["timestamp", "to", "subject", "status", "note"])
+            writer.writerow([
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+                to_addr,
+                subject[:80],
+                status,
+                note,
+            ])
+    except Exception:
+        pass  # Silent fail — don't block email sending for logging
+
+
+def email_log(limit: int = 20) -> str:
+    """Show recent sent email log."""
+    if not _EMAIL_LOG_PATH.exists():
+        return "📭 No sent email log found."
+    try:
+        with open(_EMAIL_LOG_PATH, "r", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            return "📭 No entries in email log."
+        lines = [f"📧 Sent Emails (last {min(limit, len(rows))} of {len(rows)}):\n"]
+        for row in rows[-limit:]:
+            status_icon = "✅" if row.get("status", "") == "sent" else "❌"
+            lines.append(
+                f"  {status_icon} [{row.get('timestamp', '?')}] "
+                f"{row.get('to', '?')} — {row.get('subject', '?')[:50]}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ Error reading log: {e}"
+
+
+# ─── Batch Send ───────────────────────────────────────────────────────────────
+
+def send_batch_emails(
+    recipients: list,
+    subject: str,
+    body: str,
+    html: bool = False,
+    personalized: bool = False,
+    sender_name: str = "",
+    attachments: Optional[list] = None,
+    smtp_host: str = "",
+    smtp_port: int = 0,
+    username: str = "",
+    password: str = "",
+) -> str:
+    """Send the same (or personalized) email to multiple recipients.
+
+    Args:
+        recipients: List of email addresses, or list of dicts for personalization:
+                    [{"to": "a@x.com", "name": "Ali"}, {"to": "b@x.com", "name": "Veli"}]
+        subject: Email subject. Use {name} for personalization.
+        body: Email body. Use {name} for personalization.
+        personalized: If True, recipients must be dicts with 'to' and 'name'.
+        sender_name: Display name for sender.
+    """
+    u = username or _email_cfg.get("username", "")
+    p = password or _email_cfg.get("password", "")
+    preset = _preset_for(u)
+    h = smtp_host or _email_cfg.get("smtp_host", "") or preset.get("smtp_host", "smtp.gmail.com")
+    port = smtp_port or _email_cfg.get("smtp_port", 0) or preset.get("smtp_port", 587)
+
+    if not u:
+        return "ERROR: No email username configured."
+    if not p:
+        return "ERROR: No email password configured."
+
+    results = []
+    success_count = 0
+    fail_count = 0
+
+    for i, recip in enumerate(recipients):
+        if personalized and isinstance(recip, dict):
+            to_addr = recip.get("to", "")
+            name = recip.get("name", "")
+        else:
+            to_addr = str(recip).strip() if recip else ""
+            name = ""
+
+        if not to_addr:
+            results.append(f"  #{i+1}: ❌ Invalid address: {recip}")
+            fail_count += 1
+            continue
+
+        # Personalize subject/body
+        p_subject = subject.replace("{name}", name) if name else subject
+        p_body = body.replace("{name}", name) if name else body
+
+        # Send (reuse single send logic)
+        result = send_email(
+            to=to_addr,
+            subject=p_subject,
+            body=p_body,
+            html=html,
+            sender_name=sender_name,
+            attachments=attachments,
+            smtp_host=h, smtp_port=port, username=u, password=p,
+        )
+
+        if result.startswith("ERROR"):
+            results.append(f"  #{i+1}: ❌ {to_addr} — {result}")
+            _log_sent_email(to_addr, p_subject, "failed", result)
+            fail_count += 1
+        else:
+            results.append(f"  #{i+1}: ✅ {to_addr}")
+            _log_sent_email(to_addr, p_subject, "sent", result)
+            success_count += 1
+
+    summary = f"📧 Batch send complete: {success_count} sent, {fail_count} failed ({len(recipients)} total)\n"
+    return summary + "\n".join(results)
+
+
+# ─── Email Setup (interactive) ────────────────────────────────────────────────
+
+def email_setup() -> str:
+    """Interactive email setup — configures SMTP/IMAP credentials."""
+    from cli.ui import _C, _prompt, _prompt_secret
+
+    print(_C("\n  📧 Email Setup\n", "bold", "cyan"))
+    print(_C("  ────────────────────────\n", "grey"))
+
+    email_addr = _prompt("Email address", default="").strip()
+    if not email_addr:
+        return "❌ Email address required."
+
+    preset = _preset_for(email_addr)
+    smtp_host = _prompt("SMTP server", default=preset.get("smtp_host", "smtp.gmail.com")).strip()
+    smtp_port_str = _prompt("SMTP port", default=str(preset.get("smtp_port", 587))).strip()
+    smtp_port = int(smtp_port_str) if smtp_port_str.isdigit() else 587
+    imap_host = _prompt("IMAP server", default=preset.get("imap_host", "imap.gmail.com")).strip()
+
+    print(_C("\n  🔑 Password/App Password:\n", "grey"))
+    print(_C("  Gmail kullaniyorsaniz App Password almaniz gerekir:", "yellow"))
+    print(_C("  https://myaccount.google.com/apppasswords\n", "cyan"))
+    password = _prompt_secret("Password/App Password")
+
+    # Save to config
+    from config import load_config, save_config
+    cfg = load_config()
+    cfg.setdefault("email", {})
+    cfg["email"]["username"] = email_addr
+    cfg["email"]["password"] = password
+    cfg["email"]["smtp_host"] = smtp_host
+    cfg["email"]["smtp_port"] = smtp_port
+    cfg["email"]["imap_host"] = imap_host
+    save_config(cfg)
+
+    # Re-init
+    init_email(cfg)
+
+    return (
+        f"✅ Email configured for {email_addr}\n"
+        f"   SMTP: {smtp_host}:{smtp_port}\n"
+        f"   IMAP: {imap_host}\n"
+        f"   Test with: send_email(to='test@example.com', subject='Test', body='Hello!')\n"
+    )
+
+
 HANDLERS = {
-    "send_email":   lambda **kw: send_email(**kw),
-    "read_emails":  lambda **kw: read_emails(**kw),
-    "search_emails": lambda **kw: search_emails(**kw),
-    "reply_email":  lambda **kw: reply_email(**kw),
+    "send_email":        lambda **kw: send_email(**kw),
+    "read_emails":       lambda **kw: read_emails(**kw),
+    "search_emails":     lambda **kw: search_emails(**kw),
+    "reply_email":       lambda **kw: reply_email(**kw),
+    "send_batch_emails": lambda **kw: send_batch_emails(**kw),
+    "email_log":         lambda limit=20: email_log(int(limit)),
+    "email_setup":       lambda: email_setup(),
 }
