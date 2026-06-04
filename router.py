@@ -96,7 +96,7 @@ def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision |
     if not text:
         return None
     if _CODE_ACTION_RE.search(text) and _CODE_ARTIFACT_RE.search(text):
-        groups = ["file", "shell", "code", "web"]
+        groups = ["file", "shell", "code", "agent", "web"]
         sections = ["workspace", "code", "shell"]
         if re.search(r"\b(site|website|web\s*site|landing|portfolio|portfolyo|react|vue|svelte|next|vite|frontend|sayfa)\b", text, re.IGNORECASE):
             sections.append("web")

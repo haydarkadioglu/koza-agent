@@ -12,7 +12,8 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
     "files": ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
 
     # Code execution
-    "code": ["run_python", "run_node", "run_command", "run_script", "start_tracked_coding_task"],
+    "code": ["run_python", "run_node", "run_command", "run_script", "start_tracked_coding_task",
+             "create_project", "list_projects", "extract_project"],
 
     # Data science / analysis
     "data": ["pandas_query", "jupyter_run_cell", "matplotlib_plot"],
