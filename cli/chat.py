@@ -746,6 +746,31 @@ def _plain_cli(agent, cfg: dict) -> None:
                 _out(_C(f"  ❌ Hata: {e}\n", "red"))
             return True
 
+        # ── email-setup / /email-setup ── Email configuration ────────────────
+        if user_input in ("email-setup", "/email-setup"):
+            _out(_C("\n  📧 Email setup baslatiliyor...\n", "cyan"))
+            try:
+                from skills.email_skill import email_setup
+                result = email_setup()
+                _out(_C(f"  {result}\n", "green"))
+            except Exception as e:
+                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+            return True
+
+        # ── email-log / /email-log ── Show sent email log ────────────────────
+        if user_input in ("email-log", "/email-log"):
+            try:
+                from skills.email_skill import email_log
+                result = email_log()
+            except ImportError:
+                result = "  ℹ  Email log not available."
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output(result + "\n")
+            else:
+                print(result)
+            return True
+
         return False
 
     # ── Main loop — prompt_toolkit Application (split-pane UI) ──────────────────

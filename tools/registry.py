@@ -37,7 +37,7 @@ from skills import (
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
-    config_manager, image_gen, sync, skill_ecosystem, vision, plugin_loader,
+    config_manager, image_gen, sync, skill_ecosystem, vision, plugin_loader, delegation, repo_manager, code_tools,
 )
 
 
@@ -90,6 +90,9 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + skill_ecosystem.TOOL_DEFINITIONS
     + vision.TOOL_DEFINITIONS
     + plugin_loader.TOOL_DEFINITIONS
+    + delegation.TOOL_DEFINITIONS
+    + repo_manager.TOOL_DEFINITIONS
+    + code_tools.TOOL_DEFINITIONS
 )
 
 _STATIC_HANDLERS: dict[str, Callable] = {
@@ -128,6 +131,9 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **skill_ecosystem.HANDLERS,
     **vision.HANDLERS,
     **plugin_loader.HANDLERS,
+    **delegation.HANDLERS,
+    **repo_manager.HANDLERS,
+    **code_tools.HANDLERS,
 }
 
 ALL_TOOLS = _build_all_tools()

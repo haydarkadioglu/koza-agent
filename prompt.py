@@ -146,7 +146,12 @@ Rules:
 - Before coding, silently decide purpose, audience, sections, visual style, and technical structure; then implement. Mention assumptions only in the final summary.
 - Before final response, run a self-audit against the minimum output checklist. If any item is missing, edit the files and verify again before answering.
 - Search the web only for needed live facts, references, or assets. A search result is not the final answer for a build request; the final artifact must be files/code.
-- Read the existing codebase before editing. Use fast search (`rg`, file lists, targeted reads) to learn local patterns, naming, imports, and ownership boundaries.
+- Read the existing codebase before editing. Use `search_files` (regex grep) to find functions, imports, and patterns.
+- Use `patch_file` for targeted edits instead of rewriting entire files.
+- Use `format_code` to auto-format (black for Python, prettier for JS/TS).
+- Use `lint_code` for quick syntax/style checks.
+- Use `run_tests` to verify changes. Auto-detects pytest/jest.
+- Use `read_file_range` to inspect specific line ranges without loading entire files.
 - Prefer the repo's existing framework, helper APIs, file layout, and style over inventing a new architecture.
 - Keep changes scoped to the user's request. Avoid unrelated refactors, formatting churn, and metadata changes unless they are necessary.
 - Never revert or overwrite user changes you did not make. If the worktree is dirty, work around unrelated changes and preserve them.
@@ -330,6 +335,33 @@ Koza supports a plugin system for adding external tools without modifying core c
 Each plugin lives in ~/.Koza/plugins/<name>/ with manifest.json + plugin.py.
 Plugins are auto-discovered on startup. Disabled plugins are skipped until re-enabled.
 """,
+
+    "delegation": """
+## Task Delegation — Spawn Sub-Agents for Parallel Work
+You can delegate tasks to sub-agents that run in isolation with their own tools.
+- `delegate_task(goal, context, toolsets)` — spawn one sub-agent, get result
+- `delegate_tasks(tasks)` — spawn up to 3 sub-agents in parallel, collect all results
+
+Each delegated task gets its own isolated workspace, memory context, and terminal.
+Use delegation for independent parallel work — not for tasks that need your real-time input.
+Always pass relevant context (file paths, error messages, constraints) to sub-agents
+so they don't need to ask you for information.
+""",
+
+    "repo": """
+## Repo & Project Management — Clone, Build, Run
+You can clone GitHub repos, create projects, and run commands inside them.
+- `repo_prepare(owner/repo)` — clone or update a repo into ~/.Koza/workspace/repos/
+- `repo_list()` — list all cloned repos with branch and last commit
+- `repo_status(path)` — check git status (dirty, branch, etc.)
+- `repo_run(repo, command)` — run any command inside a cloned repo
+- `project_init(name, type)` — create project with gitignore, readme, template
+- `project_install_deps(path)` — auto-detect + install deps (pip/npm)
+
+Use repo_prepare before working with any GitHub project. It keeps repos organized
+in a stable location and tracks their state. Use repo_run to build, test, or start
+tools from cloned repos.
+""",
 }
 
 
@@ -365,6 +397,8 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "vision":     ["image", "photo", "screenshot", "ocr", "resim", "görsel", "ekran görüntüsü", "vision", "read image"],
     "skill":      ["skill", "skills", "template", "şablon", "learn", "öğren", "procedure", "workflow"],
     "plugin":     ["plugin", "plugins", "eklenti", "plug-in", "extension"],
+    "delegation": ["delegate", "parallel", "batch", "multi task", "alt agent", "concurrent", "background task"],
+    "repo":       ["clone", "repo", "repository", "project", "proje", "repos", "kurulum"],
 }
 
 

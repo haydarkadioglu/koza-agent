@@ -68,7 +68,8 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "shell":      ["run_command"],
     "web":        ["web_search", "fetch_url", "browser_task"],
     "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot",
-                   "create_project", "list_projects", "extract_project"],
+                   "create_project", "list_projects", "extract_project",
+                   "patch_file", "search_files", "format_code", "lint_code", "run_tests", "read_file_range"],
     "kanban":     ["create_task", "create_task_plan", "list_tasks", "move_task", "update_task", "delete_task"],
     "cron":       ["create_cron", "create_once_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
@@ -99,7 +100,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
                    "bluesky_search", "bluesky_post", "hackernews_top", "hackernews_search",
                    "linkedin_post", "threads_post", "instagram_post", "instagram_get_profile"],
     "note":       ["note_create", "note_search", "note_read", "note_list"],
-    "email":      ["send_email", "read_emails", "search_emails", "reply_email"],
+    "email":      ["send_email", "read_emails", "search_emails", "reply_email", "send_batch_emails", "email_log", "email_setup"],
     "devops":     ["git_operation", "docker_run", "webhook_listen"],
     "creative":   ["ascii_art", "architecture_diagram", "generate_image"],
     "mlops":      ["run_eval", "model_benchmark", "huggingface_model_info"],
@@ -109,6 +110,8 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "vision":     ["vision_analyze", "image_info", "take_screenshot", "get_last_screenshot"],
     "skill":      ["skill_save", "skill_load", "skill_list", "skill_delete"],
     "plugin":     ["plugin_list", "plugin_info", "plugin_enable", "plugin_disable"],
+    "delegation": ["delegate_task", "delegate_tasks"],
+    "repo":       ["repo_prepare", "repo_list", "repo_status", "repo_run", "project_init", "project_install_deps"],
 }
 
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -214,6 +217,25 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # plugins
     "plugin": ["plugin"], "plugins": ["plugin"], "eklenti": ["plugin"],
     "plug-in": ["plugin"], "extension": ["plugin"],
+    # delegation
+    "delegate": ["delegation", "agent"], "parallel": ["delegation", "agent"],
+    "batch": ["delegation", "kanban"], "multi task": ["delegation"],
+    "subtask": ["delegation", "kanban"], "delege et": ["delegation"],
+    "alt agent": ["delegation", "agent"], "concurrent": ["delegation"],
+    "background task": ["delegation", "agent"],
+    # code tools
+    "format": ["code"], "lint": ["code"], "test": ["code", "devops"],
+    "patch": ["code", "file"], "search code": ["code"],
+    "grep": ["code"], "refactor": ["code"],
+    "kod formatla": ["code"], "test et": ["code"],
+    "runtest": ["code"], "pytest": ["code"],
+    "birlesik test": ["code"],
+    # repo / project management
+    "clone": ["repo", "github"], "repo": ["repo", "github"],
+    "repository": ["repo"], "github repo": ["repo", "github"],
+    "project": ["repo", "kanban"], "proje": ["repo"],
+    "repos": ["repo"], "install deps": ["repo"],
+    "kurulum": ["repo"], "bagimlilik": ["repo"],
 }
 
 # ── Core tools always included ────────────────────────────────────────────────
