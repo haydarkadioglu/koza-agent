@@ -108,6 +108,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "productivity": ["google_calendar_list", "google_calendar_create", "google_sheets_read", "airtable_query"],
     "vision":     ["vision_analyze", "image_info", "take_screenshot", "get_last_screenshot"],
     "skill":      ["skill_save", "skill_load", "skill_list", "skill_delete"],
+    "plugin":     ["plugin_list", "plugin_info", "plugin_enable", "plugin_disable"],
 }
 
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -210,6 +211,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "şablon": ["skill"], "kaydet": ["skill", "memory", "file"],
     "reusable": ["skill"], "öğren": ["skill"], "learn": ["skill"],
     "procedure": ["skill"], "workflow": ["skill"],
+    # plugins
+    "plugin": ["plugin"], "plugins": ["plugin"], "eklenti": ["plugin"],
+    "plug-in": ["plugin"], "extension": ["plugin"],
 }
 
 # ── Core tools always included ────────────────────────────────────────────────
@@ -320,6 +324,9 @@ class Agent:
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
         working_memory.init_db(db_path)
+        # Load enabled plugins from ~/.Koza/plugins/
+        from skills import plugin_loader
+        plugin_loader.load_all_plugins()
         # Detect and cache system capabilities once per agent init
         global _SYSTEM_CAPS
         if not _SYSTEM_CAPS:

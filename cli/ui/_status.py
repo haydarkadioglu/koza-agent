@@ -73,21 +73,23 @@ def format_status(
     }
     auth_badge = _AUTH_BADGE.get(provider_auth, "") if provider_auth else ""
 
+    from ._colors import _C
+
     # Build segments list
     segments = []
     if coding_mode:
-        segments.append("🎯 Coding Mode")
+        segments.append(_C("🎯 Coding", "magenta", "bold"))
     segments.append(state_text)
     if mode:
-        segments.append(mode)
+        segments.append(_C(mode, "grey"))
     model_label = f"{auth_badge} {model_name}".strip() if auth_badge else model_name
-    segments.append(model_label)
-    segments.append(tok_str)
-    segments.append(s_time)
+    segments.append(_C(model_label, "teal"))
+    segments.append(_C(tok_str, "grey"))
+    segments.append(_C(s_time, "grey"))
     if bg_task_count > 0:
-        segments.append(f"⧗ {bg_task_count} tasks")
-    segments.append(f"📁 {cwd}")
+        segments.append(_C(f"⧗ {bg_task_count}", "yellow"))
+    segments.append(_C(f"📁 {cwd}", "grey"))
     if mem_segment:
-        segments.append(mem_segment)
+        segments.append(_C(mem_segment, "grey"))
 
-    return "  │  ".join(segments)
+    return _C("  │  ", "grey").join(segments)

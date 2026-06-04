@@ -397,11 +397,12 @@ class StreamRenderer:
         color = _RESPONSE_COLORS.get(response_type, "teal")
         self._current_box_color = color
         tw = max(36, _shutil.get_terminal_size((80, 24)).columns - 12)
+        emoji = "🦎" if label == "Koza" else "🤖"
         self.layout.append_output(
             "\n"
             + _C("  ╭─ ", color)
             + _timestamp() + " "
-            + _C(f"{label} ", color, "bold")
+            + _C(f"{emoji} {label} ", color, "bold")
             + _C("─" * tw, color)
             + "\n"
             + _C("  │ ", color)
@@ -425,18 +426,26 @@ class StreamRenderer:
             self._close_tool_box()
         self._tool_box_open = True
         self._tool_box_started = time.time()
-        tw = max(36, _shutil.get_terminal_size((80, 24)).columns - 12)
+        # Use different emoji based on tool type
+        emoji = "🔧"
+        if "search" in name or "fetch" in name or "browser" in name:
+            emoji = "🌐"
+        elif "file" in name or "write" in name or "read" in name:
+            emoji = "📁"
+        elif "command" in name or "run" in name or "python" in name:
+            emoji = "⚡"
+        elif "memory" in name or "recall" in name or "session" in name:
+            emoji = "🧠"
+        elif "send" in name or "message" in name or "telegram" in name:
+            emoji = "📨"
+        elif "skill" in name or "plugin" in name:
+            emoji = "🧩"
         self.layout.append_output(
             "\n"
             + _C("  ╭─ ", self._tool_box_color)
             + _timestamp() + " "
-            + _C("Tool ", self._tool_box_color, "bold")
-            + _C("─" * tw, self._tool_box_color)
+            + _C(f"{emoji} {label}", self._tool_box_color, "bold")
             + "\n"
-        )
-        self._append_tool_line(
-            _C("⚙ ", "cyan") + _C(label, "white")
-            + _C(f" [{name}]", "grey")
         )
         if arg_str:
             self._append_tool_line(_C(arg_str[:140], "grey"))
@@ -517,10 +526,13 @@ class StreamRenderer:
         ts = _timestamp()
         self.layout.append_output(
             "\n"
-            + _C("  ┌─ ", "blue") + ts + " " + _C("You ", "blue", "bold")
-            + _C("─" * 36, "blue") + "\n"
+            + _C("  ┌─ ", "blue", "bold") + ts + " "
+            + _C("👤 You ", "blue", "bold")
+            + _C("─" * max(10, 34 - min(len(message), 30)), "blue")
+            + "\n"
             + _C("  │ ", "blue") + _C(message, "white") + "\n"
-            + _C("  └─", "blue") + _C("─" * 44, "blue") + "\n"
+            + _C("  └─", "blue")
+            + _C("─" * 44, "blue") + "\n"
         )
 
     def finalize(self, elapsed: float) -> None:

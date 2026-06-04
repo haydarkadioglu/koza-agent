@@ -1,13 +1,43 @@
 """Tool registry — ALL_TOOLS and ALL_HANDLERS assembled from all skill modules."""
 from typing import Callable
 
+# Runtime plugin tools accumulator — populated by plugin_loader
+_PLUGIN_TOOLS: list[dict] = []
+_PLUGIN_HANDLERS: dict[str, Callable] = {}
+
+
+def register_plugin_tools(tools: list[dict], handlers: dict[str, Callable]) -> None:
+    """Register tools and handlers from an external plugin.
+    
+    Called at runtime by plugin_loader.load_plugin(). After registration,
+    ALL_TOOLS and ALL_HANDLERS are rebuilt to include the new entries.
+    """
+    global ALL_TOOLS, ALL_HANDLERS
+    _PLUGIN_TOOLS.extend(_normalize(tools))
+    _PLUGIN_HANDLERS.update(handlers)
+    # Rebuild with plugin tools included
+    ALL_TOOLS = _build_all_tools()
+    ALL_HANDLERS = _build_all_handlers()
+
+
+def _build_all_tools() -> list[dict]:
+    return _normalize(
+        _STATIC_TOOLS + _PLUGIN_TOOLS
+    )
+
+
+def _build_all_handlers() -> dict[str, Callable]:
+    h = dict(_STATIC_HANDLERS)
+    h.update(_PLUGIN_HANDLERS)
+    return h
+
 from skills import (
     filesystem, shell, web, code_runner, system_info, kanban, cron,
     agents, browser_control, creative, datascience, devops, email_skill, finance,
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
-    config_manager, image_gen, sync, skill_ecosystem, vision,
+    config_manager, image_gen, sync, skill_ecosystem, vision, plugin_loader,
 )
 
 
@@ -24,7 +54,7 @@ def _normalize(tools: list[dict]) -> list[dict]:
         # Skip anything else (malformed)
     return result
 
-ALL_TOOLS: list[dict] = _normalize(
+_STATIC_TOOLS: list[dict] = _normalize(
     filesystem.TOOL_DEFINITIONS
     + shell.TOOL_DEFINITIONS
     + web.TOOL_DEFINITIONS
@@ -59,9 +89,10 @@ ALL_TOOLS: list[dict] = _normalize(
     + sync.TOOL_DEFINITIONS
     + skill_ecosystem.TOOL_DEFINITIONS
     + vision.TOOL_DEFINITIONS
+    + plugin_loader.TOOL_DEFINITIONS
 )
 
-ALL_HANDLERS: dict[str, Callable] = {
+_STATIC_HANDLERS: dict[str, Callable] = {
     **filesystem.HANDLERS,
     **shell.HANDLERS,
     **web.HANDLERS,
@@ -96,4 +127,8 @@ ALL_HANDLERS: dict[str, Callable] = {
     **sync.HANDLERS,
     **skill_ecosystem.HANDLERS,
     **vision.HANDLERS,
+    **plugin_loader.HANDLERS,
 }
+
+ALL_TOOLS = _build_all_tools()
+ALL_HANDLERS = _build_all_handlers()
