@@ -109,6 +109,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "skill":      ["skill_save", "skill_load", "skill_list", "skill_delete"],
     "plugin":     ["plugin_list", "plugin_info", "plugin_enable", "plugin_disable"],
     "delegation": ["delegate_task", "delegate_tasks"],
+    "repo":       ["repo_prepare", "repo_list", "repo_status", "repo_run", "project_init", "project_install_deps"],
 }
 
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -220,6 +221,12 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "subtask": ["delegation", "kanban"], "delege et": ["delegation"],
     "alt agent": ["delegation", "agent"], "concurrent": ["delegation"],
     "background task": ["delegation", "agent"],
+    # repo / project management
+    "clone": ["repo", "github"], "repo": ["repo", "github"],
+    "repository": ["repo"], "github repo": ["repo", "github"],
+    "project": ["repo", "kanban"], "proje": ["repo"],
+    "repos": ["repo"], "install deps": ["repo"],
+    "kurulum": ["repo"], "bagimlilik": ["repo"],
 }
 
 # ── Core tools always included ────────────────────────────────────────────────
