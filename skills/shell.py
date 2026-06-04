@@ -4,6 +4,7 @@ import platform
 import subprocess
 import threading
 import shlex
+import time
 from pathlib import Path
 
 # Tracks the current working directory across tool calls.
@@ -127,37 +128,81 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
     clone_target = _detect_git_clone_target(command.strip(), effective_cwd)
 
     system = platform.system()
+    # Use Popen for timeout-resilient execution
+    shell_cmd = ["bash", "-c", command] if system != "Windows" else ["pwsh", "-NoProfile", "-Command", command]
     try:
+        proc = subprocess.Popen(
+            shell_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=effective_cwd,
+        )
+    except FileNotFoundError:
         if system == "Windows":
-            try:
-                result = subprocess.run(
-                    ["pwsh", "-NoProfile", "-Command", command],
-                    capture_output=True, text=True, timeout=timeout, cwd=effective_cwd
-                )
-            except FileNotFoundError:
-                result = subprocess.run(
-                    ["cmd", "/c", command],
-                    capture_output=True, text=True, timeout=timeout, cwd=effective_cwd
-                )
-        else:
-            result = subprocess.run(
-                ["bash", "-c", command],
-                capture_output=True, text=True, timeout=timeout, cwd=effective_cwd
+            proc = subprocess.Popen(
+                ["cmd", "/c", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=effective_cwd,
             )
-    except subprocess.TimeoutExpired:
-        return f"ERROR: Command timed out after {timeout}s"
+        else:
+            return f"ERROR: Shell not found"
     except Exception as e:
         return f"ERROR: {e}"
 
-    output = []
-    output.append(f"Working directory: {effective_cwd}")
-    if result.stdout.strip():
-        output.append(result.stdout.strip())
-    if result.stderr.strip():
-        output.append(f"STDERR:\n{result.stderr.strip()}")
-    output.append(f"Exit code: {result.returncode}")
+    # Poll until timeout, then check if still running
+    deadline = time.time() + timeout
+    poll_interval = 2
+    partial = []
+    while time.time() < deadline:
+        ret = proc.poll()
+        if ret is not None:
+            # Process finished
+            break
+        remaining = max(0, int(deadline - time.time()))
+        time.sleep(min(poll_interval, remaining))
+    else:
+        # Timeout reached — check if still alive
+        ret = proc.poll()
+        if ret is None:
+            # Still running — don't kill, return partial output with status
+            # Try to read whatever stdout is available so far
+            try:
+                proc.stdout.flush()
+                partial_out = proc.stdout.read(4096) if proc.stdout else ""
+                partial_err = proc.stderr.read(2048) if proc.stderr else ""
+            except Exception:
+                partial_out = ""
+                partial_err = ""
+            output = [f"Working directory: {effective_cwd}"]
+            if partial_out:
+                output.append(partial_out.strip())
+            if partial_err:
+                output.append(f"STDERR:\n{partial_err.strip()}")
+            output.append(f"⏳ Command still running after {timeout}s. Still in progress — do not retry, wait for next poll.")
+            return "\n".join(output)
 
-    if result.returncode == 0 and clone_target and Path(clone_target).is_dir():
+    # Process finished — read remaining output
+    try:
+        stdout, stderr = proc.communicate(timeout=5)
+    except Exception:
+        try:
+            stdout = proc.stdout.read() if proc.stdout else ""
+            stderr = proc.stderr.read() if proc.stderr else ""
+        except Exception:
+            stdout = ""
+            stderr = ""
+
+    output = [f"Working directory: {effective_cwd}"]
+    if stdout.strip():
+        output.append(stdout.strip())
+    if stderr.strip():
+        output.append(f"STDERR:\n{stderr.strip()}")
+    output.append(f"Exit code: {ret}")
+
+    if ret == 0 and clone_target and Path(clone_target).is_dir():
         set_cwd(clone_target)
         output.append(f"Working directory updated to cloned repo: {clone_target}")
     return "\n".join(output)

@@ -396,10 +396,19 @@ def _plain_cli(agent, cfg: dict) -> None:
                     ("/help",     "Show this help"),
                     ("/sessions", "Browse / load / delete saved sessions"),
                     ("/save [title]", "Save current session"),
+                    ("/title [name]", "Rename current session"),
                     ("/clear",    "Refresh screen from recent history"),
+                    ("/retry",    "Resend last message"),
+                    ("/undo",     "Remove last exchange"),
+                    ("/history",  "Show recent conversation"),
                     ("/provider", "Switch LLM provider"),
+                    ("/model [name]", "Show or change model"),
                     ("/kanban",   "Show Kanban board & cron jobs"),
                     ("/memory",   "Show working memory"),
+                    ("/tools",    "List available tool groups"),
+                    ("/plugins",  "List installed plugins"),
+                    ("/skills",   "List saved skills"),
+                    ("/compress", "Compress conversation context"),
                     ("/reset",    "Clear conversation history"),
                     ("/mode coding", "Activate coding mode"),
                     ("exit",      "Quit Koza"),
@@ -574,6 +583,169 @@ def _plain_cli(agent, cfg: dict) -> None:
                     _out(_C("  Cancelled.\n", "grey"))
             return True
 
+        # ── /title [name] ── rename current session ──────────────────────────
+        if user_input.startswith("/title"):
+            parts = user_input.split(None, 1)
+            new_title = parts[1].strip() if len(parts) > 1 else ""
+            if new_title:
+                session_id = getattr(agent, "_session_id", None)
+                if session_id:
+                    from skills.session_memory import _conn
+                    with _conn() as conn:
+                        conn.execute("UPDATE sessions SET title = ? WHERE id = ?", (new_title, session_id))
+                    _out(_C(f"  ✓  Session renamed to: {new_title}\n", "green"))
+                else:
+                    _out(_C("  ℹ  No active session to rename.\n", "grey"))
+            else:
+                _out(_C("  Usage: /title <session name>\n", "grey"))
+            return True
+
+        # ── /retry ── resend last user message ────────────────────────────────
+        if user_input == "/retry":
+            # Find last user message and resend
+            msgs = agent.messages
+            last_user = None
+            for m in reversed(msgs):
+                if m.get("role") == "user" and m.get("content"):
+                    last_user = m
+                    break
+            if last_user:
+                # Remove assistant's last response and send again
+                for i in range(len(msgs) - 1, -1, -1):
+                    if msgs[i].get("role") == "assistant":
+                        del msgs[i]
+                        break
+                _out(_C("  🔄 Retrying last message...\n", "yellow"))
+                return False  # Let the main loop process it
+            _out(_C("  ℹ  No previous user message to retry.\n", "grey"))
+            return True
+
+        # ── /undo ── remove last exchange ────────────────────────────────────
+        if user_input == "/undo":
+            msgs = agent.messages
+            removed = 0
+            for i in range(len(msgs) - 1, -1, -1):
+                role = msgs[i].get("role")
+                if role in ("user", "assistant"):
+                    del msgs[i]
+                    removed += 1
+                if removed >= 2:  # Removed one assistant + one user
+                    break
+            _out(_C(f"  ↩️  Last exchange undone ({removed} messages removed).\n", "green"))
+            return True
+
+        # ── /model [name] ── show or change model ────────────────────────────
+        if user_input.startswith("/model"):
+            parts = user_input.split(None, 1)
+            if len(parts) > 1:
+                model_name_input = parts[1].strip()
+                from config import load_config as _reload_cfg
+                new_cfg = _reload_cfg()
+                from providers.factory import get_provider
+                try:
+                    new_provider = get_provider(new_cfg, override_model=model_name_input)
+                    agent.provider = new_provider
+                    _out(_C(f"  ✓  Model changed to: {model_name_input}\n", "green"))
+                except Exception as e:
+                    _out(_C(f"  ✗  Failed to change model: {e}\n", "red"))
+            else:
+                _out(_C(f"  Current model: {model_name}\n", "cyan"))
+                _out(_C("  Usage: /model <model_name> (e.g. /model gpt-4o)\n", "grey"))
+            return True
+
+        # ── /history ── show recent conversation ──────────────────────────────
+        if user_input == "/history":
+            msgs = agent.messages
+            user_msgs = [(m.get("role"), m.get("content", "")[:200]) for m in msgs
+                         if m.get("role") in ("user", "assistant") and m.get("content")]
+            lines = [_C(f"\n  Recent history ({len(user_msgs)} messages):\n", "bold")]
+            for role, content in user_msgs[-15:]:
+                label = _C("  You:  ", "blue") if role == "user" else _C("  Koza: ", "teal")
+                lines.append(label + content.replace("\n", " ")[:180])
+            lines.append("")
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output("\n".join(lines))
+            else:
+                print("\n".join(lines))
+            return True
+
+        # ── /plugins ── list plugins ─────────────────────────────────────────
+        if user_input == "/plugins":
+            try:
+                from skills.plugin_loader import plugin_list
+                result = plugin_list()
+            except ImportError:
+                result = "  ℹ  Plugin system not available."
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output(result + "\n")
+            else:
+                print(result)
+            return True
+
+        # ── /skills ── list skills ───────────────────────────────────────────
+        if user_input == "/skills":
+            try:
+                from skills.skill_ecosystem import skill_list
+                result = skill_list()
+            except ImportError:
+                result = "  ℹ  Skill system not available."
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output(result + "\n")
+            else:
+                print(result)
+            return True
+
+        # ── /tools ── list available tool groups ─────────────────────────────
+        if user_input == "/tools":
+            from core import _TOOL_GROUPS
+            lines = [_C("\n  Available tool groups:\n", "bold")]
+            for group, tools in sorted(_TOOL_GROUPS.items()):
+                lines.append(f"  {_C(group, 'cyan'):<14} {len(tools)} tools")
+            lines.append(_C(f"\n  Total: {sum(len(v) for v in _TOOL_GROUPS.values())} tools\n", "grey"))
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output("\n".join(lines) + "\n")
+            else:
+                print("\n".join(lines))
+            return True
+
+        # ── /compress ── manually compress context ─────────────────────────
+        if user_input == "/compress":
+            try:
+                agent._ctx.maybe_build_rolling_summary()
+                agent._trim_messages()
+                _out(_C("  ✓  Context compressed.\n", "green"))
+            except Exception as e:
+                _out(_C(f"  ✗  Compression failed: {e}\n", "red"))
+            return True
+
+        # ── google-login / /google-login ── OAuth login ──────────────────────
+        if user_input in ("google-login", "/google-login"):
+            _out(_C("\n  🔑 Google OAuth login baslatiliyor...\n", "cyan"))
+            try:
+                from providers.google_oauth_provider import run_oauth_login
+                if run_oauth_login():
+                    _out(_C("  ✅ Google hesabina baglandi. Provider'i kullanmak icin /model gemini-2.5-pro\n", "green"))
+                else:
+                    _out(_C("  ❌ Baglanti basarisiz.\n", "red"))
+            except Exception as e:
+                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+            return True
+
+        # ── codex-login / /codex-login ── Codex login ────────────────────────
+        if user_input in ("codex-login", "/codex-login"):
+            _out(_C("\n  🅾️  OpenAI Codex login baslatiliyor...\n", "cyan"))
+            try:
+                from providers.codex_provider import cmd_codex_login
+                result = cmd_codex_login()
+                _out(_C(f"  {result}\n", "green") if "✅" in result or "ℹ️" in result else _C(f"  {result}\n", "yellow"))
+            except Exception as e:
+                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+            return True
+
         return False
 
     # ── Main loop — prompt_toolkit Application (split-pane UI) ──────────────────
@@ -614,8 +786,10 @@ def _plain_cli(agent, cfg: dict) -> None:
             # Slash hint: lone "/" shows available commands
             if text == "/":
                 _SLASH_CMDS = [
-                    "/help", "/sessions", "/save", "/clear", "/reset",
-                    "/provider", "/kanban", "/memory", "/mode coding", "/mode off",
+                    "/help", "/sessions", "/save", "/title", "/clear", "/retry", "/undo",
+                    "/provider", "/model", "/kanban", "/memory", "/tools",
+                    "/plugins", "/skills", "/compress", "/reset",
+                    "/mode coding", "/mode off",
                 ]
                 layout.append_output(
                     _C("  Commands: ", "grey")
@@ -710,7 +884,7 @@ def _plain_cli(agent, cfg: dict) -> None:
     while True:
         try:
             user_input = input(
-                _C("\n  ● ", "yellow", "bold") + _C("You  › ", "cyan", "bold")
+                _C("\n  ", "grey") + _C("●", "cyan", "bold") + _C(" You  › ", "cyan")
             ).strip()
         except (EOFError, KeyboardInterrupt):
             if _processing.is_set():
@@ -728,7 +902,8 @@ def _plain_cli(agent, cfg: dict) -> None:
                         agent._busy = False
                 continue
             _hr()
-            print(_C("\n  Goodbye! 👋\n", "yellow"))
+            print(_C("\n  ✨ Görüşürüz! 👋\n", "cyan"))
+            print(_C("  🦎 Koza kapandı.\n", "grey"))
             _hr()
             # Spawn background services before exiting
             if _active_services:
@@ -745,7 +920,7 @@ def _plain_cli(agent, cfg: dict) -> None:
             continue
         # Slash hint in fallback mode too
         if user_input == "/":
-            print(_C("  Commands: /help /sessions /save /clear /reset /provider /kanban /memory", "grey"))
+            print(_C("  Commands: /help /sessions /save /title /clear /retry /undo /provider /model /kanban /memory /tools /plugins /skills /compress /reset", "grey"))
             continue
         cmd = _handle_inline(user_input)
         if cmd is None:

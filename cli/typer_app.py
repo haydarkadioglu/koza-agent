@@ -92,6 +92,24 @@ def root(
 
 
 @app.command()
+def google_login() -> None:
+    """Google hesabina baglan (OAuth) — API anahtari olmadan Gemini kullan."""
+    from providers.google_oauth_provider import cmd_google_login
+    result = cmd_google_login()
+    if result:
+        print(result)
+
+
+@app.command()
+def codex_login() -> None:
+    """OpenAI Codex baglantisi — API Key veya OAuth ile."""
+    from providers.codex_provider import cmd_codex_login
+    result = cmd_codex_login()
+    if result:
+        print(result)
+
+
+@app.command()
 def start(
     session: Optional[int] = typer.Option(None, "--session", help="Load a saved session id."),
     ui: Optional[str] = typer.Option(None, "--ui", help="UI mode: plain or tui."),

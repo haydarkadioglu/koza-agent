@@ -43,6 +43,12 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "openrouter":
         from .openrouter_provider import OpenRouterProvider
         return OpenRouterProvider(pcfg)
+    elif name == "google-oauth":
+        from .google_oauth_provider import GoogleOAuthProvider
+        return GoogleOAuthProvider(pcfg)
+    elif name == "codex":
+        from .codex_provider import CodexProvider
+        return CodexProvider(pcfg)
     else:
         raise ValueError(f"Unknown provider: {name}")
 

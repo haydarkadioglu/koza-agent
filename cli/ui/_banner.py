@@ -42,16 +42,27 @@ def _get_version() -> str:
 def _print_banner(cfg: dict) -> None:
     ver = _get_version()
     model = cfg.get("model") or "default"
+    model_short = model.split("/")[-1] if "/" in model else model
 
-    # Print logo with teal-to-cyan gradient
+    # Print logo with enhanced teal-to-cyan gradient
     for i, line in enumerate(_LOGO.split("\n")):
         color = _GRADIENT[i % len(_GRADIENT)]
         print(f"{color}{line}{_RESET}")
 
-    # Version, model, and help hint below logo
-    print(_C(f"  v{ver}", "grey"))
-    print(_C(f"  model: {model}", "grey"))
-    print(_C("  type /help for commands", "grey"))
+    # Stylish info bar
+    import shutil
+    w = min(shutil.get_terminal_size((80, 24)).columns, 60)
+    print(_C("┄" * w, "grey"))
+    print(
+        _C("  🦎 Koza ", "cyan", "bold")
+        + _C(f"v{ver}", "grey")
+        + _C("  │  ", "grey")
+        + _C(f"🧠 {model_short}", "teal")
+    )
+    print(
+        _C("  💡 /help for commands  │  /model to switch", "grey")
+    )
+    print(_C("┄" * w, "grey"))
     print()
 
 

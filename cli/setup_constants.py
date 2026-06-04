@@ -3,7 +3,7 @@
 PROVIDERS = [
     "ollama", "openai", "anthropic", "deepseek", "groq", "openrouter",
     "kimi", "minimax", "zai", "gemini api", "gemini cookie",
-    "gemini antigravity", "antigravity manager", "github",
+    "gemini antigravity", "antigravity manager", "github", "google-oauth", "codex",
 ]
 
 PROVIDER_MODELS = {
@@ -30,11 +30,13 @@ PROVIDER_MODELS = {
     "gemini":              ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],    "antigravity manager": ["gemini-3.1-pro-high", "gemini-3-flash-agent", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"],
     "ollama":              ["llama3.2", "mistral", "codellama"],
     "github":              ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
+    "google-oauth":        ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
+    "codex":               ["o4-mini", "o3", "o4-mini-high", "gpt-4.1", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
 }
 
 NEEDS_KEY = {
     "openai", "anthropic", "deepseek", "groq", "openrouter",
-    "gemini api", "gemini", "github", "kimi", "minimax", "zai",
+    "gemini api", "gemini", "github", "kimi", "minimax", "zai", "codex",
 }
 
 _OTHER = "other — enter manually"
