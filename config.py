@@ -26,6 +26,8 @@ def default_config() -> dict:
             "kimi":       {"api_key": "", "base_url": "https://api.moonshot.cn/v1"},
             "minimax":    {"api_key": "", "base_url": "https://api.minimax.io/v1"},
             "zai":        {"api_key": "", "base_url": "https://open.bigmodel.cn/api/paas/v4"},
+            "deepgram":   {"api_key": ""},
+            "elevenlabs": {"api_key": ""},
         },
         "messaging": {
             "telegram":  {"token": "", "chat_id": ""},
@@ -69,14 +71,14 @@ def default_config() -> dict:
         "voice": {
             "enabled": False,
             "stt": {
-                "provider": "local_whisper",  # local_whisper | openai | skip
-                "model": "base",              # local: tiny/base/small, openai: whisper-1/gpt-4o-transcribe
+                "provider": "local_whisper",  # local_whisper | openai | gemini | deepgram | skip
+                "model": "base",              # provider-specific model id
                 "language": "",               # empty = auto-detect
             },
             "tts": {
-                "provider": "system",         # system | kokoro | openai | skip
-                "model": "",                  # openai: tts-1/gpt-4o-mini-tts
-                "voice": "af_sky",            # kokoro/system default, openai: alloy/nova/...
+                "provider": "system",         # system | kokoro | openai | gemini | elevenlabs | skip
+                "model": "",                  # provider-specific model id
+                "voice": "af_sky",            # provider-specific voice id/name
             },
             "input_device": None,
             "output_device": None,
@@ -125,6 +127,8 @@ def load_config() -> dict:
         "ANTHROPIC_API_KEY":   ("providers", "anthropic", "api_key"),
         "DEEPSEEK_API_KEY":    ("providers", "deepseek", "api_key"),
         "GEMINI_API_KEY":      ("providers", "gemini", "api_key"),
+        "DEEPGRAM_API_KEY":    ("providers", "deepgram", "api_key"),
+        "ELEVENLABS_API_KEY":  ("providers", "elevenlabs", "api_key"),
         "GITHUB_TOKEN":        ("providers", "github", "token"),
         "TELEGRAM_TOKEN":      ("messaging", "telegram", "token"),
         "TELEGRAM_CHAT_ID":    ("messaging", "telegram", "chat_id"),

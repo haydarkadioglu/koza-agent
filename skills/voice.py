@@ -2,13 +2,16 @@
 
 Design:
 - No Enter-to-speak: mic is always open, VAD detects speech automatically.
-- STT: local faster-whisper or OpenAI transcription.
-- TTS: pyttsx3 (system), Kokoro ONNX, or OpenAI speech.
+- STT: local faster-whisper, OpenAI, Gemini, or Deepgram.
+- TTS: pyttsx3 (system), Kokoro ONNX, OpenAI, Gemini, or ElevenLabs.
 - All heavy imports are lazy — nothing loads unless voice is actually used.
 """
 import os
 import sys
 import tempfile
+import base64
+import io
+import re
 from pathlib import Path
 
 VOICE_MODELS_DIR = Path.home() / ".Koza" / "voice_models"
@@ -188,6 +191,23 @@ def _openai_api_key(cfg: dict) -> str:
     return (cfg or {}).get("providers", {}).get("openai", {}).get("api_key", "").strip()
 
 
+def _provider_api_key(cfg: dict, provider: str) -> str:
+    return (cfg or {}).get("providers", {}).get(provider, {}).get("api_key", "").strip()
+
+
+def _audio_mime(path: str) -> str:
+    suffix = Path(path).suffix.lower()
+    if suffix == ".mp3":
+        return "audio/mpeg"
+    if suffix == ".m4a":
+        return "audio/mp4"
+    if suffix == ".ogg":
+        return "audio/ogg"
+    if suffix == ".flac":
+        return "audio/flac"
+    return "audio/wav"
+
+
 def _transcribe_openai_file(path: str, cfg: dict, stt_cfg: dict) -> str:
     api_key = _openai_api_key(cfg)
     if not api_key:
@@ -203,6 +223,81 @@ def _transcribe_openai_file(path: str, cfg: dict, stt_cfg: dict) -> str:
     return getattr(result, "text", "") or str(result)
 
 
+def _gemini_text_from_response(data: dict) -> str:
+    texts = []
+    for candidate in data.get("candidates", []):
+        content = candidate.get("content", {})
+        for part in content.get("parts", []):
+            text = part.get("text", "")
+            if text:
+                texts.append(text.strip())
+    return "\n".join(t for t in texts if t).strip()
+
+
+def _transcribe_gemini_file(path: str, cfg: dict, stt_cfg: dict) -> str:
+    api_key = _provider_api_key(cfg, "gemini")
+    if not api_key:
+        raise RuntimeError("Gemini STT requires providers.gemini.api_key. Run: koza setup")
+    import requests
+
+    model = stt_cfg.get("model") or "gemini-2.0-flash"
+    language = stt_cfg.get("language") or ""
+    instruction = "Transcribe this audio. Return only the transcript."
+    if language:
+        instruction += f" The expected language is {language}."
+    with open(path, "rb") as fh:
+        audio_b64 = base64.b64encode(fh.read()).decode("ascii")
+    body = {
+        "contents": [{
+            "parts": [
+                {"text": instruction},
+                {"inline_data": {"mime_type": _audio_mime(path), "data": audio_b64}},
+            ]
+        }]
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    resp = requests.post(url, params={"key": api_key}, json=body, timeout=120)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Gemini STT failed: {resp.status_code} {resp.text[:300]}")
+    text = _gemini_text_from_response(resp.json())
+    if not text:
+        raise RuntimeError("Gemini STT returned no transcript")
+    return text
+
+
+def _transcribe_deepgram_file(path: str, cfg: dict, stt_cfg: dict) -> str:
+    api_key = _provider_api_key(cfg, "deepgram")
+    if not api_key:
+        raise RuntimeError("Deepgram STT requires providers.deepgram.api_key. Set DEEPGRAM_API_KEY or edit config.")
+    import requests
+
+    params = {
+        "model": stt_cfg.get("model") or "nova-3",
+        "smart_format": "true",
+    }
+    language = stt_cfg.get("language") or ""
+    if language:
+        params["language"] = language
+    with open(path, "rb") as fh:
+        resp = requests.post(
+            "https://api.deepgram.com/v1/listen",
+            params=params,
+            headers={
+                "Authorization": f"Token {api_key}",
+                "Content-Type": _audio_mime(path),
+            },
+            data=fh,
+            timeout=120,
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Deepgram STT failed: {resp.status_code} {resp.text[:300]}")
+    data = resp.json()
+    try:
+        return data["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+    except Exception as e:
+        raise RuntimeError("Deepgram STT returned no transcript") from e
+
+
 def transcribe_audio_file(path: str, cfg: dict) -> str:
     voice_cfg = normalize_voice_config(cfg)
     stt_cfg = voice_cfg.get("stt", {})
@@ -211,6 +306,10 @@ def transcribe_audio_file(path: str, cfg: dict) -> str:
         raise RuntimeError("STT provider is not configured. Run: koza voice setup")
     if provider == "openai":
         return _transcribe_openai_file(path, cfg, stt_cfg)
+    if provider == "gemini":
+        return _transcribe_gemini_file(path, cfg, stt_cfg)
+    if provider == "deepgram":
+        return _transcribe_deepgram_file(path, cfg, stt_cfg)
 
     model = _get_stt_model(stt_cfg.get("model", "base"))
     kw = {"beam_size": 5}
@@ -219,6 +318,101 @@ def transcribe_audio_file(path: str, cfg: dict) -> str:
         kw["language"] = language
     segments, _ = model.transcribe(path, **kw)
     return " ".join(s.text.strip() for s in segments).strip()
+
+
+def _play_wav_bytes(audio: bytes, output_device=None) -> None:
+    import sounddevice as sd
+    import soundfile as sf
+    samples, sr = sf.read(io.BytesIO(audio), dtype="float32")
+    sd.play(samples, sr, device=output_device)
+    sd.wait()
+
+
+def _play_pcm16_bytes(audio: bytes, output_device=None, sample_rate: int = 24000) -> None:
+    import numpy as np
+    import sounddevice as sd
+    samples = np.frombuffer(audio, dtype="<i2").astype("float32") / 32768.0
+    sd.play(samples, sample_rate, device=output_device)
+    sd.wait()
+
+
+def _play_audio_bytes(audio: bytes, mime_type: str = "", output_device=None) -> None:
+    mime = (mime_type or "").lower()
+    if "wav" in mime or "wave" in mime:
+        _play_wav_bytes(audio, output_device=output_device)
+        return
+    if "l16" in mime or "pcm" in mime:
+        match = re.search(r"rate=(\d+)", mime)
+        sample_rate = int(match.group(1)) if match else 24000
+        _play_pcm16_bytes(audio, output_device=output_device, sample_rate=sample_rate)
+        return
+    _play_wav_bytes(audio, output_device=output_device)
+
+
+def _tts_speak_gemini(text: str, cfg: dict, tts_cfg: dict, output_device=None) -> None:
+    api_key = _provider_api_key(cfg, "gemini")
+    if not api_key:
+        raise RuntimeError("Gemini TTS requires providers.gemini.api_key. Run: koza setup")
+    import requests
+
+    model = tts_cfg.get("model") or "gemini-2.5-flash-preview-tts"
+    voice = tts_cfg.get("voice") or "Kore"
+    body = {
+        "contents": [{"parts": [{"text": text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": voice}
+                }
+            },
+        },
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    resp = requests.post(url, params={"key": api_key}, json=body, timeout=120)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Gemini TTS failed: {resp.status_code} {resp.text[:300]}")
+    data = resp.json()
+    for candidate in data.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            inline_data = part.get("inlineData") or part.get("inline_data") or {}
+            audio_b64 = inline_data.get("data")
+            if audio_b64:
+                _play_audio_bytes(
+                    base64.b64decode(audio_b64),
+                    mime_type=inline_data.get("mimeType") or inline_data.get("mime_type") or "audio/L16;rate=24000",
+                    output_device=output_device,
+                )
+                return
+    raise RuntimeError("Gemini TTS returned no audio")
+
+
+def _tts_speak_elevenlabs(text: str, cfg: dict, tts_cfg: dict, output_device=None) -> None:
+    api_key = _provider_api_key(cfg, "elevenlabs")
+    if not api_key:
+        raise RuntimeError("ElevenLabs TTS requires providers.elevenlabs.api_key. Set ELEVENLABS_API_KEY or edit config.")
+    import requests
+
+    voice_id = tts_cfg.get("voice") or "21m00Tcm4TlvDq8ikWAM"
+    model = tts_cfg.get("model") or "eleven_multilingual_v2"
+    resp = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+        params={"output_format": "pcm_24000"},
+        headers={
+            "xi-api-key": api_key,
+            "Accept": "application/octet-stream",
+            "Content-Type": "application/json",
+        },
+        json={
+            "text": text,
+            "model_id": model,
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+        },
+        timeout=120,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"ElevenLabs TTS failed: {resp.status_code} {resp.text[:300]}")
+    _play_pcm16_bytes(resp.content, output_device=output_device, sample_rate=24000)
 
 
 def tts_speak_configured(text: str, cfg: dict, output_device=None) -> None:
@@ -258,6 +452,12 @@ def tts_speak_configured(text: str, cfg: dict, output_device=None) -> None:
                 os.unlink(tmp.name)
             except Exception:
                 pass
+        return
+    if provider == "gemini":
+        _tts_speak_gemini(text, cfg, tts_cfg, output_device=output_device)
+        return
+    if provider == "elevenlabs":
+        _tts_speak_elevenlabs(text, cfg, tts_cfg, output_device=output_device)
         return
 
     tts_speak(text, voice=voice, output_device=output_device, use_kokoro=False)

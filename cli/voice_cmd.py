@@ -119,6 +119,8 @@ def configure_voice(cfg: dict, save: bool = False) -> None:
         "Speech-to-Text Provider",
         ["Local Whisper (faster-whisper)",
          "OpenAI transcription",
+         "Gemini transcription",
+         "Deepgram transcription",
          "Skip — keep current / configure later"],
         default_idx=0,
     )
@@ -144,6 +146,22 @@ def configure_voice(cfg: dict, save: bool = False) -> None:
         )
         if not model_choice.startswith("Skip"):
             voice["stt"] = {"provider": "openai", "model": model_choice, "language": voice.get("stt", {}).get("language", "")}
+    elif stt_choice.startswith("Gemini"):
+        model_choice = _select_menu(
+            "Gemini STT model",
+            ["gemini-2.0-flash", "gemini-1.5-flash", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        if not model_choice.startswith("Skip"):
+            voice["stt"] = {"provider": "gemini", "model": model_choice, "language": voice.get("stt", {}).get("language", "")}
+    elif stt_choice.startswith("Deepgram"):
+        model_choice = _select_menu(
+            "Deepgram STT model",
+            ["nova-3", "nova-2", "base", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        if not model_choice.startswith("Skip"):
+            voice["stt"] = {"provider": "deepgram", "model": model_choice, "language": voice.get("stt", {}).get("language", "")}
 
     lang_choice = _select_menu(
         "STT language",
@@ -159,6 +177,8 @@ def configure_voice(cfg: dict, save: bool = False) -> None:
         ["System pyttsx3",
          "Kokoro ONNX",
          "OpenAI speech",
+         "Gemini speech",
+         "ElevenLabs speech",
          "Skip — keep current / configure later"],
         default_idx=0,
     )
@@ -188,6 +208,36 @@ def configure_voice(cfg: dict, save: bool = False) -> None:
         )
         if not model_choice.startswith("Skip") and not voice_choice.startswith("Skip"):
             voice["tts"] = {"provider": "openai", "model": model_choice, "voice": voice_choice}
+    elif tts_choice.startswith("Gemini"):
+        model_choice = _select_menu(
+            "Gemini TTS model",
+            ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        voice_choice = _select_menu(
+            "Gemini voice",
+            ["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        if not model_choice.startswith("Skip") and not voice_choice.startswith("Skip"):
+            voice["tts"] = {"provider": "gemini", "model": model_choice, "voice": voice_choice}
+    elif tts_choice.startswith("ElevenLabs"):
+        model_choice = _select_menu(
+            "ElevenLabs TTS model",
+            ["eleven_multilingual_v2", "eleven_turbo_v2_5", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        voice_choice = _select_menu(
+            "ElevenLabs voice",
+            ["Rachel — 21m00Tcm4TlvDq8ikWAM",
+             "Adam — pNInz6obpgDQGcFmaJgB",
+             "Bella — EXAVITQu4vr4xnSDxMaL",
+             "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        if not model_choice.startswith("Skip") and not voice_choice.startswith("Skip"):
+            voice_id = voice_choice.split(" — ", 1)[1] if " — " in voice_choice else voice_choice
+            voice["tts"] = {"provider": "elevenlabs", "model": model_choice, "voice": voice_id}
 
     device_choice = _select_menu(
         "Audio Devices",
