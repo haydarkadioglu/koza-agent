@@ -677,7 +677,10 @@ class GeminiProvider(LLMProvider):
 
         if self._auth_mode in ("antigravity", "antigravity_manager"):
             import json as _json
-            kwargs: dict = {"model": self._model, "messages": messages}
+            kwargs: dict = {
+                "model": self._model,
+                "messages": self._normalize_openai_messages(messages),
+            }
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
@@ -740,7 +743,11 @@ class GeminiProvider(LLMProvider):
 
         if self._auth_mode in ("antigravity", "antigravity_manager"):
             import json as _json
-            kwargs: dict = {"model": self._model, "messages": messages, "stream": True}
+            kwargs: dict = {
+                "model": self._model,
+                "messages": self._normalize_openai_messages(messages),
+                "stream": True,
+            }
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
