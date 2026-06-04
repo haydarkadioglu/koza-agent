@@ -117,11 +117,22 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # shell
     "run": ["shell", "code"], "command": ["shell"], "terminal": ["shell"], "powershell": ["shell"],
     # web
-    "search": ["web", "research"], "google": ["web"], "url": ["web"], "website": ["web"],
+    "search": ["web", "research"], "google": ["web"], "url": ["web"],
+    "website": ["web", "file", "shell", "code"], "web site": ["web", "file", "shell", "code"],
+    "site yap": ["file", "shell", "code"], "website yap": ["file", "shell", "code"],
+    "site oluştur": ["file", "shell", "code"], "site olustur": ["file", "shell", "code"],
+    "portfolio": ["web", "file", "shell", "code"], "portfolyo": ["web", "file", "shell", "code"],
     "browser": ["web"], "tarayıcı": ["web"], "siteye gir": ["web"], "fetch": ["web"],
     # code
     "python": ["code"], "script": ["code"], "code": ["code"], "execute": ["code", "shell"],
     "jupyter": ["code"], "pandas": ["code"], "plot": ["code"],
+    "react": ["file", "shell", "code"], "vue": ["file", "shell", "code"],
+    "svelte": ["file", "shell", "code"], "next": ["file", "shell", "code"],
+    "vite": ["file", "shell", "code"], "html": ["file", "shell", "code"],
+    "css": ["file", "shell", "code"], "javascript": ["file", "shell", "code"],
+    "typescript": ["file", "shell", "code"], "uygulama yap": ["file", "shell", "code"],
+    "kod yaz": ["file", "shell", "code"], "tasarla": ["file", "shell", "code"],
+    "oluştur": ["file", "shell", "code"], "olustur": ["file", "shell", "code"],
     "coding": ["code", "agent", "kanban", "cron"], "kodlama": ["code", "agent", "kanban", "cron"],
     "donuyor": ["agent", "kanban", "cron"], "dondu": ["agent", "kanban", "cron"],
     # kanban / tasks
