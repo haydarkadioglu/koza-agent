@@ -291,6 +291,31 @@ Reporting format:
 - `docker_run` for container execution.
 - `webhook_listen` to expose a local endpoint.
 """,
+
+    "vision": """
+## Vision & Image Analysis
+You have vision capabilities to analyze images and screenshots.
+- `vision_analyze(image_path, question)` — analyze an image, extract metadata and text via OCR
+- `image_info(path)` — get image dimensions, format, EXIF data
+- `take_screenshot(path)` — take a desktop screenshot
+- `get_last_screenshot()` — return the path of the most recent screenshot
+
+Use vision_analyze when the user uploads or references an image, screenshot, diagram, or photo.
+For OCR, vision_analyze automatically extracts text from images using tesseract (if installed).
+""",
+
+    "skill": """
+## Skill Ecosystem — Learn from Experience
+You can save and load reusable skill templates for tasks you've done before.
+- `skill_save(name, description, steps, tags)` — save a completed task as a reusable skill
+- `skill_load(name)` — load a skill template into context
+- `skill_list(tag)` — list available skills, optionally filtered by tag
+- `skill_delete(name)` — remove a skill template
+
+Call skill_save after successfully completing a multi-step task so you can reuse
+the approach in future sessions. Skills persist across sessions forever.
+Use skill_load at the start of a task to recall how you solved similar problems before.
+""",
 }
 
 
@@ -323,6 +348,8 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "security":   ["port", "ssl", "whois", "scan", "security", "hack"],
     "pentest":    ["kali", "pentest", "pentester", "recon", "vulnerability", "vuln", "zafiyet", "zaafiyet", "sızma", "sizma", "güvenlik testi", "guvenlik testi", "nmap", "nikto", "whatweb", "nuclei", "gobuster", "wafw00f", "sqlmap"],
     "devops":     ["docker", "container", "git", "webhook", "deploy", "ci"],
+    "vision":     ["image", "photo", "screenshot", "ocr", "resim", "görsel", "ekran görüntüsü", "vision", "read image"],
+    "skill":      ["skill", "skills", "template", "şablon", "learn", "öğren", "procedure", "workflow"],
 }
 
 

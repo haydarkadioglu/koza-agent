@@ -105,6 +105,8 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "gaming":     ["minecraft_command", "pokemon_lookup"],
     "mcp":        ["mcp_list_tools", "mcp_call_tool"],
     "productivity": ["google_calendar_list", "google_calendar_create", "google_sheets_read", "airtable_query"],
+    "vision":     ["vision_analyze", "image_info", "take_screenshot", "get_last_screenshot"],
+    "skill":      ["skill_save", "skill_load", "skill_list", "skill_delete"],
 }
 
 _KEYWORD_MAP: dict[str, list[str]] = {
@@ -198,6 +200,15 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "minecraft": ["gaming"], "pokemon": ["gaming"],
     # productivity
     "calendar": ["productivity"], "sheets": ["productivity"], "airtable": ["productivity"],
+    # vision
+    "image": ["vision", "creative"], "photo": ["vision"], "screenshot": ["vision", "browser_control"],
+    "ekran görüntüsü": ["vision"], "resim": ["vision", "creative"], "görsel": ["vision", "creative"],
+    "ocr": ["vision"], "read image": ["vision"],
+    # skills
+    "skill": ["skill"], "skills": ["skill"], "template": ["skill"],
+    "şablon": ["skill"], "kaydet": ["skill", "memory", "file"],
+    "reusable": ["skill"], "öğren": ["skill"], "learn": ["skill"],
+    "procedure": ["skill"], "workflow": ["skill"],
 }
 
 # ── Core tools always included ────────────────────────────────────────────────
