@@ -67,7 +67,8 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "file":       ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
     "shell":      ["run_command"],
     "web":        ["web_search", "fetch_url", "browser_task"],
-    "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot"],
+    "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot",
+                   "patch_file", "search_files", "format_code", "lint_code", "run_tests", "read_file_range"],
     "kanban":     ["create_task", "create_task_plan", "list_tasks", "move_task", "update_task", "delete_task"],
     "cron":       ["create_cron", "create_once_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
@@ -221,6 +222,13 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "subtask": ["delegation", "kanban"], "delege et": ["delegation"],
     "alt agent": ["delegation", "agent"], "concurrent": ["delegation"],
     "background task": ["delegation", "agent"],
+    # code tools
+    "format": ["code"], "lint": ["code"], "test": ["code", "devops"],
+    "patch": ["code", "file"], "search code": ["code"],
+    "grep": ["code"], "refactor": ["code"],
+    "kod formatla": ["code"], "test et": ["code"],
+    "runtest": ["code"], "pytest": ["code"],
+    "birlesik test": ["code"],
     # repo / project management
     "clone": ["repo", "github"], "repo": ["repo", "github"],
     "repository": ["repo"], "github repo": ["repo", "github"],
