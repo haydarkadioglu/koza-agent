@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "koza"
-version = "1.42.2"
+version = "1.42.21"
 description = "Koza — autonomous AI agent with tools and memory"
 requires-python = ">=3.11"
 dependencies = [

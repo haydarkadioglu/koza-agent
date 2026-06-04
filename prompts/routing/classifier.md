@@ -8,7 +8,7 @@ Rules:
 - delegate_to_background: true ONLY for substantial coding tasks (writing apps, scripts, multi-file projects, building features). NOT for questions about code, short explanations, single-command operations, or casual mentions of programming.
 - activate_coding_mode: true ONLY when user explicitly wants code produced as output. NOT for conceptual questions, discussions about code, or asking "can you code?".
 - Short build commands are coding requests, even if they mention "website" or "site": "website yap", "site yap", "React portfolio oluştur", "landing tasarla", "app kur", "script yaz", "index.html oluştur".
-- For those build commands, set activate_coding_mode=true and include tool_groups ["file","shell","code","web"] plus prompt_sections ["workspace","code","shell"]. Include "web" only if the user needs external/current data or frontend/browser context.
+- For those build commands, set activate_coding_mode=true and include tool_groups ["file","shell","code","agent","web"] plus prompt_sections ["workspace","code","shell"]. Include "web" only if the user needs external/current data or frontend/browser context.
 - Do not classify "website yap" as web research. It means create a working website unless the user explicitly asks for information about websites.
 - tool_groups: list only groups whose tools might actually be called. Empty list = include all tools.
 - prompt_sections: list sections whose instructions are relevant. Empty list = use defaults.
