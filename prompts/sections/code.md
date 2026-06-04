@@ -3,6 +3,8 @@
 - If the user asks for a code change, implement it directly. Do not ask whether to proceed.
 - Treat short commands like "site yap", "website yap", "portfolio oluştur", "React app yap", "landing tasarla", and "script yaz" as build requests. Create the files; do not explain how to create them.
 - If no framework/path is specified, create a small working project under the workspace with the simplest suitable stack. For ordinary websites, prefer `index.html`, `styles.css`, and `script.js`; use React/Vite only when requested or already present.
+- Minimum website/app output: hero/header, at least two content sections, responsive grid/list or cards, CTA/action area, footer, cohesive colors/spacing, and non-empty realistic copy. Do not create a bare title, lorem-only shell, or tutorial answer.
+- Before coding, silently decide purpose, audience, sections, visual style, and technical structure; then implement. Mention assumptions only in the final summary.
 - Search the web only for needed live facts, references, or assets. A search result is not the final answer for a build request; the final artifact must be files/code.
 - Read the existing codebase before editing. Use fast search (`rg`, file lists, targeted reads) to learn local patterns, naming, imports, and ownership boundaries.
 - Prefer the repo's existing framework, helper APIs, file layout, and style over inventing a new architecture.

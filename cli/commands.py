@@ -426,6 +426,8 @@ def cmd_help(args: list) -> None:
         ("telegram",       "Configure Telegram bot token"),
         ("logs",           "Show daemon logs"),
         ("sync",           "Multi-host sync (status / pull / push / setup)"),
+        ("voice",          "Voice / STT / TTS setup and voice mode"),
+        ("coding",         "Coding session commands"),
         ("status",         "Show daemon status"),
         ("quit",           "Stop Koza daemon"),
         ("update",         "Self-update Koza to the latest version"),
@@ -437,12 +439,13 @@ def cmd_help(args: list) -> None:
     for cmd, desc in cmds:
         print(f"    {_C(f'{cmd:<22}', 'cyan')}  {desc}")
     print(_C("\n  EXAMPLES\n", "bold"))
-    examples = ["koza", "koza tui", "koza start --ui tui", "koza setup", "koza config", "koza logs -n 100", "koza sync status", "koza version"]
+    examples = ["koza", "koza tui", "koza start --ui tui", "koza setup", "koza config", "koza logs -n 100", "koza voice setup", "koza sync status", "koza version"]
     for ex in examples:
         print(f"    {_C(ex, 'white')}")
     print(_C("\n  CHAT COMMANDS  (inside chat)\n", "bold"))
     chat_cmds = [
         ("/help",   "Show inline help"),
+        ("/clear",  "Refresh screen from recent history"),
         ("/kanban", "Show Kanban board"),
         ("/memory", "Show working memory"),
         ("/reset",  "Clear conversation history"),

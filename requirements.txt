@@ -1,4 +1,5 @@
 prompt_toolkit>=3.0.0
+typer>=0.12.0
 openai>=1.30.0
 anthropic>=0.28.0
 google-genai>=0.7.0
