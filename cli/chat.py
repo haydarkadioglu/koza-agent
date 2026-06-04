@@ -22,6 +22,43 @@ except ImportError:
     _HAS_PT = False
 
 
+def _render_session_history(layout, messages: list[dict], max_lines: int = 500) -> None:
+    """Render the recent conversation into the output pane.
+
+    Prompt_toolkit owns its own scrollable buffer, so terminal scrollback is not
+    enough after a restart/redraw. Keep the last visible transcript lines in the
+    pane instead of restoring only a few truncated messages.
+    """
+    rendered: list[str] = []
+    line_budget = max(1, max_lines)
+
+    for msg in reversed(messages):
+        role = msg.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = msg.get("content") or ""
+        if not isinstance(content, str):
+            content = str(content)
+        content = content.strip()
+        if not content:
+            continue
+        label = "You" if role == "user" else "Koza"
+        color = "blue" if role == "user" else "teal"
+        body_lines = content.splitlines() or [content]
+        block = [_C(f"  {label}: ", color, "bold") + body_lines[0]]
+        block.extend(_C("  │ ", color) + line for line in body_lines[1:])
+        block.append("")
+        block_line_count = len(block)
+        if rendered and len(rendered) + block_line_count > line_budget:
+            break
+        rendered[:0] = block
+
+    if rendered:
+        layout.append_output(_C("  ── Recent conversation ──\n", "grey"))
+        layout.append_output("\n".join(rendered[-line_budget:]).rstrip() + "\n")
+        layout.append_output(_C("  ── End of history ──\n\n", "grey"))
+
+
 def _plain_cli(agent, cfg: dict) -> None:
     _print_banner(cfg)
 
@@ -283,7 +320,19 @@ def _plain_cli(agent, cfg: dict) -> None:
                 print(_C("\n  Goodbye! 👋\n", "yellow"))
                 _hr()
             return None  # signal exit
-        if user_input == "/reset" or user_input == "/clear":
+        if user_input == "/clear":
+            layout = _ui_layout[0]
+            renderer = _ui_renderer[0]
+            if layout is not None:
+                layout.clear_output()
+                _render_session_history(layout, agent.messages, max_lines=500)
+                layout.append_output(_C("  ✓  Screen refreshed from conversation history.\n", "grey"))
+                if renderer is not None:
+                    layout.set_status(renderer._format_status(_C("● Idle", "green")))
+            else:
+                print(_C("  ✓  Screen refreshed.\n", "green"))
+            return True
+        if user_input == "/reset":
             agent.reset()
             total_tokens = 0
             layout = _ui_layout[0]
@@ -347,6 +396,7 @@ def _plain_cli(agent, cfg: dict) -> None:
                     ("/help",     "Show this help"),
                     ("/sessions", "Browse / load / delete saved sessions"),
                     ("/save [title]", "Save current session"),
+                    ("/clear",    "Refresh screen from recent history"),
                     ("/provider", "Switch LLM provider"),
                     ("/kanban",   "Show Kanban board & cron jobs"),
                     ("/memory",   "Show working memory"),
@@ -604,9 +654,10 @@ def _plain_cli(agent, cfg: dict) -> None:
 
         @kb.add('c-l')
         def _handle_ctrl_l(event):
-            """Ctrl+L: clear output pane."""
+            """Ctrl+L: refresh output pane from recent conversation history."""
             layout.clear_output()
-            layout.append_output(_C("  ✓  Screen cleared.\n", "grey"))
+            _render_session_history(layout, agent.messages, max_lines=500)
+            layout.append_output(_C("  ✓  Screen refreshed from conversation history.\n", "grey"))
 
         app = Application(
             layout=layout.create_layout(),
@@ -616,18 +667,10 @@ def _plain_cli(agent, cfg: dict) -> None:
         layout._app = app
         layout.set_status(renderer._format_status(_C("● Idle", "green")))
 
-        # Render previous session history in output pane
-        _prev_msgs = [m for m in agent.messages if m.get("role") in ("user", "assistant")]
-        if len(_prev_msgs) > 0:
-            layout.append_output(_C("  ── Previous session ──\n", "grey"))
-            for m in _prev_msgs[-10:]:  # Show last 10 messages max
-                if m["role"] == "user":
-                    content = (m.get("content") or "")[:100]
-                    layout.append_output(_C(f"  You: ", "blue") + content + "\n")
-                elif m["role"] == "assistant":
-                    content = (m.get("content") or "")[:150]
-                    layout.append_output(_C(f"  Koza: ", "teal") + content + "\n")
-            layout.append_output(_C("  ── End of history ──\n\n", "grey"))
+        # Render previous session history in output pane.
+        # Keep enough context visible after app restarts instead of showing only
+        # a handful of truncated messages.
+        _render_session_history(layout, agent.messages, max_lines=500)
 
         try:
             app.run()
