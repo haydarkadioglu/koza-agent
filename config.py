@@ -67,10 +67,19 @@ def default_config() -> dict:
             "last_sync_at":           0.0,        # unix timestamp of last successful sync
         },
         "voice": {
-            "enabled":   False,
-            "stt_model": "base",    # whisper model size: tiny / base / small
-            "tts_voice": "af_sky",  # kokoro voice id
-            "language":  "",        # force STT language (empty = auto-detect)
+            "enabled": False,
+            "stt": {
+                "provider": "local_whisper",  # local_whisper | openai | skip
+                "model": "base",              # local: tiny/base/small, openai: whisper-1/gpt-4o-transcribe
+                "language": "",               # empty = auto-detect
+            },
+            "tts": {
+                "provider": "system",         # system | kokoro | openai | skip
+                "model": "",                  # openai: tts-1/gpt-4o-mini-tts
+                "voice": "af_sky",            # kokoro/system default, openai: alloy/nova/...
+            },
+            "input_device": None,
+            "output_device": None,
         },
         "coding_mode": {
             "max_retries": 3,       # max retry count when tests fail
@@ -98,6 +107,16 @@ def load_config() -> dict:
                 cfg["multi_host"].update(val)
             elif key == "ui" and isinstance(val, dict):
                 cfg["ui"].update(val)
+            elif key == "voice" and isinstance(val, dict):
+                default_stt = dict(cfg["voice"].get("stt", {}))
+                default_tts = dict(cfg["voice"].get("tts", {}))
+                cfg["voice"].update(val)
+                if isinstance(val.get("stt"), dict):
+                    default_stt.update(val["stt"])
+                    cfg["voice"]["stt"] = default_stt
+                if isinstance(val.get("tts"), dict):
+                    default_tts.update(val["tts"])
+                    cfg["voice"]["tts"] = default_tts
             else:
                 cfg[key] = val
     # ENV overrides

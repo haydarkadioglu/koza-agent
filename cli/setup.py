@@ -51,6 +51,15 @@ def cmd_setup(args: list) -> None:
             msg_status = f"Telegram ✓" + (f"  chat:{tg_chat}" if tg_chat else "  (no chat_id)")
         if tw_sid:
             msg_status = (msg_status + "  " if msg_status else "") + "Twilio ✓"
+        voice_cfg = cfg.get("voice", {})
+        stt_cfg = voice_cfg.get("stt", {}) if isinstance(voice_cfg.get("stt"), dict) else {}
+        tts_cfg = voice_cfg.get("tts", {}) if isinstance(voice_cfg.get("tts"), dict) else {}
+        voice_status = ""
+        if voice_cfg.get("enabled"):
+            voice_status = (
+                f"STT:{stt_cfg.get('provider', voice_cfg.get('stt_model', 'local_whisper'))} "
+                f"TTS:{tts_cfg.get('provider', 'kokoro' if voice_cfg.get('use_kokoro') else 'system')}"
+            )
 
         sections = [
             f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
@@ -59,7 +68,7 @@ def cmd_setup(args: list) -> None:
             f"Messaging Channels  {_status(msg_status)}",
             f"Twilio Setup        {_status('✓ configured' if tw_sid else '')}",
             f"Multi-host Sync     {_status(cfg.get('multi_host', {}).get('mode', 'single') if cfg.get('multi_host', {}).get('mode', 'single') != 'single' else '')}",
-            f"Voice Mode          {_status('enabled' if cfg.get('voice', {}).get('enabled') else 'disabled')}",
+            f"Voice / STT / TTS   {_status(voice_status or 'disabled')}",
             "Done — save & exit",
         ]
         try:
@@ -100,7 +109,7 @@ def cmd_setup(args: list) -> None:
             # Reload multi_host from disk — cmd_sync saves its own copy
             cfg["multi_host"] = load_config().get("multi_host", cfg.get("multi_host", {}))
 
-        # ── Voice Mode ────────────────────────────────────────────────────────
+        # ── Voice / STT / TTS ─────────────────────────────────────────────────
         elif section.startswith("Voice"):
             _setup_voice_mode(cfg)
 
@@ -698,47 +707,9 @@ def _setup_twilio(cfg: dict) -> None:
 
 def _setup_voice_mode(cfg: dict) -> None:
     """Configure voice mode."""
-    from config import load_config
+    from cli.voice_cmd import configure_voice
 
-    _hr("·", "grey")
-    print(_C("  Voice Mode", "cyan", "bold"))
-    _hr("·", "grey")
-
-    voice_enabled = cfg.get("voice", {}).get("enabled", False)
-    if voice_enabled:
-        try:
-            voice_action = _select_menu(
-                "Voice mode is currently enabled",
-                ["Keep enabled / Reconfigure devices",
-                 "Disable voice mode",
-                 "Skip — no changes"],
-                default_idx=2,
-            )
-        except (KeyboardInterrupt, EOFError):
-            return
-        if "Disable" in voice_action:
-            cfg.setdefault("voice", {})["enabled"] = False
-            print(_C("  ✓  Voice mode disabled.\n", "green"))
-        elif "Skip" in voice_action:
-            return
-        else:
-            from cli.voice_cmd import _do_setup
-            _do_setup([])
-            cfg.update(load_config())
-    else:
-        try:
-            voice_action = _select_menu(
-                "Voice mode is currently disabled",
-                ["Enable & configure voice mode",
-                 "Skip — no changes"],
-                default_idx=1,
-            )
-        except (KeyboardInterrupt, EOFError):
-            return
-        if "Enable" in voice_action:
-            from cli.voice_cmd import _do_setup
-            _do_setup([])
-            cfg.update(load_config())
+    configure_voice(cfg, save=False)
 
 
 # ── Provider command ──────────────────────────────────────────────────────────

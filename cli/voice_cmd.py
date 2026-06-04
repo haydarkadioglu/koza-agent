@@ -8,8 +8,9 @@ Commands:
 """
 from cli.ui import _C, _hr, _print_error
 
+_DEVICE_SKIP = object()
 
-def _list_and_pick_devices() -> tuple[int | None, int | None]:
+def _list_and_pick_devices(allow_skip: bool = False):
     """Show only unique real devices + System Default, let user pick input/output."""
     import sounddevice as sd
     from cli.ui import _select_menu
@@ -40,6 +41,10 @@ def _list_and_pick_devices() -> tuple[int | None, int | None]:
             marker = " ★" if i == default_out else ""
             output_opts.append((f"{name}{marker}", i))
 
+    if allow_skip:
+        input_opts.append(("Skip — keep current", _DEVICE_SKIP))
+        output_opts.append(("Skip — keep current", _DEVICE_SKIP))
+
     _hr("·", "grey")
     print(_C(f"  System default input : {_default_name(default_in)}", "grey"))
     print(_C(f"  System default output: {_default_name(default_out)}\n", "grey"))
@@ -60,61 +65,153 @@ def _list_and_pick_devices() -> tuple[int | None, int | None]:
 
 
 def _do_setup(args: list) -> None:
-    from config import load_config, save_config
-    from cli.ui import _select_menu
-    from skills.voice import ensure_deps, _get_stt_model
-
-    _hr()
-    print(_C("\n  🎙  Voice Setup\n", "bold", "cyan"))
-    print(_C("  Step 1 — Installing dependencies…\n", "grey"))
-    ensure_deps()
-    print(_C("  ✓  All packages installed.\n", "green"))
-
-    print(_C("  Step 2 — Pre-loading STT model (whisper-base)…\n", "grey"))
-    try:
-        _get_stt_model()
-    except Exception as e:
-        print(_C(f"  ✗  STT model error: {e}\n", "red"))
-
-    tts_choice = _select_menu(
-        "TTS engine",
-        ["pyttsx3 (system — works everywhere, no download)",
-         "Kokoro ONNX (higher quality, ~82 MB download)"],
-        default_idx=0,
-    )
-    use_kokoro = "Kokoro" in tts_choice
-    if use_kokoro:
-        print(_C("\n  Downloading Kokoro models…\n", "grey"))
-        from skills.voice import _try_kokoro_install
-        ok = _try_kokoro_install()
-        if not ok:
-            print(_C("  ✗  Kokoro download failed — using pyttsx3 instead.\n", "yellow"))
-            use_kokoro = False
-
-    # Device selection
-    print(_C("\n  Step 3 — Audio device selection\n", "grey"))
-    input_device, output_device = _list_and_pick_devices()
-
-    lang_choice = _select_menu(
-        "STT language (Whisper auto-detects, or force a language)",
-        ["auto-detect", "tr", "en", "de", "fr", "es"],
-        default_idx=0,
-    )
-    language = "" if lang_choice == "auto-detect" else lang_choice
+    from config import load_config
 
     cfg = load_config()
-    cfg.setdefault("voice", {}).update({
-        "enabled":       True,
-        "stt_model":     "base",
-        "tts_voice":     "af_sky",
-        "use_kokoro":    use_kokoro,
-        "language":      language,
-        "input_device":  input_device,
-        "output_device": output_device,
-    })
-    save_config(cfg)
+    configure_voice(cfg, save=True)
 
-    print(_C("\n  ✅  Voice enabled!  Run  koza voice  to start talking.\n", "green"))
+
+def _voice_status(cfg: dict) -> str:
+    from skills.voice import normalize_voice_config
+    voice = normalize_voice_config(cfg)
+    if not voice.get("enabled"):
+        return "disabled"
+    stt = voice.get("stt", {})
+    tts = voice.get("tts", {})
+    return f"STT:{stt.get('provider')} / {stt.get('model')}  TTS:{tts.get('provider')} / {tts.get('voice')}"
+
+
+def configure_voice(cfg: dict, save: bool = False) -> None:
+    """Shared voice setup used by `koza setup` and `koza voice setup`."""
+    from config import save_config
+    from cli.ui import _select_menu
+    from skills.voice import ensure_audio_deps, ensure_local_stt_deps, _get_stt_model, _try_kokoro_install, normalize_voice_config
+
+    voice = normalize_voice_config(cfg)
+    _hr()
+    print(_C("\n  🎙  Voice / STT / TTS Setup\n", "bold", "cyan"))
+    print(_C(f"  Current: {_voice_status(cfg)}\n", "grey"))
+
+    try:
+        action = _select_menu(
+            "Voice mode",
+            ["Enable / reconfigure",
+             "Disable voice mode",
+             "Skip — keep current / configure later"],
+            default_idx=2,
+        )
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    if action.startswith("Skip"):
+        return
+    if action.startswith("Disable"):
+        cfg.setdefault("voice", {})["enabled"] = False
+        if save:
+            save_config(cfg)
+        print(_C("  ✓  Voice disabled.\n", "green"))
+        return
+
+    cfg["voice"] = voice
+    voice["enabled"] = True
+
+    stt_choice = _select_menu(
+        "Speech-to-Text Provider",
+        ["Local Whisper (faster-whisper)",
+         "OpenAI transcription",
+         "Skip — keep current / configure later"],
+        default_idx=0,
+    )
+    if stt_choice.startswith("Local"):
+        model_choice = _select_menu(
+            "Local Whisper model",
+            ["tiny", "base", "small", "Skip — keep current / configure later"],
+            default_idx=1,
+        )
+        if not model_choice.startswith("Skip"):
+            voice["stt"] = {"provider": "local_whisper", "model": model_choice, "language": voice.get("stt", {}).get("language", "")}
+            try:
+                print(_C("  Installing/checking local STT deps…", "grey"))
+                ensure_local_stt_deps()
+                _get_stt_model(model_choice)
+            except Exception as e:
+                print(_C(f"  ⚠  Local STT setup issue: {e}\n", "yellow"))
+    elif stt_choice.startswith("OpenAI"):
+        model_choice = _select_menu(
+            "OpenAI STT model",
+            ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        if not model_choice.startswith("Skip"):
+            voice["stt"] = {"provider": "openai", "model": model_choice, "language": voice.get("stt", {}).get("language", "")}
+
+    lang_choice = _select_menu(
+        "STT language",
+        ["auto-detect", "tr", "en", "de", "fr", "es", "Skip — keep current / configure later"],
+        default_idx=0,
+    )
+    if not lang_choice.startswith("Skip"):
+        voice.setdefault("stt", {}).setdefault("provider", "local_whisper")
+        voice["stt"]["language"] = "" if lang_choice == "auto-detect" else lang_choice
+
+    tts_choice = _select_menu(
+        "Text-to-Speech Provider",
+        ["System pyttsx3",
+         "Kokoro ONNX",
+         "OpenAI speech",
+         "Skip — keep current / configure later"],
+        default_idx=0,
+    )
+    if tts_choice.startswith("System"):
+        voice["tts"] = {"provider": "system", "model": "", "voice": voice.get("tts", {}).get("voice", "af_sky")}
+    elif tts_choice.startswith("Kokoro"):
+        kokoro_voice = _select_menu(
+            "Kokoro voice",
+            ["af_sky", "af_bella", "am_adam", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        if not kokoro_voice.startswith("Skip"):
+            voice["tts"] = {"provider": "kokoro", "model": "", "voice": kokoro_voice}
+            print(_C("\n  Downloading/checking Kokoro models…\n", "grey"))
+            if not _try_kokoro_install():
+                print(_C("  ⚠  Kokoro setup failed; config saved but runtime may fail until dependencies are fixed.\n", "yellow"))
+    elif tts_choice.startswith("OpenAI"):
+        model_choice = _select_menu(
+            "OpenAI TTS model",
+            ["tts-1", "gpt-4o-mini-tts", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        voice_choice = _select_menu(
+            "OpenAI voice",
+            ["alloy", "nova", "shimmer", "echo", "fable", "onyx", "Skip — keep current / configure later"],
+            default_idx=0,
+        )
+        if not model_choice.startswith("Skip") and not voice_choice.startswith("Skip"):
+            voice["tts"] = {"provider": "openai", "model": model_choice, "voice": voice_choice}
+
+    device_choice = _select_menu(
+        "Audio Devices",
+        ["Configure input/output devices",
+         "Skip — keep current / configure later"],
+        default_idx=1,
+    )
+    if not device_choice.startswith("Skip"):
+        try:
+            ensure_audio_deps()
+            input_device, output_device = _list_and_pick_devices(allow_skip=True)
+            if input_device is not _DEVICE_SKIP:
+                voice["input_device"] = input_device
+            if output_device is not _DEVICE_SKIP:
+                voice["output_device"] = output_device
+        except Exception as e:
+            print(_C(f"  ⚠  Audio device setup issue: {e}\n", "yellow"))
+
+    cfg["voice"] = voice
+    if save:
+        save_config(cfg)
+
+    action_word = "saved" if save else "updated"
+    print(_C(f"\n  ✅  Voice config {action_word}. Run  koza voice  to start talking.\n", "green"))
     _hr()
 
 
@@ -131,21 +228,20 @@ def cmd_voice(args: list) -> None:
             print(_C("  ✗  No config found. Run:  koza setup\n", "red"))
             return
         try:
-            from skills.voice import ensure_deps
-            ensure_deps()
+            from skills.voice import ensure_audio_deps
+            ensure_audio_deps()
         except Exception:
             pass
         _hr()
         print(_C("\n  🔊  Audio Device Selection\n", "bold", "cyan"))
         in_dev, out_dev = _list_and_pick_devices()
-        if in_dev is not None:
-            cfg = load_config()
-            cfg.setdefault("voice", {}).update({
-                "input_device":  in_dev,
-                "output_device": out_dev,
-            })
-            save_config(cfg)
-            print(_C(f"\n  ✅  Saved  input={in_dev}  output={out_dev}\n", "green"))
+        cfg = load_config()
+        cfg.setdefault("voice", {}).update({
+            "input_device":  in_dev,
+            "output_device": out_dev,
+        })
+        save_config(cfg)
+        print(_C(f"\n  ✅  Saved  input={in_dev}  output={out_dev}\n", "green"))
         _hr()
         return
 
@@ -167,7 +263,7 @@ def cmd_voice(args: list) -> None:
         return
 
     try:
-        from skills.voice import vad_listen_loop, tts_speak
+        from skills.voice import vad_listen_loop, tts_speak_configured, normalize_voice_config
     except ImportError as e:
         print(_C(f"  ✗  Voice deps missing: {e}\n  Run:  koza voice setup\n", "red"))
         return
@@ -178,12 +274,10 @@ def cmd_voice(args: list) -> None:
 
     provider  = get_provider(cfg)
     agent     = Agent(provider, cfg["db_path"], cfg)
-    voice_cfg = cfg.get("voice", {})
-    tts_voice    = voice_cfg.get("tts_voice", "af_sky")
-    language     = voice_cfg.get("language") or None
+    voice_cfg = normalize_voice_config(cfg)
+    language     = voice_cfg.get("stt", {}).get("language") or None
     input_device = voice_cfg.get("input_device")
     output_device= voice_cfg.get("output_device")
-    use_kokoro   = voice_cfg.get("use_kokoro", False)
 
     _hr()
     print(_C("\n  🎙  Koza Voice Mode  — Always Listening\n", "bold", "cyan"))
@@ -207,6 +301,7 @@ def cmd_voice(args: list) -> None:
             input_device=input_device,
             language=language,
             stop_event=stop_event,
+            cfg=cfg,
         ):
             if not text:
                 continue
@@ -237,10 +332,9 @@ def cmd_voice(args: list) -> None:
                 sys.stdout.write(_C("  🔊  Speaking…\n", "grey"))
                 sys.stdout.flush()
                 try:
-                    tts_speak(full_response.strip(), voice=tts_voice,
-                              output_device=output_device, use_kokoro=use_kokoro)
+                    tts_speak_configured(full_response.strip(), cfg, output_device=output_device)
                 except Exception:
-                    pass
+                    print(_C("  ⚠  TTS failed. Run: koza voice setup\n", "yellow"))
 
             _hr("·", "grey")
 

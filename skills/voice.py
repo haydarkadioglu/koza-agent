@@ -1,8 +1,9 @@
-"""Voice module — always-on VAD loop, STT (faster-whisper), TTS (pyttsx3 / Kokoro).
+"""Voice module — always-on VAD loop, STT and TTS provider dispatch.
 
 Design:
 - No Enter-to-speak: mic is always open, VAD detects speech automatically.
-- TTS: pyttsx3 (system, zero-download) as default; Kokoro ONNX as optional upgrade.
+- STT: local faster-whisper or OpenAI transcription.
+- TTS: pyttsx3 (system), Kokoro ONNX, or OpenAI speech.
 - All heavy imports are lazy — nothing loads unless voice is actually used.
 """
 import os
@@ -19,6 +20,7 @@ SILENCE_SECS  = 1.2           # seconds of silence before cut-off
 PRE_ROLL_CHUNKS = 4           # chunks to keep before speech starts (80 ms)
 
 _stt_model = None
+_stt_model_key = ""
 _tts_engine = None            # pyttsx3 instance (reused across calls)
 
 
@@ -30,14 +32,8 @@ def is_voice_enabled(cfg: dict) -> bool:
 
 # ── Dependency installer ──────────────────────────────────────────────────────
 
-def ensure_deps() -> None:
-    _DEPS = [
-        ("faster_whisper", "faster-whisper"),
-        ("sounddevice",    "sounddevice"),
-        ("soundfile",      "soundfile"),
-        ("numpy",          "numpy"),
-    ]
-    for mod, pkg in _DEPS:
+def _pip_install_deps(deps: list[tuple[str, str]]) -> None:
+    for mod, pkg in deps:
         try:
             __import__(mod)
         except ImportError:
@@ -49,18 +45,80 @@ def ensure_deps() -> None:
             )
 
 
+def ensure_audio_deps() -> None:
+    _pip_install_deps([
+        ("sounddevice", "sounddevice"),
+        ("soundfile", "soundfile"),
+        ("numpy", "numpy"),
+    ])
+
+
+def ensure_local_stt_deps() -> None:
+    ensure_audio_deps()
+    _pip_install_deps([("faster_whisper", "faster-whisper")])
+
+
+def ensure_deps() -> None:
+    """Backward-compatible installer for local voice mode."""
+    _DEPS = [
+        ("faster_whisper", "faster-whisper"),
+        ("sounddevice",    "sounddevice"),
+        ("soundfile",      "soundfile"),
+        ("numpy",          "numpy"),
+    ]
+    _pip_install_deps(_DEPS)
+
+
 # ── STT model ─────────────────────────────────────────────────────────────────
 
-def _get_stt_model():
-    global _stt_model
-    if _stt_model is None:
+def _get_stt_model(model_name: str = "base"):
+    global _stt_model, _stt_model_key
+    model_name = model_name or "base"
+    if _stt_model is None or _stt_model_key != model_name:
         from faster_whisper import WhisperModel
-        sys.stdout.write("  🔄  Loading Whisper base (~74 MB first run)…")
+        sys.stdout.write(f"  🔄  Loading Whisper {model_name}…")
         sys.stdout.flush()
-        _stt_model = WhisperModel("base", device="cpu", compute_type="int8")
+        _stt_model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        _stt_model_key = model_name
         sys.stdout.write("\r  ✓  STT ready.                              \n")
         sys.stdout.flush()
     return _stt_model
+
+
+def normalize_voice_config(cfg: dict) -> dict:
+    """Return nested voice config while accepting legacy flat keys."""
+    voice = dict((cfg or {}).get("voice", {}) or {})
+    stt = dict(voice.get("stt") or {})
+    tts = dict(voice.get("tts") or {})
+
+    if not stt:
+        stt = {
+            "provider": "local_whisper",
+            "model": voice.get("stt_model", "base"),
+            "language": voice.get("language", ""),
+        }
+    else:
+        stt.setdefault("provider", "local_whisper")
+        stt.setdefault("model", voice.get("stt_model", "base"))
+        stt.setdefault("language", voice.get("language", ""))
+
+    if not tts:
+        use_kokoro = bool(voice.get("use_kokoro", False))
+        tts = {
+            "provider": "kokoro" if use_kokoro else "system",
+            "model": "",
+            "voice": voice.get("tts_voice", "af_sky"),
+        }
+    else:
+        tts.setdefault("provider", "system")
+        tts.setdefault("model", "")
+        tts.setdefault("voice", voice.get("tts_voice", "af_sky"))
+
+    voice["stt"] = stt
+    voice["tts"] = tts
+    voice.setdefault("input_device", None)
+    voice.setdefault("output_device", None)
+    return voice
 
 
 # ── TTS ───────────────────────────────────────────────────────────────────────
@@ -126,6 +184,85 @@ def tts_speak(text: str, voice: str = "af_sky", output_device=None,
         pass
 
 
+def _openai_api_key(cfg: dict) -> str:
+    return (cfg or {}).get("providers", {}).get("openai", {}).get("api_key", "").strip()
+
+
+def _transcribe_openai_file(path: str, cfg: dict, stt_cfg: dict) -> str:
+    api_key = _openai_api_key(cfg)
+    if not api_key:
+        raise RuntimeError("OpenAI STT requires providers.openai.api_key. Run: koza setup")
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key, base_url=cfg.get("providers", {}).get("openai", {}).get("base_url", "https://api.openai.com/v1"))
+    kwargs = {"model": stt_cfg.get("model") or "whisper-1"}
+    language = stt_cfg.get("language") or ""
+    if language:
+        kwargs["language"] = language
+    with open(path, "rb") as fh:
+        result = client.audio.transcriptions.create(file=fh, **kwargs)
+    return getattr(result, "text", "") or str(result)
+
+
+def transcribe_audio_file(path: str, cfg: dict) -> str:
+    voice_cfg = normalize_voice_config(cfg)
+    stt_cfg = voice_cfg.get("stt", {})
+    provider = stt_cfg.get("provider", "local_whisper")
+    if provider == "skip":
+        raise RuntimeError("STT provider is not configured. Run: koza voice setup")
+    if provider == "openai":
+        return _transcribe_openai_file(path, cfg, stt_cfg)
+
+    model = _get_stt_model(stt_cfg.get("model", "base"))
+    kw = {"beam_size": 5}
+    language = stt_cfg.get("language") or ""
+    if language:
+        kw["language"] = language
+    segments, _ = model.transcribe(path, **kw)
+    return " ".join(s.text.strip() for s in segments).strip()
+
+
+def tts_speak_configured(text: str, cfg: dict, output_device=None) -> None:
+    voice_cfg = normalize_voice_config(cfg)
+    tts_cfg = voice_cfg.get("tts", {})
+    provider = tts_cfg.get("provider", "system")
+    voice = tts_cfg.get("voice", "af_sky")
+
+    if provider == "skip":
+        return
+    if provider == "kokoro":
+        tts_speak(text, voice=voice, output_device=output_device, use_kokoro=True)
+        return
+    if provider == "openai":
+        api_key = _openai_api_key(cfg)
+        if not api_key:
+            raise RuntimeError("OpenAI TTS requires providers.openai.api_key. Run: koza setup")
+        import sounddevice as sd
+        import soundfile as sf
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=cfg.get("providers", {}).get("openai", {}).get("base_url", "https://api.openai.com/v1"))
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.close()
+        try:
+            response = client.audio.speech.create(
+                model=tts_cfg.get("model") or "tts-1",
+                voice=voice or "alloy",
+                input=text,
+                response_format="wav",
+            )
+            response.write_to_file(tmp.name)
+            samples, sr = sf.read(tmp.name, dtype="float32")
+            sd.play(samples, sr, device=output_device)
+            sd.wait()
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+        return
+
+    tts_speak(text, voice=voice, output_device=output_device, use_kokoro=False)
+
+
 # ── VAD helpers ───────────────────────────────────────────────────────────────
 
 def _vu_bar(amp: float, width: int = 16) -> str:
@@ -133,7 +270,7 @@ def _vu_bar(amp: float, width: int = 16) -> str:
     return "█" * bars + "░" * (width - bars)
 
 
-def _transcribe(audio_chunks, language=None) -> str:
+def _transcribe(audio_chunks, language=None, cfg: dict | None = None) -> str:
     import numpy as np
     import soundfile as sf
     audio = np.concatenate(audio_chunks, axis=0).squeeze()
@@ -141,6 +278,8 @@ def _transcribe(audio_chunks, language=None) -> str:
     tmp.close()
     sf.write(tmp.name, audio, SAMPLE_RATE)
     try:
+        if cfg:
+            return transcribe_audio_file(tmp.name, cfg)
         model = _get_stt_model()
         kw = {"beam_size": 5}
         if language:
@@ -157,6 +296,7 @@ def vad_listen_loop(
     input_device=None,
     language: str | None = None,
     stop_event=None,       # threading.Event — set to break the loop
+    cfg: dict | None = None,
 ):
     """
     Generator that continuously listens and yields transcribed utterances.
@@ -214,7 +354,7 @@ def vad_listen_loop(
                         sys.stdout.flush()
                         _show("⚙   Transcribing…")
                         sys.stdout.flush()
-                        text = _transcribe(chunks, language=language)
+                        text = _transcribe(chunks, language=language, cfg=cfg)
                         chunks = []
                         sys.stdout.write("\r" + " " * 72 + "\r")
                         sys.stdout.flush()
