@@ -215,6 +215,18 @@ def tui(
     _run(cmd_tui, args)
 
 
+@app.command()
+def gui() -> None:
+    """Start the premium desktop GUI cockpit."""
+    try:
+        from ui.gui_app import start_gui
+        start_gui()
+    except Exception as exc:
+        print(f"Failed to start GUI: {exc}")
+        print("Make sure pywebview is installed: pip install pywebview")
+
+
+
 @app.command("help")
 def help_command() -> None:
     """Show Koza command reference."""

@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Koza Agent Cockpit</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="gui.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-microchip brand-logo"></i>
+                <div class="brand-text">
+                    <h1>KOZA</h1>
+                    <span data-localize="brand-sub">AUTONOMOUS AI AGENT</span>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-item active" onclick="switchTab('chat')">
+                    <i class="fa-solid fa-comments"></i>
+                    <span data-localize="nav-chat">Chat</span>
+                </button>
+                <button class="nav-item" onclick="switchTab('kanban')">
+                    <i class="fa-solid fa-table-columns"></i>
+                    <span data-localize="nav-kanban">Kanban</span>
+                </button>
+                <button class="nav-item" onclick="switchTab('sessions')">
+                    <i class="fa-solid fa-history"></i>
+                    <span data-localize="nav-sessions">Sessions</span>
+                </button>
+                <button class="nav-item" onclick="switchTab('settings')">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span data-localize="nav-settings">Settings</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="pulse green"></span>
+                    <span class="status-text" data-localize="status-ready">Connected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- TAB: CHAT -->
+            <section id="tab-chat" class="tab-pane active">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="chat-title">Chat</h2>
+                        <p data-localize="chat-subtitle">Interact with Koza Agent and command it to perform actions.</p>
+                    </div>
+                    <button class="btn btn-secondary" onclick="resetChat()">
+                        <i class="fa-solid fa-rotate-left"></i> <span data-localize="chat-reset">Clear History</span>
+                    </button>
+                </header>
+
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        <!-- Welcome Message -->
+                        <div class="welcome-box">
+                            <i class="fa-solid fa-robot welcome-icon"></i>
+                            <h3 data-localize="welcome-title">I am Koza. How can I help you?</h3>
+                            <p data-localize="welcome-text">I can read files, write and run tests, search the web, or update the Kanban board.</p>
+                            <div class="suggestion-grid">
+                                <div class="suggestion-card" onclick="fillInput('explore project structure and write a report')">
+                                    <i class="fa-solid fa-file-invoice"></i>
+                                    <span data-localize="suggest-1">Explore project structure</span>
+                                </div>
+                                <div class="suggestion-card" onclick="fillInput('add a task to todo column for designing the web layout')">
+                                    <i class="fa-solid fa-tasks"></i>
+                                    <span data-localize="suggest-2">Add Kanban task</span>
+                                </div>
+                                <div class="suggestion-card" onclick="fillInput('write python code to find prime numbers from 1 to 100')">
+                                    <i class="fa-solid fa-code"></i>
+                                    <span data-localize="suggest-3">Write code</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Thinking and Progress Bar -->
+                    <div class="stream-status" id="stream-status" style="display: none;">
+                        <div class="spinner-circle"></div>
+                        <span id="status-text" data-localize="thinking">Thinking...</span>
+                    </div>
+
+                    <!-- Input Bar -->
+                    <div class="chat-input-area">
+                        <textarea id="chat-input" placeholder="Type a message to Koza... (Press Enter during stream to interrupt)"></textarea>
+                        <button class="send-btn" id="send-btn" onclick="sendMessage()">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: KANBAN -->
+            <section id="tab-kanban" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="kanban-title">Kanban Board</h2>
+                        <p data-localize="kanban-subtitle">Track tasks and drag them to update their current state.</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="openNewTaskModal()">
+                        <i class="fa-solid fa-plus"></i> <span data-localize="kanban-new">New Task</span>
+                    </button>
+                </header>
+
+                <div class="kanban-board">
+                    <!-- Column: Todo -->
+                    <div class="kanban-column" id="col-todo" ondragover="allowDrop(event)" ondrop="dropTask(event, 'todo')">
+                        <div class="column-header">
+                            <h3 data-localize="col-todo">TODO</h3>
+                            <span class="badge" id="count-todo">0</span>
+                        </div>
+                        <div class="column-cards" id="cards-todo"></div>
+                    </div>
+
+                    <!-- Column: In Progress -->
+                    <div class="kanban-column" id="col-in_progress" ondragover="allowDrop(event)" ondrop="dropTask(event, 'in_progress')">
+                        <div class="column-header">
+                            <h3 data-localize="col-progress">IN PROGRESS</h3>
+                            <span class="badge warning" id="count-in_progress">0</span>
+                        </div>
+                        <div class="column-cards" id="cards-in_progress"></div>
+                    </div>
+
+                    <!-- Column: Done -->
+                    <div class="kanban-column" id="col-done" ondragover="allowDrop(event)" ondrop="dropTask(event, 'done')">
+                        <div class="column-header">
+                            <h3 data-localize="col-done">DONE</h3>
+                            <span class="badge success" id="count-done">0</span>
+                        </div>
+                        <div class="column-cards" id="cards-done"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: SESSIONS -->
+            <section id="tab-sessions" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="sessions-title">Session History</h2>
+                        <p data-localize="sessions-subtitle">View and restore previous conversation sessions.</p>
+                    </div>
+                </header>
+
+                <div class="sessions-list" id="sessions-list">
+                    <!-- Session rows dynamically populated here -->
+                </div>
+            </section>
+
+            <!-- TAB: SETTINGS -->
+            <section id="tab-settings" class="tab-pane" style="overflow-y: auto;">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="settings-title">Settings</h2>
+                        <p data-localize="settings-subtitle">Configure LLM providers, model preferences, keys, and advanced options.</p>
+                    </div>
+                </header>
+
+                <div class="settings-grid">
+                    <!-- CARD: PRIMARY LLM -->
+                    <div class="settings-card">
+                        <h3 data-localize="card-primary">Primary LLM</h3>
+                        <div class="form-group">
+                            <label for="setting-provider" data-localize="label-provider">Provider</label>
+                            <select id="setting-provider" onchange="onProviderChanged(this.value)">
+                                <!-- Dynamically populated -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-model" data-localize="label-model">Model</label>
+                            <select id="setting-model" onchange="onModelChanged(this.value)">
+                                <!-- Dynamically populated -->
+                            </select>
+                            <input type="text" id="setting-model-custom" placeholder="Enter custom model name..." style="display:none; margin-top:8px;" onchange="onCustomModelChanged(this.value)">
+                        </div>
+                        
+                        <!-- Dynamic API Key field -->
+                        <div class="form-group" id="group-api-key" style="display:none;">
+                            <label id="label-api-key" for="setting-api-key">API Key</label>
+                            <input type="password" id="setting-api-key" placeholder="Enter API key..." onchange="onApiKeyChanged(this.value)">
+                        </div>
+
+                        <!-- Integration Buttons (OAuth & login) -->
+                        <div class="form-group" id="group-oauth-actions" style="display:none; gap: 8px;">
+                            <button class="btn btn-primary" id="btn-google-oauth" onclick="triggerGoogleOAuth()">
+                                <i class="fa-brands fa-google"></i> <span data-localize="btn-google-login">Login with Google</span>
+                            </button>
+                            <button class="btn btn-secondary" id="btn-gemini-browser" onclick="triggerGeminiBrowserLogin()">
+                                <i class="fa-solid fa-compass"></i> <span data-localize="btn-browser-login">Browser Session Login</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- CARD: FALLBACK PROVIDER -->
+                    <div class="settings-card">
+                        <h3 data-localize="card-fallback">Fallback LLM</h3>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="setting-fallback-enable" onchange="toggleFallback(this.checked)">
+                            <label for="setting-fallback-enable" data-localize="fallback-enable">Enable Fallback Provider</label>
+                        </div>
+                        <div id="fallback-fields" style="display:none;">
+                            <div class="form-group">
+                                <label for="setting-fallback-provider" data-localize="label-fallback-provider">Fallback Provider</label>
+                                <select id="setting-fallback-provider" onchange="onFallbackProviderChanged(this.value)">
+                                    <!-- Populated in JS -->
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-fallback-model" data-localize="label-fallback-model">Fallback Model</label>
+                                <select id="setting-fallback-model" onchange="onFallbackModelChanged(this.value)">
+                                    <!-- Populated in JS -->
+                                </select>
+                            </div>
+                            <div class="form-group" id="group-fallback-key" style="display:none;">
+                                <label for="setting-fallback-key">Fallback API Key</label>
+                                <input type="password" id="setting-fallback-key" placeholder="Enter fallback key..." onchange="onFallbackKeyChanged(this.value)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CARD: MESSAGING INTEGRATIONS -->
+                    <div class="settings-card">
+                        <h3 data-localize="card-messaging">Messaging Integration</h3>
+                        <div class="form-group">
+                            <label for="setting-tg-token">Telegram Bot Token</label>
+                            <input type="password" id="setting-tg-token" placeholder="Paste bot token..." onchange="updateNestedConfig('messaging.telegram.token', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-tg-chat">Telegram Chat ID</label>
+                            <input type="text" id="setting-tg-chat" placeholder="Telegram Chat ID..." onchange="updateNestedConfig('messaging.telegram.chat_id', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-twilio-sid">Twilio Account SID</label>
+                            <input type="text" id="setting-twilio-sid" placeholder="ACxxxxxxxx..." onchange="updateNestedConfig('messaging.twilio.account_sid', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-twilio-auth">Twilio Auth Token</label>
+                            <input type="password" id="setting-twilio-auth" placeholder="Twilio token..." onchange="updateNestedConfig('messaging.twilio.auth_token', this.value)">
+                        </div>
+                    </div>
+
+                    <!-- CARD: SYSTEM, VOICE & LANGUAGE -->
+                    <div class="settings-card">
+                        <h3 data-localize="card-general">General & Voice</h3>
+                        
+                        <div class="form-group">
+                            <label for="setting-lang">Interface Language / Dil</label>
+                            <select id="setting-lang" onchange="changeLanguage(this.value)">
+                                <option value="en">English</option>
+                                <option value="tr">Türkçe</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="setting-tool-approval" onchange="updateGeneralConfig('root', 'tool_approval', this.checked)">
+                            <label for="setting-tool-approval" data-localize="tool-approval">Require approval for non-safe tools</label>
+                        </div>
+                        
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="setting-coding-autotest" onchange="updateGeneralConfig('coding_mode', 'auto_test', this.checked)">
+                            <label for="setting-coding-autotest" data-localize="auto-test">Run automatic tests in Coding Mode</label>
+                        </div>
+
+                        <div class="form-group checkbox-group" style="margin-top: 15px;">
+                            <input type="checkbox" id="setting-voice-enable" onchange="toggleVoice(this.checked)">
+                            <label for="setting-voice-enable" data-localize="voice-enable">Enable Voice Mode</label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Task Creation Modal -->
+    <div class="modal" id="task-modal">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3 data-localize="modal-task-title">Create New Task</h3>
+                <button class="close-btn" onclick="closeTaskModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="task-title" data-localize="task-title-label">Title</label>
+                    <input type="text" id="task-title" placeholder="Task title...">
+                </div>
+                <div class="form-group">
+                    <label for="task-desc" data-localize="task-desc-label">Description</label>
+                    <textarea id="task-desc" rows="3" placeholder="Task details..."></textarea>
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeTaskModal()" data-localize="btn-cancel">Cancel</button>
+                <button class="btn btn-primary" onclick="submitNewTask()" data-localize="btn-save">Save</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Interactive Tool Permission Modal -->
+    <div class="modal" id="permission-modal">
+        <div class="modal-content permission-box">
+            <header class="modal-header">
+                <h3><i class="fa-solid fa-triangle-exclamation warning-icon"></i> <span data-localize="perm-title">Tool Execution Permission</span></h3>
+            </header>
+            <div class="modal-body">
+                <p data-localize="perm-prompt">Koza Agent wants to execute the following tool:</p>
+                <div class="tool-info">
+                    <div id="perm-tool-name" class="tool-name">run_command</div>
+                    <pre id="perm-tool-args" class="tool-args">{"command": "git push origin main"}</pre>
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-danger" onclick="resolvePermission(false)"><i class="fa-solid fa-xmark"></i> <span data-localize="btn-deny">Deny</span></button>
+                <button class="btn btn-success" onclick="resolvePermission(true)"><i class="fa-solid fa-check"></i> <span data-localize="btn-allow">Allow</span></button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Front-end Script -->
+    <script src="gui.js"></script>
+</body>
+</html>

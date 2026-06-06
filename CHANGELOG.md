@@ -2,6 +2,7 @@
 
 | Version | Notes |
 |---------|-------|
+| v1.5.0 | [changelog/v1.5.0.md](changelog/v1.5.0.md) |
 | v1.42.1 | [changelog/v1.42.1.md](changelog/v1.42.1.md) |
 | v1.4.6  | [changelog/v1.4.6.md](changelog/v1.4.6.md) |
 | v1.4.52 | [changelog/v1.4.52.md](changelog/v1.4.52.md) |
