@@ -96,3 +96,33 @@ class ConfigMixin:
                     self.webview_window.evaluate_js(f"onGeminiBrowserLoginCompleted({res})")
         threading.Thread(target=run, daemon=True).start()
         return {"status": "started"}
+
+    def get_daemon_status(self):
+        """Return whether background daemon services are running."""
+        try:
+            from koza_daemon import get_daemon_port, PID_FILE
+            port = get_daemon_port()
+            active = port is not None
+            pid = None
+            if active and PID_FILE.exists():
+                try:
+                    pid = int(PID_FILE.read_text().strip())
+                except Exception:
+                    pass
+            return {"status": "success", "active": active, "pid": pid}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def toggle_daemon(self, enable):
+        """Start or stop the background services daemon."""
+        try:
+            if enable:
+                from koza_daemon import start_as_background
+                success = start_as_background()
+                return {"status": "success" if success else "error", "message": "Daemon started" if success else "Failed to start daemon"}
+            else:
+                from cli.daemon import cmd_quit
+                cmd_quit([])
+                return {"status": "success", "message": "Daemon stopped"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

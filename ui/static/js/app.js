@@ -16,6 +16,12 @@ window.addEventListener('pywebviewready', () => {
     }
     applyLocalization();
     loadInitialData();
+    
+    // Initial daemon status check and periodic updates
+    if (typeof checkDaemonStatus === 'function') {
+        checkDaemonStatus();
+        setInterval(checkDaemonStatus, 5000);
+    }
 });
 
 function applyLocalization() {
@@ -32,6 +38,11 @@ function applyLocalization() {
             el.placeholder = dict[key];
         }
     });
+    
+    // Update dynamic daemon strings
+    if (typeof checkDaemonStatus === 'function') {
+        checkDaemonStatus();
+    }
 }
 
 function changeLanguage(lang) {

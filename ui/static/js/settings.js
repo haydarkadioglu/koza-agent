@@ -571,3 +571,129 @@ function loadAudioDevices(selectedInputIdx, selectedOutputIdx) {
         }
     });
 }
+
+/* Background Daemon Management */
+function updateDaemonUI(active, pid) {
+    isDaemonActive = active;
+    const dict = LOCALIZATION[currentLanguage] || LOCALIZATION['en'];
+    
+    // Sidebar elements
+    const sidebarLight = document.getElementById('sidebar-daemon-light');
+    const sidebarText = document.getElementById('sidebar-daemon-text');
+    const sidebarBtn = document.getElementById('sidebar-daemon-btn');
+    
+    // Panel elements
+    const panelLight = document.getElementById('daemon-panel-light');
+    const panelStatus = document.getElementById('daemon-panel-status');
+    const panelBtn = document.getElementById('daemon-panel-btn');
+    
+    if (active) {
+        const activeLabel = dict["daemon-active"] || "Active";
+        const stopLabel = dict["daemon-stop"] || "Stop";
+        
+        if (sidebarLight) {
+            sidebarLight.className = "pulse green";
+            sidebarLight.style.backgroundColor = ""; 
+        }
+        if (sidebarText) {
+            sidebarText.innerText = `Daemon: ${activeLabel}${pid ? ' (PID ' + pid + ')' : ''}`;
+        }
+        if (sidebarBtn) {
+            sidebarBtn.innerText = stopLabel;
+            sidebarBtn.style.display = "inline-block";
+        }
+        
+        if (panelLight) {
+            panelLight.className = "pulse green";
+            panelLight.style.backgroundColor = "";
+        }
+        if (panelStatus) {
+            panelStatus.innerText = `${activeLabel}${pid ? ' (PID ' + pid + ')' : ''}`;
+            panelStatus.style.color = "var(--color-green, #00FF87)";
+        }
+        if (panelBtn) {
+            panelBtn.innerText = stopLabel;
+            panelBtn.style.display = "inline-block";
+        }
+    } else {
+        const inactiveLabel = dict["daemon-inactive"] || "Inactive";
+        const startLabel = dict["daemon-start"] || "Start";
+        
+        if (sidebarLight) {
+            sidebarLight.className = "pulse";
+            sidebarLight.style.backgroundColor = "var(--text-muted, #718096)";
+        }
+        if (sidebarText) {
+            sidebarText.innerText = `Daemon: ${inactiveLabel}`;
+        }
+        if (sidebarBtn) {
+            sidebarBtn.innerText = startLabel;
+            sidebarBtn.style.display = "inline-block";
+        }
+        
+        if (panelLight) {
+            panelLight.className = "pulse";
+            panelLight.style.backgroundColor = "var(--text-muted, #718096)";
+        }
+        if (panelStatus) {
+            panelStatus.innerText = inactiveLabel;
+            panelStatus.style.color = "var(--text-secondary, #A0AEC0)";
+        }
+        if (panelBtn) {
+            panelBtn.innerText = startLabel;
+            panelBtn.style.display = "inline-block";
+        }
+    }
+}
+
+function checkDaemonStatus() {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.get_daemon_status) {
+        window.pywebview.api.get_daemon_status().then(res => {
+            if (res && res.status === 'success') {
+                updateDaemonUI(res.active, res.pid);
+            }
+        }).catch(err => {
+            console.error("Failed to check daemon status:", err);
+        });
+    }
+}
+
+function toggleDaemon(enable) {
+    const dict = LOCALIZATION[currentLanguage] || LOCALIZATION['en'];
+    const label = enable ? (dict["daemon-checking"] || "Starting...") : (dict["daemon-checking"] || "Stopping...");
+    
+    const sidebarText = document.getElementById('sidebar-daemon-text');
+    const panelStatus = document.getElementById('daemon-panel-status');
+    const sidebarBtn = document.getElementById('sidebar-daemon-btn');
+    const panelBtn = document.getElementById('daemon-panel-btn');
+    
+    if (sidebarText) sidebarText.innerText = `Daemon: ${label}`;
+    if (panelStatus) panelStatus.innerText = label;
+    if (sidebarBtn) sidebarBtn.disabled = true;
+    if (panelBtn) panelBtn.disabled = true;
+    
+    window.pywebview.api.toggle_daemon(enable).then(res => {
+        if (sidebarBtn) sidebarBtn.disabled = false;
+        if (panelBtn) panelBtn.disabled = false;
+        
+        if (res && res.status === 'success') {
+            checkDaemonStatus();
+        } else {
+            alert(res ? res.message : "Error toggling daemon");
+            checkDaemonStatus();
+        }
+    }).catch(err => {
+        if (sidebarBtn) sidebarBtn.disabled = false;
+        if (panelBtn) panelBtn.disabled = false;
+        console.error("Error toggling daemon:", err);
+        checkDaemonStatus();
+    });
+}
+
+function toggleDaemonFromSidebar() {
+    toggleDaemon(!isDaemonActive);
+}
+
+function toggleDaemonFromPanel() {
+    toggleDaemon(!isDaemonActive);
+}

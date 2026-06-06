@@ -47,9 +47,18 @@
             </nav>
 
             <div class="sidebar-footer">
-                <div class="status-indicator">
-                    <span class="pulse green"></span>
-                    <span class="status-text" data-localize="status-ready">Connected</span>
+                <div class="status-indicator" style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start; width: 100%;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="pulse green" style="width: 8px; height: 8px; border-radius: 50%;"></span>
+                        <span class="status-text" data-localize="status-ready">Connected</span>
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="pulse" id="sidebar-daemon-light" style="background-color: var(--text-muted); width: 8px; height: 8px; border-radius: 50%;"></span>
+                            <span style="font-size: 11px; color: var(--text-secondary);" id="sidebar-daemon-text">Daemon: ...</span>
+                        </div>
+                        <button class="btn btn-secondary" id="sidebar-daemon-btn" onclick="toggleDaemonFromSidebar()" style="padding: 2px 8px; font-size: 10px; border-radius: 4px; display: none;">Start</button>
+                    </div>
                 </div>
             </div>
         </aside>
@@ -367,7 +376,6 @@
                             </div>
                         </div>
 
-                        <!-- Panel: General -->
                         <div id="settings-panel-general" class="settings-panel">
                             <h3 data-localize="sub-general" style="margin-bottom:15px;">General Settings</h3>
                             <div class="form-group">
@@ -384,6 +392,23 @@
                             <div class="form-group checkbox-group">
                                 <input type="checkbox" id="setting-coding-autotest" onchange="updateGeneralConfig('coding_mode', 'auto_test', this.checked)">
                                 <label for="setting-coding-autotest" data-localize="auto-test">Run automatic tests in Coding Mode</label>
+                            </div>
+                            
+                            <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 20px 0;">
+                            
+                            <!-- Section: Background Daemon -->
+                            <div class="daemon-section" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); border-radius: 12px; padding: 16px;">
+                                <h4 style="margin-bottom:8px; font-size:14px; color:var(--text-primary); display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-server"></i> <span data-localize="daemon-title">Background Services Daemon</span></h4>
+                                <p data-localize="daemon-desc" style="font-size:11px; color:var(--text-secondary); margin-bottom:14px; line-height:1.4;">
+                                    Runs background integrations (like the Telegram Bot or Scheduler). These services will keep running even after you close this GUI window.
+                                </p>
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span class="pulse" id="daemon-panel-light" style="background-color: var(--text-muted); width: 8px; height: 8px; border-radius: 50%;"></span>
+                                        <span id="daemon-panel-status" style="font-size:12px; font-weight:600; color:var(--text-secondary);">Checking...</span>
+                                    </div>
+                                    <button class="btn btn-secondary" id="daemon-panel-btn" onclick="toggleDaemonFromPanel()" style="padding: 6px 14px; font-size:11px; border-radius: 8px; display: none;">Start</button>
+                                </div>
                             </div>
                         </div>
 

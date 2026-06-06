@@ -4,6 +4,7 @@ let isProcessing = false;
 let currentToolCard = null;
 let currentBubble = null;
 let currentLanguage = 'en';
+let isDaemonActive = false;
 
 // Localization Dictionary
 const LOCALIZATION = {
@@ -68,7 +69,14 @@ const LOCALIZATION = {
         "perm-title": "Tool Execution Permission",
         "perm-prompt": "Koza Agent wants to execute the following tool:",
         "btn-deny": "Deny",
-        "btn-allow": "Allow"
+        "btn-allow": "Allow",
+        "daemon-title": "Background Services Daemon",
+        "daemon-desc": "Runs background integrations (like the Telegram Bot or Scheduler). These services will keep running even after you close this GUI window.",
+        "daemon-checking": "Checking...",
+        "daemon-active": "Active",
+        "daemon-inactive": "Inactive",
+        "daemon-start": "Start",
+        "daemon-stop": "Stop"
     },
     tr: {
         "brand-sub": "OTONOM YAPAY ZEKA AJANI",
@@ -131,6 +139,13 @@ const LOCALIZATION = {
         "perm-title": "Araç Çalıştırma İzni",
         "perm-prompt": "Koza Agent aşağıdaki aracı çalıştırmak istiyor:",
         "btn-deny": "Reddet",
-        "btn-allow": "İzin Ver"
+        "btn-allow": "İzin Ver",
+        "daemon-title": "Arka Plan Servisleri (Daemon)",
+        "daemon-desc": "Arka plan entegrasyonlarını (Telegram Botu veya Zamanlayıcı gibi) çalıştırır. Bu servisler bu GUI penceresini kapatsanız bile arka planda çalışmaya devam eder.",
+        "daemon-checking": "Kontrol ediliyor...",
+        "daemon-active": "Aktif",
+        "daemon-inactive": "Pasif",
+        "daemon-start": "Başlat",
+        "daemon-stop": "Durdur"
     }
 };
