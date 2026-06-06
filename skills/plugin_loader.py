@@ -273,6 +273,80 @@ def reload_plugins(registry_module=None) -> int:
     return load_all_plugins(registry_module)
 
 
+def plugin_create(name: str, description: str, author: str = "user") -> str:
+    """Create a new external plugin boilerplate under ~/.Koza/plugins/<name>/."""
+    _ensure_dirs()
+    # Normalize name to be safe for directory and module import
+    safe_name = name.lower().replace(" ", "_").replace("-", "_")
+    safe_name = "".join(c for c in safe_name if c.isalnum() or c == "_")
+    
+    if not safe_name:
+        return "❌ Invalid plugin name."
+        
+    plugin_dir = _PLUGINS_DIR / safe_name
+    if plugin_dir.exists():
+        return f"❌ Plugin '{safe_name}' already exists at {plugin_dir}"
+        
+    try:
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write manifest.json
+        manifest = {
+            "name": safe_name,
+            "version": "1.0.0",
+            "description": description,
+            "author": author,
+            "requires": []
+        }
+        manifest_path = plugin_dir / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        
+        # Write plugin.py
+        plugin_py_content = f'''"""
+Plugin: {name}
+Description: {description}
+Author: {author}
+"""
+
+# Define your tools schema following OpenAI/Anthropic tool call format
+TOOL_DEFINITIONS = [
+    {{
+        "name": "{safe_name}_example_tool",
+        "description": "An example tool generated for the {name} plugin.",
+        "parameters": {{
+            "type": "object",
+            "properties": {{
+                "param1": {{
+                    "type": "string",
+                    "description": "An example parameter description"
+                }}
+            }},
+            "required": ["param1"]
+        }}
+    }}
+]
+
+# Map tool names to python callable handlers
+def example_handler(param1: str) -> str:
+    return f"Example tool executed with param1: {{param1}}"
+
+HANDLERS = {{
+    "{safe_name}_example_tool": example_handler
+}}
+'''
+        plugin_py = plugin_dir / "plugin.py"
+        plugin_py.write_text(plugin_py_content, encoding="utf-8")
+        
+        # Automatically enable the new plugin in the registry
+        state = _load_registry_state()
+        state[safe_name] = True
+        _save_registry_state(state)
+        
+        return f"✅ Plugin '{safe_name}' created successfully at {plugin_dir} and auto-enabled."
+    except Exception as e:
+        return f"❌ Failed to create plugin '{safe_name}': {e}"
+
+
 def plugin_enable(name: str) -> str:
     """Enable a plugin so it loads on next startup."""
     state = _load_registry_state()
@@ -351,6 +425,19 @@ TOOL_DEFINITIONS = [
             "required": ["name"],
         },
     },
+    {
+        "name": "plugin_create",
+        "description": "Create a new external plugin template/boilerplate in ~/.Koza/plugins/ with boilerplate manifest.json and plugin.py.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "The name of the new plugin"},
+                "description": {"type": "string", "description": "Short description of what the plugin does"},
+                "author": {"type": "string", "description": "Optional author name", "default": "user"}
+            },
+            "required": ["name", "description"]
+        }
+    },
 ]
 
 HANDLERS: dict = {
@@ -358,6 +445,7 @@ HANDLERS: dict = {
     "plugin_info":    lambda name: plugin_info(name),
     "plugin_enable":  lambda name: plugin_enable(name),
     "plugin_disable": lambda name: plugin_disable(name),
+    "plugin_create":  lambda name, description, author="user": plugin_create(name, description, author),
 }
 
 

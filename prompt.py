@@ -104,6 +104,27 @@ When the user asks to do something **at a specific future time** (e.g. "at 3pm",
 - When asked about your own code, use `read_file` / `run_python` / shell commands on these files — you CAN inspect and modify your own source.
 - When asked for your GitHub link, give: https://github.com/haydarkadioglu/koza-agent
 
+## Prompt Map & Self-Improvement
+Koza has a dynamic prompt map where keyword triggers load optional sections of the system prompt:
+- `workspace`: matched by `project`, `build`, `create app`, `site yap`, `website yap`, etc.
+- `code`: matched by `python`, `code`, `script`, `install`, `coding`, `vite`, `html`, `css`, etc.
+- `web`: matched by `search`, `google`, `fetch`, `browse`, `tarayıcı`, etc.
+- `shell`: matched by `run`, `command`, `terminal`, `powershell`, `bash`, etc.
+- `memory`: matched by `remember`, `forget`, `recall`, `memory`, etc.
+- `agent`: matched by `agent`, `subagent`, `parallel`, `spawn`, etc.
+- `telegram`: matched by `telegram`, `bot`, `mesaj`, etc.
+- `security`: matched by `port`, `ssl`, `whois`, `scan`, etc.
+- `pentest`: matched by `kali`, `pentest`, `recon`, `zafiyet`, `nmap`, etc.
+- `devops`: matched by `docker`, `container`, `git`, `webhook`, etc.
+- `vision`: matched by `image`, `photo`, `screenshot`, `ocr`, etc.
+- `skill`: matched by `skill`, `skills`, `template`, `learn`, etc.
+- `plugin`: matched by `plugin`, `plugins`, `eklenti`, etc.
+- `delegation`: matched by `delegate`, `parallel`, `batch`, etc.
+- `repo`: matched by `clone`, `repo`, `repos`, etc.
+
+**GUIDELINE FOR SELF-IMPROVEMENT**:
+As Koza, you are encouraged to modify your own core prompt (`prompts/core/system.md`) or any prompt section file in `prompts/sections/` to adapt to the user's specific workflows, preferences, custom rules, or coding conventions. When you learn something important about the user's preferences, save it by modifying the relevant prompt files. Changes will be loaded automatically on your next turn.
+
 ## Koza Source Map — Where To Look First
 - **Entry/commands**: `koza_run.py` dispatches CLI commands; `cli/commands.py` has misc commands; `cli/daemon.py` handles start/status/quit.
 - **Agent loop/tool execution**: `core.py` selects tools, manages messages, executes tools, memory context, streaming, and cancellation.
@@ -412,6 +433,13 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
         extra_context:  Working memory / cwd context injected by the agent.
         channel:        'cli', 'telegram', 'discord', etc.
     """
+    # Load CORE_PROMPT dynamically from markdown with fallback
+    try:
+        from prompt_loader import PromptLoader
+        core_prompt = PromptLoader().load("core/system.md")
+    except Exception:
+        core_prompt = CORE_PROMPT
+
     lower = user_input.lower()
     matched: set[str] = set()
 
@@ -424,12 +452,22 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
         matched.update({"workspace", "code"})
 
     # When running AS the telegram bot, skip the "telegram system service" rules
-    # (those rules are for the CLI agent to NOT handle Telegram itself)
     if channel == "telegram":
         matched.discard("telegram")
 
-    sections = "".join(PROMPT_SECTIONS[s] for s in matched if s in PROMPT_SECTIONS)
-    base = CORE_PROMPT + sections
+    # Load matched sections dynamically with fallback
+    sections = ""
+    for s in matched:
+        section_content = None
+        try:
+            from prompt_loader import PromptLoader
+            section_content = PromptLoader().load_section(s)
+        except Exception:
+            section_content = PROMPT_SECTIONS.get(s)
+        if section_content:
+            sections += "\n\n" + section_content
+
+    base = core_prompt + sections
 
     # Channel-specific additions
     if channel == "telegram":

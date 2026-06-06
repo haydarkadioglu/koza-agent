@@ -76,7 +76,12 @@ const LOCALIZATION = {
         "daemon-active": "Active",
         "daemon-inactive": "Inactive",
         "daemon-start": "Start",
-        "daemon-stop": "Stop"
+        "daemon-stop": "Stop",
+        "modal-plugin-title": "Create New Plugin",
+        "plugin-name-label": "Plugin Name",
+        "plugin-desc-label": "Description",
+        "plugin-author-label": "Author",
+        "btn-new-plugin": "New Plugin"
     },
     tr: {
         "brand-sub": "OTONOM YAPAY ZEKA AJANI",
@@ -146,6 +151,11 @@ const LOCALIZATION = {
         "daemon-active": "Aktif",
         "daemon-inactive": "Pasif",
         "daemon-start": "Başlat",
-        "daemon-stop": "Durdur"
+        "daemon-stop": "Durdur",
+        "modal-plugin-title": "Yeni Eklenti Oluştur",
+        "plugin-name-label": "Eklenti Adı",
+        "plugin-desc-label": "Açıklama",
+        "plugin-author-label": "Yazar",
+        "btn-new-plugin": "Yeni Eklenti"
     }
 };

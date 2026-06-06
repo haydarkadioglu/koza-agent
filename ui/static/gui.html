@@ -421,7 +421,12 @@
                             
                             <!-- Section: External Plugins -->
                             <div class="skills-section">
-                                <h4 style="margin-bottom:12px; color:var(--color-yellow); font-size:14px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-puzzle-piece"></i> <span data-localize="sec-plugins">External Plugins</span></h4>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                                    <h4 style="color:var(--color-yellow); font-size:14px; display:flex; align-items:center; gap:8px; margin:0;"><i class="fa-solid fa-puzzle-piece"></i> <span data-localize="sec-plugins">External Plugins</span></h4>
+                                    <button class="btn btn-secondary" onclick="openCreatePluginModal()" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">
+                                        <i class="fa-solid fa-plus"></i> <span data-localize="btn-new-plugin">New Plugin</span>
+                                    </button>
+                                </div>
                                 <div id="plugins-list-container" class="skills-grid">
                                     <!-- Populated dynamically -->
                                 </div>
@@ -474,6 +479,34 @@
             <footer class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeTaskModal()" data-localize="btn-cancel">Cancel</button>
                 <button class="btn btn-primary" onclick="submitNewTask()" data-localize="btn-save">Save</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Plugin Creation Modal -->
+    <div class="modal" id="plugin-modal">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3 data-localize="modal-plugin-title">Create New Plugin</h3>
+                <button class="close-btn" onclick="closePluginModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="plugin-name" data-localize="plugin-name-label">Plugin Name</label>
+                    <input type="text" id="plugin-name" placeholder="e.g. weather_tools">
+                </div>
+                <div class="form-group">
+                    <label for="plugin-desc" data-localize="plugin-desc-label">Description</label>
+                    <textarea id="plugin-desc" rows="3" placeholder="What does this plugin do?"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="plugin-author" data-localize="plugin-author-label">Author</label>
+                    <input type="text" id="plugin-author" placeholder="Author name...">
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePluginModal()" data-localize="btn-cancel">Cancel</button>
+                <button class="btn btn-primary" onclick="submitNewPlugin()" data-localize="btn-save">Save</button>
             </footer>
         </div>
     </div>

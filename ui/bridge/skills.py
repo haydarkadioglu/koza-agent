@@ -144,3 +144,15 @@ class SkillsMixin:
             return {"status": "success", "message": res}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def create_plugin(self, name, description, author):
+        """Create a new external plugin."""
+        try:
+            from skills.plugin_loader import plugin_create
+            res = plugin_create(name, description, author)
+            if res.startswith("✅"):
+                return {"status": "success", "message": res}
+            else:
+                return {"status": "error", "message": res}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

@@ -205,3 +205,35 @@ function deleteSkillTemplate(name) {
         });
     }
 }
+
+/* Plugin Creation Modal */
+function openCreatePluginModal() {
+    document.getElementById('plugin-name').value = '';
+    document.getElementById('plugin-desc').value = '';
+    document.getElementById('plugin-author').value = '';
+    document.getElementById('plugin-modal').classList.add('active');
+}
+
+function closePluginModal() {
+    document.getElementById('plugin-modal').classList.remove('active');
+}
+
+function submitNewPlugin() {
+    const name = document.getElementById('plugin-name').value.trim();
+    const desc = document.getElementById('plugin-desc').value.trim();
+    const author = document.getElementById('plugin-author').value.trim();
+    
+    if (!name) {
+        alert(currentLanguage === 'tr' ? 'Lütfen eklenti adı girin.' : 'Please enter a plugin name.');
+        return;
+    }
+    
+    window.pywebview.api.create_plugin(name, desc, author || 'user').then(res => {
+        if (res.status === 'success') {
+            closePluginModal();
+            loadPluginsAndSkills();
+        } else {
+            alert((currentLanguage === 'tr' ? 'Hata: ' : 'Error: ') + (res.message || 'Unknown error'));
+        }
+    });
+}

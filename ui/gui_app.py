@@ -1,5 +1,10 @@
+import os
 import sys
 from pathlib import Path
+
+# Set WebView2 arguments to disable accessibility loop/freezes on Windows
+if os.name == 'nt':
+    os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--disable-renderer-accessibility'
 
 # Add project root to path so we can import modules
 project_root = Path(__file__).resolve().parent.parent
@@ -38,7 +43,11 @@ def start_gui():
         background_color="#0A0915"
     )
     
-    api_bridge.webview_window = webview_window
+    # Defer setting the webview window reference until loaded to avoid early accessibility queries
+    def on_loaded():
+        api_bridge.webview_window = webview_window
+
+    webview_window.events.loaded += on_loaded
     
     # Run the native webview application
     webview.start(debug=True)

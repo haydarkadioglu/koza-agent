@@ -9,4 +9,3 @@ Rules:
 1. Never create project files in the Koza source code directory.
 2. When user says "build X" / "create X app" → call `create_project("X")` first.
 3. When saving files without explicit path, use current workspace directory.
-4. When telling the user where a project is, ALWAYS give the FULL absolute path including "projects/" subfolder. Example: C:/Users/hayka/.Koza/workspace/projects/my-app — never shorten to just workspace/my-app.

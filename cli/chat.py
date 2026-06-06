@@ -407,6 +407,7 @@ def _plain_cli(agent, cfg: dict) -> None:
                     ("/memory",   "Show working memory"),
                     ("/tools",    "List available tool groups"),
                     ("/plugins",  "List installed plugins"),
+                    ("/plugin create <name> [desc]", "Create a new plugin template"),
                     ("/skills",   "List saved skills"),
                     ("/compress", "Compress conversation context"),
                     ("/reset",    "Clear conversation history"),
@@ -668,6 +669,32 @@ def _plain_cli(agent, cfg: dict) -> None:
                 layout.append_output("\n".join(lines))
             else:
                 print("\n".join(lines))
+            return True
+
+        # ── /plugin ── manage plugins ────────────────────────────────────────
+        if user_input.startswith("/plugin ") or user_input == "/plugin":
+            parts = user_input.split(None, 2)
+            subcommand = parts[1].lower().strip() if len(parts) > 1 else ""
+            if subcommand == "create":
+                args = parts[2].split(None, 1) if len(parts) > 2 else []
+                name = args[0].strip() if len(args) > 0 else ""
+                desc = args[1].strip() if len(args) > 1 else "Custom plugin"
+                if not name:
+                    result = "  ✗  Usage: /plugin create <name> [description]"
+                else:
+                    try:
+                        from skills.plugin_loader import plugin_create
+                        result = "  " + plugin_create(name, desc, author="CLI User")
+                    except Exception as e:
+                        result = f"  ✗  Error creating plugin: {e}"
+            else:
+                result = "  ✗  Usage: /plugin create <name> [description]"
+            
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output(result + "\n")
+            else:
+                print(result)
             return True
 
         # ── /plugins ── list plugins ─────────────────────────────────────────
