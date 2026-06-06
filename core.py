@@ -346,9 +346,9 @@ class Agent:
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
         working_memory.init_db(db_path)
-        # Load enabled plugins from ~/.Koza/plugins/
-        from skills import plugin_loader
-        plugin_loader.load_all_plugins()
+        # Load tools and plugins dynamically based on active config state
+        from tools.registry import rebuild_registry
+        rebuild_registry()
         # Detect and cache system capabilities once per agent init
         global _SYSTEM_CAPS
         if not _SYSTEM_CAPS:

@@ -15,9 +15,15 @@ def register_plugin_tools(tools: list[dict], handlers: dict[str, Callable]) -> N
     global ALL_TOOLS, ALL_HANDLERS
     _PLUGIN_TOOLS.extend(_normalize(tools))
     _PLUGIN_HANDLERS.update(handlers)
-    # Rebuild with plugin tools included
-    ALL_TOOLS = _build_all_tools()
-    ALL_HANDLERS = _build_all_handlers()
+    
+    # Rebuild in-place to preserve reference bindings in other modules
+    new_tools = _build_all_tools()
+    ALL_TOOLS.clear()
+    ALL_TOOLS.extend(new_tools)
+    
+    new_handlers = _build_all_handlers()
+    ALL_HANDLERS.clear()
+    ALL_HANDLERS.update(new_handlers)
 
 
 def _build_all_tools() -> list[dict]:
@@ -136,5 +142,106 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **code_tools.HANDLERS,
 }
 
+STATIC_SKILL_MODULES = {
+    "filesystem": filesystem,
+    "shell": shell,
+    "web": web,
+    "browser_control": browser_control,
+    "code_runner": code_runner,
+    "system_info": system_info,
+    "kanban": kanban,
+    "cron": cron,
+    "agents": agents,
+    "creative": creative,
+    "datascience": datascience,
+    "devops": devops,
+    "email_skill": email_skill,
+    "finance": finance,
+    "gaming": gaming,
+    "github_skill": github_skill,
+    "mcp_skill": mcp_skill,
+    "media": media,
+    "mlops": mlops,
+    "notes": notes,
+    "productivity": productivity,
+    "research": research,
+    "security": security,
+    "smarthome": smarthome,
+    "social": social,
+    "session_memory": session_memory,
+    "messaging": messaging,
+    "shared_memory": shared_memory,
+    "working_memory": working_memory,
+    "config_manager": config_manager,
+    "image_gen": image_gen,
+    "sync": sync,
+    "skill_ecosystem": skill_ecosystem,
+    "vision": vision,
+    "plugin_loader": plugin_loader,
+    "delegation": delegation,
+    "repo_manager": repo_manager,
+    "code_tools": code_tools,
+}
+
 ALL_TOOLS = _build_all_tools()
 ALL_HANDLERS = _build_all_handlers()
+
+
+def rebuild_registry() -> None:
+    """Rebuild the tool registry based on config and plugin state."""
+    global ALL_TOOLS, ALL_HANDLERS, _STATIC_TOOLS, _STATIC_HANDLERS, _PLUGIN_TOOLS, _PLUGIN_HANDLERS
+    import sys
+    
+    # 1. Load config and determine disabled core skills
+    from config import load_config
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = {}
+    disabled = cfg.get("disabled_skills", [])
+    
+    # 2. Rebuild static tools and handlers
+    static_tools_list = []
+    static_handlers_dict = {}
+    
+    for name, mod in STATIC_SKILL_MODULES.items():
+        if name in disabled:
+            continue
+        static_tools_list.extend(getattr(mod, "TOOL_DEFINITIONS", []))
+        static_handlers_dict.update(getattr(mod, "HANDLERS", {}))
+        
+    _STATIC_TOOLS.clear()
+    _STATIC_TOOLS.extend(_normalize(static_tools_list))
+    
+    _STATIC_HANDLERS.clear()
+    _STATIC_HANDLERS.update(static_handlers_dict)
+    
+    # 3. Reload plugin tools and handlers
+    _PLUGIN_TOOLS.clear()
+    _PLUGIN_HANDLERS.clear()
+    
+    try:
+        from skills import plugin_loader
+        # Clear plugin cache in plugin_loader
+        if hasattr(plugin_loader, "_loaded_plugins"):
+            plugin_loader._loaded_plugins.clear()
+        # Call load_all_plugins with this module to register them
+        plugin_loader.load_all_plugins(registry_module=sys.modules[__name__])
+    except Exception:
+        pass
+    
+    # 4. Update ALL_TOOLS and ALL_HANDLERS in-place
+    new_tools = _normalize(_STATIC_TOOLS + _PLUGIN_TOOLS)
+    ALL_TOOLS.clear()
+    ALL_TOOLS.extend(new_tools)
+    
+    ALL_HANDLERS.clear()
+    ALL_HANDLERS.update(_STATIC_HANDLERS)
+    ALL_HANDLERS.update(_PLUGIN_HANDLERS)
+    
+    # 5. Update core._TOOL_BY_NAME if core is imported
+    if "core" in sys.modules:
+        core_mod = sys.modules["core"]
+        if hasattr(core_mod, "_TOOL_BY_NAME") and hasattr(core_mod, "_tool_name"):
+            core_mod._TOOL_BY_NAME.clear()
+            core_mod._TOOL_BY_NAME.update({core_mod._tool_name(t): t for t in ALL_TOOLS})
