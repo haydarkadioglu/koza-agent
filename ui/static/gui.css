@@ -810,24 +810,80 @@ body {
     gap: 8px;
 }
 
-/* Settings view Layout */
-.settings-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-}
-
-.settings-card {
+/* Settings Refactored Layout */
+.settings-container {
+    display: flex;
+    gap: 32px;
     background: var(--bg-card);
     border: 1px solid var(--border-glass);
+    border-radius: 20px;
     padding: 24px;
-    border-radius: 16px;
+    min-height: calc(100vh - 160px);
 }
 
-.settings-card h3 {
-    font-family: 'Outfit', sans-serif;
-    font-size: 16px;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border-glass);
+.settings-sub-sidebar {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-right: 1px solid var(--border-glass);
+    padding-right: 20px;
+    flex-shrink: 0;
 }
+
+.settings-sub-item {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 12px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    transition: var(--transition-fast);
+    border-left: 3px solid transparent;
+}
+
+.settings-sub-item:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-sub-item.active {
+    color: var(--text-primary);
+    background: rgba(0, 242, 254, 0.06);
+    border-left: 3px solid #00F2FE;
+    font-weight: 600;
+}
+
+.settings-panel-content {
+    flex-grow: 1;
+    max-height: calc(100vh - 210px);
+    overflow-y: auto;
+    padding-right: 16px;
+}
+
+.settings-panel {
+    display: none;
+    animation: settingsFadeIn 0.2s ease-out;
+}
+
+.settings-panel.active {
+    display: block;
+}
+
+@keyframes settingsFadeIn {
+    from { opacity: 0; transform: translateX(8px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.settings-panel h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    margin-bottom: 12px;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+

@@ -168,117 +168,222 @@
                     </div>
                 </header>
 
-                <div class="settings-grid">
-                    <!-- CARD: PRIMARY LLM -->
-                    <div class="settings-card">
-                        <h3 data-localize="card-primary">Primary LLM</h3>
-                        <div class="form-group">
-                            <label for="setting-provider" data-localize="label-provider">Provider</label>
-                            <select id="setting-provider" onchange="onProviderChanged(this.value)">
-                                <!-- Dynamically populated -->
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-model" data-localize="label-model">Model</label>
-                            <select id="setting-model" onchange="onModelChanged(this.value)">
-                                <!-- Dynamically populated -->
-                            </select>
-                            <input type="text" id="setting-model-custom" placeholder="Enter custom model name..." style="display:none; margin-top:8px;" onchange="onCustomModelChanged(this.value)">
-                        </div>
-                        
-                        <!-- Dynamic API Key field -->
-                        <div class="form-group" id="group-api-key" style="display:none;">
-                            <label id="label-api-key" for="setting-api-key">API Key</label>
-                            <input type="password" id="setting-api-key" placeholder="Enter API key..." onchange="onApiKeyChanged(this.value)">
-                        </div>
+                <div class="settings-container">
+                    <aside class="settings-sub-sidebar">
+                        <button class="settings-sub-item active" onclick="switchSettingsTab('llm')" data-localize="sub-llm">LLM & Auth</button>
+                        <button class="settings-sub-item" onclick="switchSettingsTab('fallback')" data-localize="sub-fallback">Fallback LLM</button>
+                        <button class="settings-sub-item" onclick="switchSettingsTab('media')" data-localize="sub-media">Media Gen</button>
+                        <button class="settings-sub-item" onclick="switchSettingsTab('messaging')" data-localize="sub-messaging">Messaging & Sync</button>
+                        <button class="settings-sub-item" onclick="switchSettingsTab('voice')" data-localize="sub-voice">Voice & Hardware</button>
+                        <button class="settings-sub-item" onclick="switchSettingsTab('general')" data-localize="sub-general">General</button>
+                    </aside>
 
-                        <!-- Integration Buttons (OAuth & login) -->
-                        <div class="form-group" id="group-oauth-actions" style="display:none; gap: 8px;">
-                            <button class="btn btn-primary" id="btn-google-oauth" onclick="triggerGoogleOAuth()">
-                                <i class="fa-brands fa-google"></i> <span data-localize="btn-google-login">Login with Google</span>
-                            </button>
-                            <button class="btn btn-secondary" id="btn-gemini-browser" onclick="triggerGeminiBrowserLogin()">
-                                <i class="fa-solid fa-compass"></i> <span data-localize="btn-browser-login">Browser Session Login</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- CARD: FALLBACK PROVIDER -->
-                    <div class="settings-card">
-                        <h3 data-localize="card-fallback">Fallback LLM</h3>
-                        <div class="form-group checkbox-group">
-                            <input type="checkbox" id="setting-fallback-enable" onchange="toggleFallback(this.checked)">
-                            <label for="setting-fallback-enable" data-localize="fallback-enable">Enable Fallback Provider</label>
-                        </div>
-                        <div id="fallback-fields" style="display:none;">
+                    <div class="settings-panel-content">
+                        <!-- Panel: LLM -->
+                        <div id="settings-panel-llm" class="settings-panel active">
+                            <h3 data-localize="card-primary" style="margin-bottom:15px;">Primary LLM</h3>
                             <div class="form-group">
-                                <label for="setting-fallback-provider" data-localize="label-fallback-provider">Fallback Provider</label>
-                                <select id="setting-fallback-provider" onchange="onFallbackProviderChanged(this.value)">
-                                    <!-- Populated in JS -->
+                                <label for="setting-provider" data-localize="label-provider">Provider</label>
+                                <select id="setting-provider" onchange="onProviderChanged(this.value)">
+                                    <!-- Dynamically populated -->
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="setting-fallback-model" data-localize="label-fallback-model">Fallback Model</label>
-                                <select id="setting-fallback-model" onchange="onFallbackModelChanged(this.value)">
-                                    <!-- Populated in JS -->
+                                <label for="setting-model" data-localize="label-model">Model</label>
+                                <select id="setting-model" onchange="onModelChanged(this.value)">
+                                    <!-- Dynamically populated -->
+                                </select>
+                                <input type="text" id="setting-model-custom" placeholder="Enter custom model name..." style="display:none; margin-top:8px;" onchange="onCustomModelChanged(this.value)">
+                            </div>
+                            <div class="form-group" id="group-api-key" style="display:none;">
+                                <label id="label-api-key" for="setting-api-key">API Key</label>
+                                <input type="password" id="setting-api-key" placeholder="Enter API key..." onchange="onApiKeyChanged(this.value)">
+                            </div>
+                            <div class="form-group" id="group-oauth-actions" style="display:none; gap: 8px;">
+                                <button class="btn btn-primary" id="btn-google-oauth" onclick="triggerGoogleOAuth()">
+                                    <i class="fa-brands fa-google"></i> <span data-localize="btn-google-login">Login with Google</span>
+                                </button>
+                                <button class="btn btn-secondary" id="btn-gemini-browser" onclick="triggerGeminiBrowserLogin()">
+                                    <i class="fa-solid fa-compass"></i> <span data-localize="btn-browser-login">Browser Session Login</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Panel: Fallback -->
+                        <div id="settings-panel-fallback" class="settings-panel">
+                            <h3 data-localize="card-fallback" style="margin-bottom:15px;">Fallback LLM</h3>
+                            <div class="form-group checkbox-group">
+                                <input type="checkbox" id="setting-fallback-enable" onchange="toggleFallback(this.checked)">
+                                <label for="setting-fallback-enable" data-localize="fallback-enable">Enable Fallback Provider</label>
+                            </div>
+                            <div id="fallback-fields" style="display:none; margin-top:15px;">
+                                <div class="form-group">
+                                    <label for="setting-fallback-provider" data-localize="label-fallback-provider">Fallback Provider</label>
+                                    <select id="setting-fallback-provider" onchange="onFallbackProviderChanged(this.value)">
+                                        <!-- Populated in JS -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-fallback-model" data-localize="label-fallback-model">Fallback Model</label>
+                                    <select id="setting-fallback-model" onchange="onFallbackModelChanged(this.value)">
+                                        <!-- Populated in JS -->
+                                    </select>
+                                </div>
+                                <div class="form-group" id="group-fallback-key" style="display:none;">
+                                    <label for="setting-fallback-key">Fallback API Key</label>
+                                    <input type="password" id="setting-fallback-key" placeholder="Enter fallback key..." onchange="onFallbackKeyChanged(this.value)">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Panel: Media -->
+                        <div id="settings-panel-media" class="settings-panel">
+                            <h3 data-localize="sub-media" style="margin-bottom:15px;">Media Generation</h3>
+                            <div class="form-group">
+                                <label for="setting-media-provider">Media Provider</label>
+                                <select id="setting-media-provider" onchange="onMediaProviderChanged(this.value)">
+                                    <option value="follow">Follow main provider</option>
+                                    <option value="gemini_browser">Gemini Browser Session (Free Imagen/Veo)</option>
+                                    <option value="gemini_api">Gemini API (Imagen 3)</option>
+                                    <option value="openai">OpenAI (DALL-E 3)</option>
                                 </select>
                             </div>
-                            <div class="form-group" id="group-fallback-key" style="display:none;">
-                                <label for="setting-fallback-key">Fallback API Key</label>
-                                <input type="password" id="setting-fallback-key" placeholder="Enter fallback key..." onchange="onFallbackKeyChanged(this.value)">
+                            <div class="form-group" id="group-media-key" style="display:none;">
+                                <label for="setting-media-key">Media API Key</label>
+                                <input type="password" id="setting-media-key" placeholder="Enter media API key..." onchange="onMediaKeyChanged(this.value)">
                             </div>
                         </div>
-                    </div>
 
-                    <!-- CARD: MESSAGING INTEGRATIONS -->
-                    <div class="settings-card">
-                        <h3 data-localize="card-messaging">Messaging Integration</h3>
-                        <div class="form-group">
-                            <label for="setting-tg-token">Telegram Bot Token</label>
-                            <input type="password" id="setting-tg-token" placeholder="Paste bot token..." onchange="updateNestedConfig('messaging.telegram.token', this.value)">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-tg-chat">Telegram Chat ID</label>
-                            <input type="text" id="setting-tg-chat" placeholder="Telegram Chat ID..." onchange="updateNestedConfig('messaging.telegram.chat_id', this.value)">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-twilio-sid">Twilio Account SID</label>
-                            <input type="text" id="setting-twilio-sid" placeholder="ACxxxxxxxx..." onchange="updateNestedConfig('messaging.twilio.account_sid', this.value)">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-twilio-auth">Twilio Auth Token</label>
-                            <input type="password" id="setting-twilio-auth" placeholder="Twilio token..." onchange="updateNestedConfig('messaging.twilio.auth_token', this.value)">
-                        </div>
-                    </div>
-
-                    <!-- CARD: SYSTEM, VOICE & LANGUAGE -->
-                    <div class="settings-card">
-                        <h3 data-localize="card-general">General & Voice</h3>
-                        
-                        <div class="form-group">
-                            <label for="setting-lang">Interface Language / Dil</label>
-                            <select id="setting-lang" onchange="changeLanguage(this.value)">
-                                <option value="en">English</option>
-                                <option value="tr">Türkçe</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group checkbox-group">
-                            <input type="checkbox" id="setting-tool-approval" onchange="updateGeneralConfig('root', 'tool_approval', this.checked)">
-                            <label for="setting-tool-approval" data-localize="tool-approval">Require approval for non-safe tools</label>
-                        </div>
-                        
-                        <div class="form-group checkbox-group">
-                            <input type="checkbox" id="setting-coding-autotest" onchange="updateGeneralConfig('coding_mode', 'auto_test', this.checked)">
-                            <label for="setting-coding-autotest" data-localize="auto-test">Run automatic tests in Coding Mode</label>
+                        <!-- Panel: Messaging & Sync -->
+                        <div id="settings-panel-messaging" class="settings-panel">
+                            <h3 data-localize="sub-messaging" style="margin-bottom:15px;">Messaging & Sync</h3>
+                            <h4 style="margin: 10px 0; font-size:12px; color:var(--text-secondary);">Telegram</h4>
+                            <div class="form-group">
+                                <label for="setting-tg-token">Telegram Bot Token</label>
+                                <input type="password" id="setting-tg-token" placeholder="Paste bot token..." onchange="updateNestedConfig('messaging.telegram.token', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-tg-chat">Telegram Chat ID</label>
+                                <input type="text" id="setting-tg-chat" placeholder="Telegram Chat ID..." onchange="updateNestedConfig('messaging.telegram.chat_id', this.value)">
+                            </div>
+                            <h4 style="margin: 15px 0 10px 0; font-size:12px; color:var(--text-secondary);">Twilio</h4>
+                            <div class="form-group">
+                                <label for="setting-twilio-sid">Twilio Account SID</label>
+                                <input type="text" id="setting-twilio-sid" placeholder="ACxxxxxxxx..." onchange="updateNestedConfig('messaging.twilio.account_sid', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-twilio-auth">Twilio Auth Token</label>
+                                <input type="password" id="setting-twilio-auth" placeholder="Twilio token..." onchange="updateNestedConfig('messaging.twilio.auth_token', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-twilio-from">Twilio SMS From Number</label>
+                                <input type="text" id="setting-twilio-from" placeholder="+14155551234..." onchange="updateNestedConfig('messaging.twilio.from_number', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-twilio-wa-from">Twilio WhatsApp From Number</label>
+                                <input type="text" id="setting-twilio-wa-from" placeholder="whatsapp:+14155238886..." onchange="updateNestedConfig('messaging.twilio.wa_from', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-twilio-wa-to">Twilio WhatsApp To Number (Recipient)</label>
+                                <input type="text" id="setting-twilio-wa-to" placeholder="whatsapp:+90xxxxxxxxxx..." onchange="updateNestedConfig('messaging.twilio.wa_to', this.value)">
+                            </div>
                         </div>
 
-                        <div class="form-group checkbox-group" style="margin-top: 15px;">
-                            <input type="checkbox" id="setting-voice-enable" onchange="toggleVoice(this.checked)">
-                            <label for="setting-voice-enable" data-localize="voice-enable">Enable Voice Mode</label>
+                        <!-- Panel: Voice & Hardware -->
+                        <div id="settings-panel-voice" class="settings-panel">
+                            <h3 data-localize="sub-voice" style="margin-bottom:15px;">Voice & Hardware</h3>
+                            <div class="form-group checkbox-group">
+                                <input type="checkbox" id="setting-voice-enable" onchange="toggleVoice(this.checked)">
+                                <label for="setting-voice-enable" data-localize="voice-enable">Enable Voice Mode</label>
+                            </div>
+                            <div id="voice-settings-fields" style="display:none; margin-top: 15px;">
+                                <div class="form-group">
+                                    <label for="setting-voice-stt-prov">STT Provider</label>
+                                    <select id="setting-voice-stt-prov" onchange="onSTTProvChanged(this.value)">
+                                        <option value="local_whisper">Local Whisper</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="gemini">Gemini</option>
+                                        <option value="deepgram">Deepgram</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="group-voice-deepgram-key" style="display:none;">
+                                    <label for="setting-voice-deepgram-key">Deepgram API Key</label>
+                                    <input type="password" id="setting-voice-deepgram-key" placeholder="Enter Deepgram key..." onchange="updateNestedConfig('providers.deepgram.api_key', this.value)">
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-voice-stt-model">STT Model</label>
+                                    <select id="setting-voice-stt-model" onchange="onSTTModelChanged(this.value)">
+                                        <!-- Populated dynamically -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-voice-stt-lang">STT Language</label>
+                                    <select id="setting-voice-stt-lang" onchange="updateNestedConfig('voice.stt.language', this.value)">
+                                        <option value="">Auto Detect</option>
+                                        <option value="tr">Turkish (tr)</option>
+                                        <option value="en">English (en)</option>
+                                        <option value="de">German (de)</option>
+                                        <option value="fr">French (fr)</option>
+                                        <option value="es">Spanish (es)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-voice-tts-prov">TTS Provider</label>
+                                    <select id="setting-voice-tts-prov" onchange="onTTSProvChanged(this.value)">
+                                        <option value="system">System pyttsx3</option>
+                                        <option value="kokoro">Kokoro ONNX</option>
+                                        <option value="openai">OpenAI speech</option>
+                                        <option value="gemini">Gemini speech</option>
+                                        <option value="elevenlabs">ElevenLabs speech</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="group-voice-elevenlabs-key" style="display:none;">
+                                    <label for="setting-voice-elevenlabs-key">ElevenLabs API Key</label>
+                                    <input type="password" id="setting-voice-elevenlabs-key" placeholder="Enter ElevenLabs key..." onchange="updateNestedConfig('providers.elevenlabs.api_key', this.value)">
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-voice-tts-voice">TTS Voice / Model</label>
+                                    <select id="setting-voice-tts-voice" onchange="onTTSVoiceChanged(this.value)">
+                                        <!-- Populated dynamically -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-voice-input-device">Microphone</label>
+                                    <select id="setting-voice-input-device" onchange="onVoiceInputDeviceChanged(this.value)">
+                                        <!-- Loaded dynamically -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-voice-output-device">Speakers / Output</label>
+                                    <select id="setting-voice-output-device" onchange="onVoiceOutputDeviceChanged(this.value)">
+                                        <!-- Loaded dynamically -->
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Panel: General -->
+                        <div id="settings-panel-general" class="settings-panel">
+                            <h3 data-localize="sub-general" style="margin-bottom:15px;">General Settings</h3>
+                            <div class="form-group">
+                                <label for="setting-lang">Interface Language / Dil</label>
+                                <select id="setting-lang" onchange="changeLanguage(this.value)">
+                                    <option value="en">English</option>
+                                    <option value="tr">Türkçe</option>
+                                </select>
+                            </div>
+                            <div class="form-group checkbox-group">
+                                <input type="checkbox" id="setting-tool-approval" onchange="updateGeneralConfig('root', 'tool_approval', this.checked)">
+                                <label for="setting-tool-approval" data-localize="tool-approval">Require approval for non-safe tools</label>
+                            </div>
+                            <div class="form-group checkbox-group">
+                                <input type="checkbox" id="setting-coding-autotest" onchange="updateGeneralConfig('coding_mode', 'auto_test', this.checked)">
+                                <label for="setting-coding-autotest" data-localize="auto-test">Run automatic tests in Coding Mode</label>
+                            </div>
                         </div>
                     </div>
                 </div>
+
             </section>
         </main>
     </div>

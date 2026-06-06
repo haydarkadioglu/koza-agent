@@ -33,6 +33,12 @@ const LOCALIZATION = {
         "sessions-subtitle": "View and restore previous conversation sessions.",
         "settings-title": "Settings",
         "settings-subtitle": "Configure LLM providers, model preferences, keys, and advanced options.",
+        "sub-llm": "LLM & Auth",
+        "sub-fallback": "Fallback LLM",
+        "sub-media": "Media Gen",
+        "sub-messaging": "Messaging & Sync",
+        "sub-voice": "Voice & Hardware",
+        "sub-general": "General",
         "card-primary": "Primary LLM",
         "label-provider": "Provider",
         "label-model": "Model",
@@ -83,6 +89,12 @@ const LOCALIZATION = {
         "sessions-subtitle": "Daha önceki sohbet oturumlarınızı görüntüleyin ve yükleyin.",
         "settings-title": "Ayarlar",
         "settings-subtitle": "LLM Sağlayıcısını, model tercihlerini, anahtarları ve gelişmiş özellikleri yapılandırın.",
+        "sub-llm": "LLM ve Yetkilendirme",
+        "sub-fallback": "Yedek LLM (Fallback)",
+        "sub-media": "Medya Üretimi",
+        "sub-messaging": "Mesajlaşma ve Senkronizasyon",
+        "sub-voice": "Ses ve Donanım",
+        "sub-general": "Genel Ayarlar",
         "card-primary": "Aktif Sağlayıcı ve Model",
         "label-provider": "Sağlayıcı (Provider)",
         "label-model": "Model",
@@ -532,6 +544,60 @@ function deleteSession(sessId) {
 /* Settings configuration & dynamic providers */
 let providersMetadata = { providers: [], models: {}, needs_key: [] };
 
+const STT_MODELS = {
+    local_whisper: ['tiny', 'base', 'small'],
+    openai: ['whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe'],
+    gemini: ['gemini-2.0-flash', 'gemini-1.5-flash'],
+    deepgram: ['nova-3', 'nova-2', 'base']
+};
+
+const TTS_VOICES = {
+    system: [
+        { value: 'af_sky', label: 'af_sky (Default)' }
+    ],
+    kokoro: [
+        { value: 'af_sky', label: 'af_sky (Female)' },
+        { value: 'af_bella', label: 'af_bella (Female)' },
+        { value: 'am_adam', label: 'am_adam (Male)' }
+    ],
+    openai: [
+        { value: 'alloy', label: 'alloy' },
+        { value: 'nova', label: 'nova' },
+        { value: 'shimmer', label: 'shimmer' },
+        { value: 'echo', label: 'echo' },
+        { value: 'fable', label: 'fable' },
+        { value: 'onyx', label: 'onyx' }
+    ],
+    gemini: [
+        { value: 'Kore', label: 'Kore' },
+        { value: 'Puck', label: 'Puck' },
+        { value: 'Charon', label: 'Charon' },
+        { value: 'Fenrir', label: 'Fenrir' },
+        { value: 'Aoede', label: 'Aoede' }
+    ],
+    elevenlabs: [
+        { value: '21m00Tcm4TlvDq8ikWAM', label: 'Rachel (21m00Tcm4TlvDq8ikWAM)' },
+        { value: 'pNInz6obpgDQGcFmaJgB', label: 'Adam (pNInz6obpgDQGcFmaJgB)' },
+        { value: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella (EXAVITQu4vr4xnSDxMaL)' }
+    ]
+};
+
+function switchSettingsTab(subTabId) {
+    document.querySelectorAll('.settings-sub-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    const clickedItem = Array.from(document.querySelectorAll('.settings-sub-item')).find(item => 
+        item.getAttribute('onclick').includes(subTabId)
+    );
+    if (clickedItem) clickedItem.classList.add('active');
+
+    document.querySelectorAll('.settings-panel').forEach(panel => {
+        panel.classList.remove('active');
+    });
+    const activePanel = document.getElementById(`settings-panel-${subTabId}`);
+    if (activePanel) activePanel.classList.add('active');
+}
+
 function loadSettings() {
     window.pywebview.api.get_providers_metadata().then(metaRes => {
         if (metaRes.status === 'success') {
@@ -554,15 +620,73 @@ function loadSettings() {
             document.getElementById('setting-fallback-enable').checked = fbEnabled;
             toggleFallback(fbEnabled, cfg);
             
-            // Other settings
+            // Media settings load
+            const mediaProv = cfg.media_provider || 'follow';
+            let mediaOption = 'follow';
+            if (mediaProv === 'gemini') {
+                const auth = cfg.providers && cfg.providers.gemini_media && cfg.providers.gemini_media.auth;
+                mediaOption = (auth === 'playwright') ? 'gemini_browser' : 'gemini_api';
+            } else if (mediaProv === 'openai') {
+                mediaOption = 'openai';
+            }
+            document.getElementById('setting-media-provider').value = mediaOption;
+            
+            const mediaKeyGroup = document.getElementById('group-media-key');
+            const mediaKeyInput = document.getElementById('setting-media-key');
+            if (mediaOption === 'gemini_api') {
+                mediaKeyGroup.style.display = 'block';
+                mediaKeyInput.value = (cfg.providers && cfg.providers.gemini_media && cfg.providers.gemini_media.api_key) || '';
+            } else if (mediaOption === 'openai') {
+                mediaKeyGroup.style.display = 'block';
+                mediaKeyInput.value = (cfg.providers && cfg.providers.openai_media && cfg.providers.openai_media.api_key) || '';
+            } else {
+                mediaKeyGroup.style.display = 'none';
+                mediaKeyInput.value = '';
+            }
+            
+            // Messaging settings
             document.getElementById('setting-tg-token').value = cfg.telegram_token || (cfg.messaging && cfg.messaging.telegram && cfg.messaging.telegram.token) || '';
             document.getElementById('setting-tg-chat').value = (cfg.messaging && cfg.messaging.telegram && cfg.messaging.telegram.chat_id) || '';
+            
             document.getElementById('setting-twilio-sid').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.account_sid) || '';
             document.getElementById('setting-twilio-auth').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.auth_token) || '';
+            document.getElementById('setting-twilio-from').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.from_number) || '';
+            document.getElementById('setting-twilio-wa-from').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.wa_from) || '';
+            document.getElementById('setting-twilio-wa-to').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.wa_to) || '';
             
+            // General settings
             document.getElementById('setting-tool-approval').checked = !!cfg.tool_approval;
             document.getElementById('setting-coding-autotest').checked = !!(cfg.coding_mode && cfg.coding_mode.auto_test);
-            document.getElementById('setting-voice-enable').checked = !!(cfg.voice && cfg.voice.enabled);
+            
+            // Voice settings
+            const voiceEnabled = !!(cfg.voice && cfg.voice.enabled);
+            document.getElementById('setting-voice-enable').checked = voiceEnabled;
+            document.getElementById('voice-settings-fields').style.display = voiceEnabled ? 'block' : 'none';
+            
+            if (cfg.voice) {
+                const sttProv = cfg.voice.stt ? cfg.voice.stt.provider : 'local_whisper';
+                const sttModel = cfg.voice.stt ? cfg.voice.stt.model : 'base';
+                const sttLang = cfg.voice.stt ? cfg.voice.stt.language : '';
+                
+                document.getElementById('setting-voice-stt-prov').value = sttProv;
+                populateSTTModels(sttProv, sttModel);
+                document.getElementById('setting-voice-stt-lang').value = sttLang;
+                
+                const ttsProv = cfg.voice.tts ? cfg.voice.tts.provider : 'system';
+                const ttsVoice = cfg.voice.tts ? cfg.voice.tts.voice : 'af_sky';
+                
+                document.getElementById('setting-voice-tts-prov').value = ttsProv;
+                populateTTSVoices(ttsProv, ttsVoice);
+                
+                const dgKey = (cfg.providers && cfg.providers.deepgram && cfg.providers.deepgram.api_key) || '';
+                document.getElementById('setting-voice-deepgram-key').value = dgKey;
+                
+                const elKey = (cfg.providers && cfg.providers.elevenlabs && cfg.providers.elevenlabs.api_key) || '';
+                document.getElementById('setting-voice-elevenlabs-key').value = elKey;
+                
+                updateVoiceKeysVisibility(sttProv, ttsProv);
+                loadAudioDevices(cfg.voice.input_device, cfg.voice.output_device);
+            }
         });
     });
 }
@@ -620,20 +744,17 @@ function updateApiKeyFieldVisibility(provider, cfg) {
     const label = document.getElementById('label-api-key');
     const keyInput = document.getElementById('setting-api-key');
     
-    // Check key requirement
     const needsKey = providersMetadata.needs_key.includes(provider) || provider.includes('api');
     
     if (needsKey) {
         apiKeyGroup.style.display = 'block';
         label.innerText = `${provider.toUpperCase()} API Key`;
-        // Load key from config if present
         const pKey = cfg.providers && cfg.providers[provider] ? cfg.providers[provider].api_key : '';
         keyInput.value = pKey || '';
     } else {
         apiKeyGroup.style.display = 'none';
     }
     
-    // Toggle OAuth/Browser helper logins for Google and Gemini
     if (provider.includes('gemini') || provider.includes('google')) {
         oauthGroup.style.display = 'flex';
     } else {
@@ -687,11 +808,9 @@ function toggleFallback(checked, cfg) {
     const fields = document.getElementById('fallback-fields');
     if (checked) {
         fields.style.display = 'block';
-        // Populate fallback options
         populateFallbackDropdowns(cfg);
     } else {
         fields.style.display = 'none';
-        // Disable fallback in config by clearing variables
         window.pywebview.api.update_config_value('root', 'fallback_provider', '');
         window.pywebview.api.update_config_value('root', 'fallback_model', '');
     }
@@ -709,7 +828,6 @@ function populateFallbackDropdowns(cfg) {
         fbProvSelect.appendChild(opt);
     });
     
-    // Set active model dropdown for fallback
     const selectedFb = (cfg && cfg.fallback_provider) || providersMetadata.providers[0];
     onFallbackProviderChanged(selectedFb, cfg ? cfg.fallback_model : null, cfg);
 }
@@ -732,14 +850,12 @@ function onFallbackProviderChanged(provider, selectedModel, cfg) {
         modelSelect.appendChild(opt);
     });
     
-    // Save to config
     window.pywebview.api.update_config_value('root', 'fallback_provider', provider);
     if (models.length > 0) {
         const defModel = selectedModel || models[0];
         window.pywebview.api.update_config_value('root', 'fallback_model', defModel);
     }
     
-    // Fallback key input display
     const fbKeyGroup = document.getElementById('group-fallback-key');
     const fbKeyInput = document.getElementById('setting-fallback-key');
     if (providersMetadata.needs_key.includes(provider)) {
@@ -759,6 +875,42 @@ function onFallbackModelChanged(model) {
 function onFallbackKeyChanged(key) {
     const provider = document.getElementById('setting-fallback-provider').value;
     updateNestedConfig(`providers.${provider}.api_key`, key);
+}
+
+/* Media settings config */
+function onMediaProviderChanged(val) {
+    if (val === 'follow') {
+        window.pywebview.api.update_config_value('root', 'media_provider', '').then(() => {
+            loadSettings();
+        });
+    } else if (val === 'gemini_browser') {
+        window.pywebview.api.update_config_value('root', 'media_provider', 'gemini').then(() => {
+            window.pywebview.api.update_nested_config('providers.gemini_media.auth', 'playwright').then(() => {
+                loadSettings();
+            });
+        });
+    } else if (val === 'gemini_api') {
+        window.pywebview.api.update_config_value('root', 'media_provider', 'gemini').then(() => {
+            window.pywebview.api.update_nested_config('providers.gemini_media.auth', 'api_key').then(() => {
+                loadSettings();
+            });
+        });
+    } else if (val === 'openai') {
+        window.pywebview.api.update_config_value('root', 'media_provider', 'openai').then(() => {
+            window.pywebview.api.update_nested_config('providers.openai_media.auth', 'api_key').then(() => {
+                loadSettings();
+            });
+        });
+    }
+}
+
+function onMediaKeyChanged(key) {
+    const val = document.getElementById('setting-media-provider').value;
+    if (val === 'gemini_api') {
+        updateNestedConfig('providers.gemini_media.api_key', key);
+    } else if (val === 'openai') {
+        updateNestedConfig('providers.openai_media.api_key', key);
+    }
 }
 
 /* OAuth & Browser session triggers */
@@ -790,17 +942,173 @@ function onGeminiBrowserLoginCompleted(res) {
 
 /* Twilio, voice and general config updates */
 function updateNestedConfig(dotPath, value) {
-    window.pywebview.api.update_nested_config(dotPath, value).then(res => {
+    return window.pywebview.api.update_nested_config(dotPath, value).then(res => {
         console.log('Nested config updated:', res);
+        return res;
     });
 }
 
 function updateGeneralConfig(section, key, value) {
-    window.pywebview.api.update_config_value(section, key, value).then(res => {
+    return window.pywebview.api.update_config_value(section, key, value).then(res => {
         console.log('Config updated:', res);
+        return res;
     });
 }
 
 function toggleVoice(enabled) {
-    updateGeneralConfig('voice', 'enabled', enabled);
+    updateGeneralConfig('voice', 'enabled', enabled).then(() => {
+        const fields = document.getElementById('voice-settings-fields');
+        if (fields) {
+            fields.style.display = enabled ? 'block' : 'none';
+        }
+        if (enabled) {
+            window.pywebview.api.get_config().then(cfg => {
+                loadAudioDevices(cfg.voice ? cfg.voice.input_device : null, cfg.voice ? cfg.voice.output_device : null);
+            });
+        }
+    });
 }
+
+function onSTTProvChanged(val) {
+    updateNestedConfig('voice.stt.provider', val).then(() => {
+        let defaultModel = '';
+        if (val === 'local_whisper') defaultModel = 'base';
+        else if (val === 'openai') defaultModel = 'whisper-1';
+        else if (val === 'gemini') defaultModel = 'gemini-2.0-flash';
+        else if (val === 'deepgram') defaultModel = 'nova-3';
+        
+        updateNestedConfig('voice.stt.model', defaultModel).then(() => {
+            populateSTTModels(val, defaultModel);
+            updateVoiceKeysVisibility(val, document.getElementById('setting-voice-tts-prov').value);
+        });
+    });
+}
+
+function onSTTModelChanged(val) {
+    updateNestedConfig('voice.stt.model', val);
+}
+
+function onTTSProvChanged(val) {
+    updateNestedConfig('voice.tts.provider', val).then(() => {
+        let defaultModel = '';
+        let defaultVoice = 'af_sky';
+        if (val === 'openai') {
+            defaultModel = 'tts-1';
+            defaultVoice = 'alloy';
+        } else if (val === 'gemini') {
+            defaultModel = 'gemini-2.5-flash-preview-tts';
+            defaultVoice = 'Kore';
+        } else if (val === 'elevenlabs') {
+            defaultModel = 'eleven_multilingual_v2';
+            defaultVoice = 'Rachel — 21m00Tcm4TlvDq8ikWAM';
+        }
+        
+        updateNestedConfig('voice.tts.model', defaultModel).then(() => {
+            updateNestedConfig('voice.tts.voice', defaultVoice).then(() => {
+                populateTTSVoices(val, defaultVoice);
+                updateVoiceKeysVisibility(document.getElementById('setting-voice-stt-prov').value, val);
+            });
+        });
+    });
+}
+
+function onTTSVoiceChanged(val) {
+    updateNestedConfig('voice.tts.voice', val);
+}
+
+function onVoiceInputDeviceChanged(val) {
+    const parsed = val === 'null' || val === '' ? null : parseInt(val);
+    updateNestedConfig('voice.input_device', parsed);
+}
+
+function onVoiceOutputDeviceChanged(val) {
+    const parsed = val === 'null' || val === '' ? null : parseInt(val);
+    updateNestedConfig('voice.output_device', parsed);
+}
+
+function updateVoiceKeysVisibility(sttProv, ttsProv) {
+    document.getElementById('group-voice-deepgram-key').style.display = (sttProv === 'deepgram') ? 'block' : 'none';
+    document.getElementById('group-voice-elevenlabs-key').style.display = (ttsProv === 'elevenlabs') ? 'block' : 'none';
+}
+
+function populateSTTModels(provider, selectedModel) {
+    const modelSelect = document.getElementById('setting-voice-stt-model');
+    modelSelect.innerHTML = '';
+    
+    const models = STT_MODELS[provider] || [];
+    models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.innerText = m;
+        if (m === selectedModel) opt.selected = true;
+        modelSelect.appendChild(opt);
+    });
+}
+
+function populateTTSVoices(provider, selectedVoice) {
+    const voiceSelect = document.getElementById('setting-voice-tts-voice');
+    voiceSelect.innerHTML = '';
+    
+    const voices = TTS_VOICES[provider] || [];
+    voices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.value;
+        opt.innerText = v.label;
+        if (v.value === selectedVoice) opt.selected = true;
+        voiceSelect.appendChild(opt);
+    });
+}
+
+function loadAudioDevices(selectedInputIdx, selectedOutputIdx) {
+    window.pywebview.api.get_audio_devices().then(res => {
+        const inputSelect = document.getElementById('setting-voice-input-device');
+        const outputSelect = document.getElementById('setting-voice-output-device');
+        if (!inputSelect || !outputSelect) return;
+        
+        inputSelect.innerHTML = '';
+        outputSelect.innerHTML = '';
+        
+        const defInput = document.createElement('option');
+        defInput.value = 'null';
+        defInput.innerText = currentLanguage === 'tr' ? 'Sistem Varsayılanı' : 'System Default';
+        if (selectedInputIdx === null || selectedInputIdx === undefined) {
+            defInput.selected = true;
+        }
+        inputSelect.appendChild(defInput);
+        
+        const defOutput = document.createElement('option');
+        defOutput.value = 'null';
+        defOutput.innerText = currentLanguage === 'tr' ? 'Sistem Varsayılanı' : 'System Default';
+        if (selectedOutputIdx === null || selectedOutputIdx === undefined) {
+            defOutput.selected = true;
+        }
+        outputSelect.appendChild(defOutput);
+        
+        if (res.status === 'success') {
+            if (res.input) {
+                res.input.forEach(dev => {
+                    const opt = document.createElement('option');
+                    opt.value = dev.id.toString();
+                    opt.innerText = dev.name + (dev.is_default ? ' ★' : '');
+                    if (selectedInputIdx !== null && selectedInputIdx !== undefined && dev.id === selectedInputIdx) {
+                        opt.selected = true;
+                    }
+                    inputSelect.appendChild(opt);
+                });
+            }
+            
+            if (res.output) {
+                res.output.forEach(dev => {
+                    const opt = document.createElement('option');
+                    opt.value = dev.id.toString();
+                    opt.innerText = dev.name + (dev.is_default ? ' ★' : '');
+                    if (selectedOutputIdx !== null && selectedOutputIdx !== undefined && dev.id === selectedOutputIdx) {
+                        opt.selected = true;
+                    }
+                    outputSelect.appendChild(opt);
+                });
+            }
+        }
+    });
+}
+
