@@ -81,7 +81,15 @@ const LOCALIZATION = {
         "plugin-name-label": "Plugin Name",
         "plugin-desc-label": "Description",
         "plugin-author-label": "Author",
-        "btn-new-plugin": "New Plugin"
+        "btn-new-plugin": "New Plugin",
+        "nav-agents": "Sub-agents",
+        "agents-title": "Sub-agents & Background Tasks",
+        "agents-subtitle": "Monitor and manage autonomous background execution sessions.",
+        "btn-run-task": "Run Task",
+        "btn-stop-task": "Stop Task",
+        "btn-view-logs": "View Logs",
+        "label-capabilities": "Capabilities",
+        "run-modal-title": "Run Kanban Task"
     },
     tr: {
         "brand-sub": "OTONOM YAPAY ZEKA AJANI",
@@ -156,6 +164,14 @@ const LOCALIZATION = {
         "plugin-name-label": "Eklenti Adı",
         "plugin-desc-label": "Açıklama",
         "plugin-author-label": "Yazar",
-        "btn-new-plugin": "Yeni Eklenti"
+        "btn-new-plugin": "Yeni Eklenti",
+        "nav-agents": "Alt Ajanlar",
+        "agents-title": "Alt Ajanlar ve Arka Plan Görevleri",
+        "agents-subtitle": "Otonom arka plan çalışma oturumlarını izleyin ve yönetin.",
+        "btn-run-task": "Çalıştır",
+        "btn-stop-task": "Durdur",
+        "btn-view-logs": "Günlükleri Gör",
+        "label-capabilities": "Yetenekler",
+        "run-modal-title": "Kanban Görevini Çalıştır"
     }
 };

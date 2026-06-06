@@ -15,11 +15,36 @@ function loadKanbanTasks() {
                 card.setAttribute('id', `task-${task.id}`);
                 card.setAttribute('ondragstart', 'dragTask(event)');
                 
+                let actionHtml = '';
+                if (task.agent_id) {
+                    actionHtml = `
+                        <div class="card-agent-status">
+                            <i class="fa-solid fa-spinner fa-spin card-spinner"></i>
+                            <span class="card-agent-id">#${task.agent_id}</span>
+                            <button class="stop-task-btn" title="${LOCALIZATION[currentLanguage]['btn-stop-task']}" onclick="cancelKanbanTask(event, ${task.id}, '${task.agent_id}')">
+                                <i class="fa-solid fa-square-minus"></i>
+                            </button>
+                            <button class="view-logs-btn" title="${LOCALIZATION[currentLanguage]['btn-view-logs']}" onclick="viewKanbanTaskLogs(event, '${task.agent_id}')">
+                                <i class="fa-solid fa-terminal"></i>
+                            </button>
+                        </div>
+                    `;
+                } else if (task.column !== 'done') {
+                    actionHtml = `
+                        <button class="play-task-btn" title="${LOCALIZATION[currentLanguage]['btn-run-task']}" onclick="runKanbanTask(event, ${task.id})">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                    `;
+                }
+                
                 card.innerHTML = `
                     <h4>${escapeHtml(task.title)}</h4>
                     <p>${escapeHtml(task.description || '')}</p>
                     <div class="kanban-card-footer">
-                        <button class="delete-task-btn" onclick="deleteTask(${task.id})">
+                        <div class="kanban-card-left-actions">
+                            ${actionHtml}
+                        </div>
+                        <button class="delete-task-btn" onclick="deleteTask(event, ${task.id})">
                             <i class="fa-solid fa-trash"></i>
                         </button>
                     </div>
@@ -79,11 +104,61 @@ function submitNewTask() {
     });
 }
 
-function deleteTask(taskId) {
+function deleteTask(event, taskId) {
+    if (event) event.stopPropagation();
     const confText = currentLanguage === 'tr' ? 'Bu görevi silmek istiyor musunuz?' : 'Do you want to delete this task?';
     if (confirm(confText)) {
         window.pywebview.api.delete_kanban_task(taskId).then(res => {
             loadKanbanTasks();
         });
     }
+}
+
+function cancelKanbanTask(event, taskId, agentId) {
+    if (event) event.stopPropagation();
+    const confText = currentLanguage === 'tr' ? 'Bu görevi iptal etmek istiyor musunuz?' : 'Do you want to cancel this task?';
+    if (confirm(confText)) {
+        window.pywebview.api.cancel_background_task(agentId).then(res => {
+            loadKanbanTasks();
+        });
+    }
+}
+
+function viewKanbanTaskLogs(event, agentId) {
+    if (event) event.stopPropagation();
+    if (window.viewAgentLogs) {
+        window.viewAgentLogs(agentId);
+    }
+}
+
+let selectedTaskIdForRun = null;
+function runKanbanTask(event, taskId) {
+    if (event) event.stopPropagation();
+    selectedTaskIdForRun = taskId;
+    document.getElementById('kanban-run-modal').classList.add('active');
+}
+
+function submitRunKanbanTask() {
+    if (!selectedTaskIdForRun) return;
+    const caps = [];
+    if (document.getElementById('cap-files').checked) caps.push('files');
+    if (document.getElementById('cap-code').checked) caps.push('code');
+    if (document.getElementById('cap-browser').checked) caps.push('browser');
+    if (document.getElementById('cap-github').checked) caps.push('github');
+    if (document.getElementById('cap-devops').checked) caps.push('devops');
+    
+    const capabilitiesStr = caps.join(',');
+    closeKanbanRunModal();
+    
+    window.pywebview.api.run_kanban_task(selectedTaskIdForRun, capabilitiesStr).then(res => {
+        loadKanbanTasks();
+        if (res.status !== 'success') {
+            alert(res.message);
+        }
+    });
+}
+
+function closeKanbanRunModal() {
+    document.getElementById('kanban-run-modal').classList.remove('active');
+    selectedTaskIdForRun = null;
 }

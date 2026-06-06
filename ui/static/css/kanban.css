@@ -82,8 +82,69 @@
 
 .kanban-card-footer {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     margin-top: 10px;
+}
+
+.kanban-card-left-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.play-task-btn, .stop-task-btn, .view-logs-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 4px;
+    transition: var(--transition-fast);
+}
+
+.play-task-btn {
+    color: var(--color-green);
+}
+
+.play-task-btn:hover {
+    color: #00FF87;
+    text-shadow: 0 0 8px rgba(0, 255, 135, 0.4);
+}
+
+.card-agent-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    background: rgba(0, 242, 254, 0.1);
+    color: #00F2FE;
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+.card-spinner {
+    font-size: 10px;
+}
+
+.card-agent-id {
+    font-weight: 700;
+}
+
+.stop-task-btn {
+    color: var(--color-red);
+}
+
+.stop-task-btn:hover {
+    color: #FF0055;
+    text-shadow: 0 0 8px rgba(255, 0, 85, 0.4);
+}
+
+.view-logs-btn {
+    color: var(--text-secondary);
+}
+
+.view-logs-btn:hover {
+    color: var(--text-primary);
 }
 
 .delete-task-btn {

@@ -11,6 +11,14 @@ from .runner import _run_subagent_thread
 from .background import BackgroundTaskManager, _background_tasks
 
 
+def init_db(db_path: str) -> None:
+    """Initialize SQLite tables for sub-agents and background tasks."""
+    _subagents.init_db(db_path)
+    from .background import init_db as init_bg_db
+    init_bg_db(db_path)
+
+
+
 def spawn_subagent(goal: str, provider: str = "", model: str = "",
                    tools: str = "", capabilities: str = "",
                    wait: bool = True) -> str:

@@ -7,26 +7,22 @@ import shlex
 import time
 from pathlib import Path
 
-# Tracks the current working directory across tool calls.
-# Lock protects against concurrent sub-agent CWD changes.
-_CWD = os.getcwd()
-_cwd_lock = threading.Lock()
+# Tracks the current working directory across tool calls on a per-thread basis.
+_thread_local = threading.local()
 
 
 def get_cwd() -> str:
-    with _cwd_lock:
-        return _CWD
+    if not hasattr(_thread_local, "cwd"):
+        _thread_local.cwd = os.getcwd()
+    return _thread_local.cwd
 
 
 def set_cwd(path: str) -> None:
-    global _CWD
-    with _cwd_lock:
-        _CWD = os.path.abspath(path)
+    _thread_local.cwd = os.path.abspath(path)
 
 
 def resolve_path(path: str) -> str:
-    with _cwd_lock:
-        base = _CWD
+    base = get_cwd()
     expanded = os.path.expanduser(path)
     if os.path.isabs(expanded):
         return os.path.abspath(expanded)
@@ -105,22 +101,19 @@ TOOL_DEFINITIONS = [
 
 
 def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
-    global _CWD
-
     # Handle bare 'cd' commands — update our tracked CWD
     stripped = command.strip()
     if stripped.lower().startswith("cd ") or stripped.lower() == "cd":
         parts = stripped.split(None, 1)
         target = parts[1] if len(parts) > 1 else os.path.expanduser("~")
-        with _cwd_lock:
-            new_dir = os.path.abspath(os.path.join(_CWD, os.path.expanduser(target)))
-            if os.path.isdir(new_dir):
-                _CWD = new_dir
-                return f"Changed directory to: {_CWD}"
+        current_cwd = get_cwd()
+        new_dir = os.path.abspath(os.path.join(current_cwd, os.path.expanduser(target)))
+        if os.path.isdir(new_dir):
+            set_cwd(new_dir)
+            return f"Changed directory to: {new_dir}"
         return f"ERROR: Directory not found: {new_dir}"
 
-    with _cwd_lock:
-        current_cwd = _CWD
+    current_cwd = get_cwd()
     effective_cwd = os.path.abspath(os.path.join(current_cwd, os.path.expanduser(cwd))) if cwd else current_cwd
     if not os.path.isdir(effective_cwd):
         return f"ERROR: Working directory does not exist: {effective_cwd}"

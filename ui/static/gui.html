@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="css/kanban.css">
     <link rel="stylesheet" href="css/settings.css">
     <link rel="stylesheet" href="css/skills.css">
+    <link rel="stylesheet" href="css/agents.css">
 
 </head>
 <body>
@@ -43,6 +44,10 @@
                 <button class="nav-item" onclick="switchTab('settings')">
                     <i class="fa-solid fa-sliders"></i>
                     <span data-localize="nav-settings">Settings</span>
+                </button>
+                <button class="nav-item" onclick="switchTab('agents')">
+                    <i class="fa-solid fa-robot"></i>
+                    <span data-localize="nav-agents">Sub-agents</span>
                 </button>
             </nav>
 
@@ -451,10 +456,68 @@
                                     <!-- Populated dynamically -->
                                 </div>
                             </div>
+            </section>
+
+            <!-- TAB: SUB-AGENTS & BACKGROUND TASKS -->
+            <section id="tab-agents" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="agents-title">Sub-agents & Background Tasks</h2>
+                        <p data-localize="agents-subtitle">Monitor and manage autonomous background execution sessions.</p>
+                    </div>
+                </header>
+
+                <div class="agents-container">
+                    <!-- Quick Manual Launcher Card -->
+                    <div class="agents-launcher-card">
+                        <div class="launcher-form">
+                            <div class="launcher-form-row">
+                                <div class="launcher-form-group" style="flex: 2;">
+                                    <label data-localize="task-title-label">Goal / Instruction</label>
+                                    <input type="text" id="manual-agent-goal" placeholder="e.g. Write unit tests for config module..." />
+                                </div>
+                                <div class="launcher-form-group">
+                                    <label>Mode</label>
+                                    <select id="manual-agent-mode">
+                                        <option value="subagent" selected>Sub-agent (Single LLM loop)</option>
+                                        <option value="coding">Coding Mode (Multi-persona team)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="launcher-form-row" style="align-items: center;">
+                                <div class="launcher-form-group">
+                                    <label data-localize="label-capabilities">Capabilities</label>
+                                    <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px;">
+                                        <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;">
+                                            <input type="checkbox" id="manual-cap-files" checked /> files
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;">
+                                            <input type="checkbox" id="manual-cap-code" checked /> code
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;">
+                                            <input type="checkbox" id="manual-cap-browser" /> browser
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;">
+                                            <input type="checkbox" id="manual-cap-github" /> github
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;">
+                                            <input type="checkbox" id="manual-cap-devops" /> devops
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary" onclick="submitManualAgent()" style="margin-top: 12px; height: 38px;">
+                                    <i class="fa-solid fa-play"></i> <span data-localize="btn-run-task">Run Task</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
 
+                    <!-- Grid of active/inactive sub-agents -->
+                    <div class="agents-grid" id="agents-grid">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
             </section>
         </main>
     </div>
@@ -531,6 +594,60 @@
         </div>
     </div>
 
+    <!-- Kanban Run Task Capabilities Modal -->
+    <div class="modal" id="kanban-run-modal">
+        <div class="modal-content" style="width: 400px;">
+            <header class="modal-header">
+                <h3 data-localize="run-modal-title">Run Kanban Task</h3>
+                <button class="close-btn" onclick="closeKanbanRunModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label data-localize="label-capabilities" style="margin-bottom: 8px; display: block; font-weight: 600;">Capabilities</label>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-files" checked /> files (Filesystem & Reading)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-code" checked /> code (Shell & Commands)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-browser" /> browser (Web Browsing)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-github" /> github (GitHub repository tools)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-devops" /> devops (Devops & Docker environment)
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeKanbanRunModal()" data-localize="btn-cancel">Cancel</button>
+                <button class="btn btn-primary" onclick="submitRunKanbanTask()">
+                    <i class="fa-solid fa-play"></i> <span data-localize="btn-run-task">Run Task</span>
+                </button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Agent Details Logs Modal -->
+    <div class="modal" id="agent-details-modal">
+        <div class="modal-content" style="width: 700px; max-width: 95%;">
+            <header class="modal-header">
+                <h3><i class="fa-solid fa-terminal"></i> Agent Logs #<span id="modal-agent-id">...</span></h3>
+                <button class="close-btn" onclick="closeAgentDetailsModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body" style="padding: 12px;">
+                <pre class="logs-console" id="agent-logs-content">Loading logs...</pre>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAgentDetailsModal()">Close</button>
+            </footer>
+        </div>
+    </div>
+
     <!-- Modular scripts -->
     <script src="js/globals.js"></script>
     <script src="js/chat.js"></script>
@@ -538,6 +655,7 @@
     <script src="js/sessions.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/skills.js"></script>
+    <script src="js/agents.js"></script>
     <script src="js/app.js"></script>
 
 </body>

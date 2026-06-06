@@ -346,6 +346,8 @@ class Agent:
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
         working_memory.init_db(db_path)
+        from skills import agents
+        agents.init_db(db_path)
         # Load tools and plugins dynamically based on active config state
         from tools.registry import rebuild_registry
         rebuild_registry()

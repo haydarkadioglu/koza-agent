@@ -7,7 +7,7 @@ class KanbanMixin:
             # Query the DB directly to get parsed dicts instead of formatted string
             with session_memory._conn() as conn:
                 rows = conn.execute(
-                    "SELECT id, title, description, column, created_at, updated_at FROM kanban_tasks ORDER BY id"
+                    "SELECT id, title, description, column, created_at, updated_at, agent_id FROM kanban_tasks ORDER BY id"
                 ).fetchall()
             tasks = []
             for r in rows:
@@ -17,7 +17,8 @@ class KanbanMixin:
                     "description": r[2],
                     "column": r[3],
                     "created_at": r[4],
-                    "updated_at": r[5]
+                    "updated_at": r[5],
+                    "agent_id": r[6]
                 })
             return {"status": "success", "data": tasks}
         except Exception as e:
