@@ -274,6 +274,7 @@ class CodingSession:
                         None,
                     )
                     if next_test is None:
+                        completed.add(task_id)
                         break  # no test task → done
 
                     # ── Test Engineer ────────────────────────────────────────

@@ -223,7 +223,15 @@ def gui() -> None:
         start_gui()
     except Exception as exc:
         print(f"Failed to start GUI: {exc}")
-        print("Make sure pywebview is installed: pip install pywebview")
+        exc_str = str(exc)
+        if "QT or GTK" in exc_str or "guilib" in exc_str or "webview" in exc_str:
+            print("\nTo resolve this on Linux (e.g. Kali, Debian, Ubuntu):")
+            print("  Option A (Recommended): Install PySide6 into your virtual environment:")
+            print("      pip install PySide6")
+            print("  Option B: Install system GTK and WebKit packages:")
+            print("      sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1")
+        else:
+            print("Make sure pywebview is installed: pip install pywebview")
 
 
 

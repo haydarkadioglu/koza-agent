@@ -100,6 +100,19 @@ TOOL_DEFINITIONS = [
 ]
 
 
+def _read_stream(stream, lines_list):
+    try:
+        for line in iter(stream.readline, ''):
+            lines_list.append(line)
+    except Exception:
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
 def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
     # Handle bare 'cd' commands — update our tracked CWD
     stripped = command.strip()
@@ -149,55 +162,42 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
     except Exception as e:
         return f"ERROR: {e}"
 
+    stdout_lines = []
+    stderr_lines = []
+    t_out = threading.Thread(target=_read_stream, args=(proc.stdout, stdout_lines), daemon=True)
+    t_err = threading.Thread(target=_read_stream, args=(proc.stderr, stderr_lines), daemon=True)
+    t_out.start()
+    t_err.start()
+
     # Poll until timeout, then check if still running
     deadline = time.time() + timeout
-    poll_interval = 2
-    partial = []
+    poll_interval = 0.5
     while time.time() < deadline:
         ret = proc.poll()
         if ret is not None:
-            # Process finished
             break
-        remaining = max(0, int(deadline - time.time()))
-        time.sleep(min(poll_interval, remaining))
+        time.sleep(poll_interval)
     else:
-        # Timeout reached — check if still alive
         ret = proc.poll()
-        if ret is None:
-            # Still running — don't kill, return partial output with status
-            # Try to read whatever stdout is available so far
-            try:
-                proc.stdout.flush()
-                partial_out = proc.stdout.read(4096) if proc.stdout else ""
-                partial_err = proc.stderr.read(2048) if proc.stderr else ""
-            except Exception:
-                partial_out = ""
-                partial_err = ""
-            output = [f"Working directory: {effective_cwd}"]
-            if partial_out:
-                output.append(partial_out.strip())
-            if partial_err:
-                output.append(f"STDERR:\n{partial_err.strip()}")
-            output.append(f"⏳ Command still running after {timeout}s. Still in progress — do not retry, wait for next poll.")
-            return "\n".join(output)
 
-    # Process finished — read remaining output
-    try:
-        stdout, stderr = proc.communicate(timeout=5)
-    except Exception:
-        try:
-            stdout = proc.stdout.read() if proc.stdout else ""
-            stderr = proc.stderr.read() if proc.stderr else ""
-        except Exception:
-            stdout = ""
-            stderr = ""
+    # Wait up to 1 second for reader threads to flush and exit if finished
+    if ret is not None:
+        t_out.join(timeout=1.0)
+        t_err.join(timeout=1.0)
+
+    stdout = "".join(stdout_lines)
+    stderr = "".join(stderr_lines)
 
     output = [f"Working directory: {effective_cwd}"]
     if stdout.strip():
         output.append(stdout.strip())
     if stderr.strip():
         output.append(f"STDERR:\n{stderr.strip()}")
-    output.append(f"Exit code: {ret}")
+
+    if ret is None:
+        output.append(f"⏳ Command still running after {timeout}s. Still in progress — do not retry, wait for next poll.")
+    else:
+        output.append(f"Exit code: {ret}")
 
     if ret == 0 and clone_target and Path(clone_target).is_dir():
         set_cwd(clone_target)

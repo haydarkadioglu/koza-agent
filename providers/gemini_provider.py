@@ -724,7 +724,7 @@ class GeminiProvider(LLMProvider):
                 })
         return {"content": content_text, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
         if self._auth_mode == "cookie":
             import json as _json
             result = self.chat(messages, tools=tools)
