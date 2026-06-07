@@ -43,6 +43,22 @@ Both scripts will:
 > Windows: [python.org](https://python.org/downloads)  
 > macOS: `brew install python@3.12` · Debian/Ubuntu: `sudo apt install python3.12`
 
+### Docker Installation (Optional)
+
+You can also run Koza Agent in a secure, isolated Docker container:
+
+1. Build and run the container in interactive TTY mode:
+   ```bash
+   docker-compose run --build koza-agent
+   ```
+2. For subsequent launches:
+   ```bash
+   docker-compose run koza-agent
+   ```
+
+* All configurations, database sessions, and workspace directories are persisted inside a named Docker volume (`koza-data`).
+* A local `.env` file in the project root will be loaded automatically into the container.
+
 
 
 ## Features

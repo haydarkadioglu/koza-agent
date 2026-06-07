@@ -1,0 +1,20 @@
+services:
+  koza-agent:
+    build: .
+    container_name: koza-agent
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    ports:
+      - "7420:7420"
+    volumes:
+      - koza-data:/home/koza/.Koza
+      - koza-notes:/home/koza/notes
+    env_file:
+      - .env
+
+volumes:
+  koza-data:
+    name: koza-data
+  koza-notes:
+    name: koza-notes
