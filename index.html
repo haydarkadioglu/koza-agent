@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>✦ ÆON — Mysterious App</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="bgCanvas"></canvas>
+
+  <main class="container">
+    <header>
+      <h1 class="glitch" data-text="ÆON">ÆON</h1>
+      <p class="subtitle">The Unseen Interface</p>
+    </header>
+
+    <section class="card-grid">
+      <div class="card" id="card-matrix">
+        <div class="card-icon">◈</div>
+        <h3>Matrix Pulse</h3>
+        <p>Feel the digital heartbeat of the system.</p>
+        <button class="btn-pulse" data-target="matrix">Activate</button>
+      </div>
+      <div class="card" id="card-void">
+        <div class="card-icon">⬟</div>
+        <h3>Void Signal</h3>
+        <p>Transmit data into the unknown abyss.</p>
+        <button class="btn-pulse" data-target="void">Transmit</button>
+      </div>
+      <div class="card" id="card-chronos">
+        <div class="card-icon">⟁</div>
+        <h3>Chronos Gate</h3>
+        <p>Peek through time fragments.</p>
+        <button class="btn-pulse" data-target="chronos">Open</button>
+      </div>
+      <div class="card" id="card-quantum">
+        <div class="card-icon">⧫</div>
+        <h3>Quantum Rift</h3>
+        <p>Collapse probability into reality.</p>
+        <button class="btn-pulse" data-target="quantum">Collapse</button>
+      </div>
+    </section>
+
+    <section class="console-area">
+      <div class="console-header">✦ TERMINAL OUTPUT ✦</div>
+      <div id="console" class="console">
+        <div class="line"><span class="timestamp">[00:00:00]</span> <span class="prompt">⟫</span> System initialized.</div>
+        <div class="line"><span class="timestamp">[00:00:01]</span> <span class="prompt">⟫</span> Waiting for input…</div>
+      </div>
+    </section>
+
+    <footer>
+      <p>⟁ ÆON v1.0 — Beyond the veil ⟁</p>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

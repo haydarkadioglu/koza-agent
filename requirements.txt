@@ -39,3 +39,7 @@ paho-mqtt>=2.0.0
 # Messaging
 twilio>=9.0.0
 python-telegram-bot>=21.0
+
+# GUI
+pywebview>=5.0.0
+

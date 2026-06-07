@@ -123,7 +123,7 @@ class SQLiteRegistryProxy:
     def get(self, key: str, default=None):
         try:
             return self[key]
-        except KeyError:
+        except Exception:
             return default
 
     def __setitem__(self, key: str, value: dict):

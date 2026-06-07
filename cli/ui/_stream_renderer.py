@@ -141,10 +141,10 @@ class StreamRenderer:
         etype = event.get("type")
 
         if etype == "thinking":
-            self._spinner.start("Thinking…")
             self.layout.set_status(self._format_status(
                 _C("◐ Reasoning…", "cyan")
             ))
+            self._spinner.start("Thinking…")
 
         elif etype == "tool_start":
             name = event["name"]
@@ -158,10 +158,10 @@ class StreamRenderer:
             arg_str = ", ".join(visible_parts)
             label = self._TOOL_LABELS.get(name, f"Running {name}")
             self._spinner.stop()
-            self._spinner.start(f"{label}…")
             self.layout.set_status(self._format_status(
                 _C(f"⚙ {label}…", "cyan")
             ))
+            self._spinner.start(f"{label}…")
             self._close_response_if_open()
             self._close_persona_box()
             self._open_tool_box(name, label, arg_str)
@@ -186,10 +186,11 @@ class StreamRenderer:
             self._close_tool_box(f"{elapsed:.2f}s")
             self._pending_tool = None
             self._pending_tool_arg = ""
-            self._spinner.start("Thinking…")
+            self._spinner.stop()
             self.layout.set_status(self._format_status(
                 _C("◐ Reasoning…", "cyan")
             ))
+            self._spinner.start("Thinking…")
 
         elif etype == "text":
             token = event.get("token", "")

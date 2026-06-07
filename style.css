@@ -1,0 +1,258 @@
+/* ===== RESET & BASE ===== */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Mono&display=swap');
+
+:root {
+  --bg: #0a0a0f;
+  --fg: #c8c8e0;
+  --accent: #7f5af0;
+  --accent2: #2cb67d;
+  --glow: #7f5af066;
+  --glow2: #2cb67d44;
+  --card-bg: #13131f;
+  --border: #2a2a3f;
+  --radius: 12px;
+}
+
+body {
+  font-family: 'Space Mono', monospace;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* ===== ANIMATED BACKGROUND ===== */
+#bgCanvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ===== CONTAINER ===== */
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+}
+
+/* ===== HEADER ===== */
+header {
+  text-align: center;
+  margin-bottom: 3rem;
+  padding-top: 2rem;
+}
+
+.glitch {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 4rem;
+  font-weight: 900;
+  color: var(--accent);
+  text-shadow: 0 0 20px var(--glow), 0 0 40px var(--glow);
+  animation: glitchPulse 3s infinite;
+  position: relative;
+  letter-spacing: 8px;
+}
+
+.glitch::before,
+.glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.3;
+}
+
+.glitch::before {
+  color: #ff0055;
+  animation: glitchShift 2s infinite linear alternate-reverse;
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
+}
+
+.glitch::after {
+  color: #00e5ff;
+  animation: glitchShift 2s infinite linear alternate;
+  clip-path: polygon(0 55%, 100% 55%, 100% 100%, 0 100%);
+}
+
+@keyframes glitchPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; text-shadow: 0 0 30px var(--glow), 0 0 60px var(--glow2); }
+}
+
+@keyframes glitchShift {
+  0% { transform: translate(0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(2px, -1px); }
+  60% { transform: translate(-1px, 2px); }
+  80% { transform: translate(1px, -2px); }
+  100% { transform: translate(0); }
+}
+
+.subtitle {
+  font-size: 0.95rem;
+  opacity: 0.6;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  margin-top: 0.5rem;
+}
+
+/* ===== CARD GRID ===== */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 2.5rem;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem 1.25rem;
+  text-align: center;
+  transition: all 0.3s ease;
+  cursor: default;
+}
+
+.card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px var(--glow);
+  transform: translateY(-3px);
+}
+
+.card-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.75rem;
+  color: var(--accent2);
+}
+
+.card h3 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  letter-spacing: 1px;
+}
+
+.card p {
+  font-size: 0.75rem;
+  opacity: 0.65;
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+/* ===== BUTTONS ===== */
+.btn-pulse {
+  background: transparent;
+  border: 1px solid var(--accent2);
+  color: var(--accent2);
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+}
+
+.btn-pulse:hover {
+  background: var(--accent2);
+  color: var(--bg);
+  box-shadow: 0 0 16px var(--glow2);
+}
+
+.btn-pulse:active {
+  transform: scale(0.95);
+}
+
+/* ===== CONSOLE ===== */
+.console-area {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.console-header {
+  background: #0e0e1a;
+  padding: 0.5rem 1rem;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 3px;
+  color: var(--accent2);
+  border-bottom: 1px solid var(--border);
+}
+
+.console {
+  padding: 1rem;
+  min-height: 140px;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+
+.console .line {
+  opacity: 0.85;
+}
+
+.console .timestamp {
+  color: #555;
+  margin-right: 6px;
+}
+
+.console .prompt {
+  color: var(--accent);
+  margin-right: 6px;
+}
+
+.console .highlight {
+  color: var(--accent2);
+  font-weight: bold;
+}
+
+.console .error {
+  color: #ff6b6b;
+}
+
+/* ===== FOOTER ===== */
+footer {
+  text-align: center;
+  font-size: 0.65rem;
+  opacity: 0.4;
+  letter-spacing: 3px;
+}
+
+/* ===== SCROLLBAR ===== */
+.console::-webkit-scrollbar {
+  width: 4px;
+}
+.console::-webkit-scrollbar-track {
+  background: transparent;
+}
+.console::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 600px) {
+  .glitch { font-size: 2.5rem; letter-spacing: 4px; }
+  .card-grid { grid-template-columns: 1fr 1fr; }
+}

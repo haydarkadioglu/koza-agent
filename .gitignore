@@ -20,6 +20,8 @@ ENV/
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
+*-journal
 
 # Koza workspace — generated apps, subagents, downloads, temp files
 workspace/

@@ -129,6 +129,8 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=effective_cwd,
         )
     except FileNotFoundError:
@@ -138,6 +140,8 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=effective_cwd,
             )
         else:

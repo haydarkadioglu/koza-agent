@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "koza"
-version = "1.5.13"
+version = "1.5.14"
 description = "Koza — autonomous AI agent with tools and memory"
 requires-python = ">=3.11"
 dependencies = [
@@ -36,6 +36,7 @@ dependencies = [
     "playwright>=1.45.0",
     "pypdf>=4.0.0",
     "python-telegram-bot>=21.0",
+    "pywebview>=5.0.0",
 ]
 
 [project.optional-dependencies]

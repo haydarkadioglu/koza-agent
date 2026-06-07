@@ -10,6 +10,18 @@ from ._registry import _subagents, _registry_lock
 _DEFAULT_MAX_ITER = 30
 
 
+def _safe_update_subagent(agent_id: str, **kwargs) -> None:
+    with _registry_lock:
+        try:
+            entry = _subagents.get(agent_id)
+            if entry is not None:
+                for k, v in kwargs.items():
+                    entry[k] = v
+        except Exception:
+            pass
+
+
+
 def _is_subagent_cancelled_in_db(agent_id: str) -> bool:
     try:
         from skills.agents._registry import _subagents
@@ -71,8 +83,7 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
                          system_prompt_override: str = "",
                          cancel_event: threading.Event | None = None) -> None:
     """Run a sub-agent in a background thread using the core Agent."""
-    with _registry_lock:
-        _subagents[agent_id]["status"] = "running"
+    _safe_update_subagent(agent_id, status="running")
     try:
         sys.path.insert(0, ".")
         from config import load_config
@@ -100,8 +111,7 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         agent_dir.mkdir(parents=True, exist_ok=True)
         _prev_cwd = _shell.get_cwd()  # save main agent's CWD
         _shell.set_cwd(str(agent_dir))
-        with _registry_lock:
-            _subagents[agent_id]["workdir"] = str(agent_dir)
+        _safe_update_subagent(agent_id, workdir=str(agent_dir))
 
         sm_init(cfg["db_path"])
         wm_init(cfg["db_path"])
@@ -139,9 +149,7 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
         for _ in range(max_iter):
             # Check cancellation before each LLM call
             if (cancel_event and cancel_event.is_set()) or _is_subagent_cancelled_in_db(agent_id):
-                with _registry_lock:
-                    _subagents[agent_id]["status"] = "cancelled"
-                    _subagents[agent_id]["result"]  = "Sub-agent was cancelled."
+                _safe_update_subagent(agent_id, status="cancelled", result="Sub-agent was cancelled.")
                 _handle_kanban_on_subagent_finish(agent_id, "cancelled", "Sub-agent was cancelled.")
                 return
 
@@ -150,8 +158,7 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
             tool_calls = response.get("tool_calls")
 
             if not tool_calls:
-                with _registry_lock:
-                    _subagents[agent_id]["result"] = content or ""
+                _safe_update_subagent(agent_id, result=content or "")
                 break
 
             messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
@@ -195,25 +202,22 @@ def _run_subagent_thread(agent_id: str, goal: str, provider: str, model: str,
                     "content": tool_results.get(key, ""),
                 })
         else:
-            with _registry_lock:
-                _subagents[agent_id]["result"] = "Max iterations reached."
+            _safe_update_subagent(agent_id, result="Max iterations reached.")
 
-        with _registry_lock:
-            _subagents[agent_id]["messages"] = messages
-            _subagents[agent_id]["status"]   = "done"
+        _safe_update_subagent(agent_id, messages=messages, status="done")
 
         # Handle Kanban task link on success
-        res_text = _subagents[agent_id].get("result", "")
+        ag = _subagents.get(agent_id)
+        res_text = ag.get("result", "") if ag else ""
         _handle_kanban_on_subagent_finish(agent_id, "done", res_text)
 
     except Exception as e:
         import traceback
-        with _registry_lock:
-            _subagents[agent_id]["status"] = "error"
-            _subagents[agent_id]["result"] = f"Sub-agent error: {type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}"
+        _safe_update_subagent(agent_id, status="error", result=f"Sub-agent error: {type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}")
         
         # Handle Kanban task link on error
-        err_text = _subagents[agent_id].get("result", "")
+        ag = _subagents.get(agent_id)
+        err_text = ag.get("result", "") if ag else ""
         _handle_kanban_on_subagent_finish(agent_id, "error", err_text)
     finally:
         # Restore main agent's CWD
