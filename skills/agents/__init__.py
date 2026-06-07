@@ -9,6 +9,7 @@ import uuid
 from ._registry import _subagents, _registry_lock
 from .runner import _run_subagent_thread
 from .background import BackgroundTaskManager, _background_tasks
+from .swarm import run_swarm
 
 
 def init_db(db_path: str) -> None:
@@ -807,6 +808,22 @@ TOOL_DEFINITIONS = [
             "required": ["goal"],
         },
     },
+    {
+        "name": "run_swarm",
+        "description": (
+            "Run a parallel agent swarm to solve a complex task. "
+            "Decomposes the task into independent subtasks, runs them concurrently in separate background agents, "
+            "and synthesizes the final results."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal":         {"type": "string", "description": "The complex task/goal to solve"},
+                "capabilities": {"type": "string", "default": "", "description": "Comma-separated default capability groups (e.g. 'files,code')"},
+            },
+            "required": ["goal"],
+        },
+    },
 ]
 
 
@@ -829,4 +846,5 @@ HANDLERS: dict = {
     "clean_workspace":      lambda scope="all": clean_workspace(scope),
     "extract_project":      lambda source, dest="", include_koza_core=True:
                                 extract_project(source, dest, include_koza_core),
+    "run_swarm":            lambda goal, capabilities="": run_swarm(goal, capabilities),
 }

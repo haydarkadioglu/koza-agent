@@ -18,6 +18,22 @@ from skills.agents.background import BackgroundTaskManager, _background_tasks
 
 logger = logging.getLogger(__name__)
 
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    """Return a unique path in directory for filename, appending _1, _2 etc. if exists."""
+    dest = directory / filename
+    if not dest.exists():
+        return dest
+    stem = dest.stem
+    suffix = dest.suffix
+    counter = 1
+    while True:
+        candidate = directory / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 # ── Module-level config reference (set by start_bot_thread) ──────────────────
 _bot_cfg: dict | None = None
 
@@ -139,7 +155,10 @@ def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> 
         import time
         while True:
             time.sleep(5)
-            status = BackgroundTaskManager.get_status(task_id)
+            try:
+                status = BackgroundTaskManager.get_status(task_id)
+            except Exception:
+                break
             if not status:
                 break
             if status["status"] == "done":
@@ -173,6 +192,7 @@ def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> 
 # chat_id → Agent instance
 _agents: Dict[int, object] = {}
 _agents_lock = threading.Lock()
+_recent_attachments_by_chat: Dict[int, list[str]] = {}
 
 
 # Tools that require explicit user approval via inline buttons.
@@ -327,40 +347,64 @@ async def _process_message(update, context, agent_factory: Callable,
         except Exception:
             pass  # Reactions not available in all chat types — ignore
 
-    # ── Photo support ──────────────────────────────────────────────────────────
+    # ── Photo support ────────────────────────────────────────────────────
     if msg and msg.photo:
         photo = msg.photo[-1]
         tg_file = await context.bot.get_file(photo.file_id)
-        import tempfile
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        tmp.close()
-        await tg_file.download_to_drive(tmp.name)
-        image_path = tmp.name
+        dl_dir = Path(_bot_cfg.get("workspace_path", Path.home() / ".Koza" / "workspace")) / "downloads" / "telegram"
+        dl_dir.mkdir(parents=True, exist_ok=True)
+        dest = _unique_path(dl_dir, f"photo_{photo.file_id[:8]}.jpg")
+        await tg_file.download_to_drive(str(dest))
+        image_path = str(dest)
+        file_info = f"[Dosya indirildi: {dest}, type=photo, size={photo.file_size}]"
+        _recent_attachments_by_chat.setdefault(chat_id, []).append(dest.name)
         if not user_text:
-            user_text = "Bu fotoğrafı analiz et."
+            user_text = f"{file_info}\nBu fotoğrafı analiz et."
+        else:
+            user_text = f"{file_info}\n{user_text}"
 
-    # ── Document / file support ────────────────────────────────────────────────
+    # ── Document / file support ────────────────────────────────────────────
     elif msg and msg.document:
         doc = msg.document
         tg_file = await context.bot.get_file(doc.file_id)
-        # Save to ~/.Koza/workspace/downloads/ so path survives and is accessible
-        dl_dir = Path(_bot_cfg.get("workspace_path", Path.home() / ".Koza" / "workspace")) / "downloads"
+        # Save to workspace/downloads/telegram/ with collision-safe unique path
+        dl_dir = Path(_bot_cfg.get("workspace_path", Path.home() / ".Koza" / "workspace")) / "downloads" / "telegram"
         dl_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = re.sub(r"[^\w\.\-]", "_", doc.file_name or f"file_{doc.file_id[:8]}")
-        dest = str(dl_dir / safe_name)
-        await tg_file.download_to_drive(dest)
-        file_info = f"[Dosya indirildi: {dest}]"
+        original_name = doc.file_name or f"file_{doc.file_id[:8]}"
+        safe_name = re.sub(r"[^\w\.\-]", "_", original_name)
+        dest = _unique_path(dl_dir, safe_name)
+        await tg_file.download_to_drive(str(dest))
         mime = doc.mime_type or ""
-        if user_text:
-            user_text = f"{file_info}\n{user_text}"
+        file_info = (
+            f"[Dosya indirildi: {dest}, type=document, "
+            f"mime={mime}, size={doc.file_size}, original_name={original_name}]"
+        )
+        # Determine if image for vision
+        if mime.startswith("image/") or str(dest).lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+            image_path = str(dest)
+        _recent_attachments_by_chat.setdefault(chat_id, []).append(dest.name)
+
+        caption = (msg.caption or "").strip()
+        if caption:
+            user_text = f"{file_info}\nKullanıcı komutu:\n{caption}"
         else:
             # Default: read text-based files, just acknowledge binary ones
-            if any(mime.startswith(p) for p in ("text/", "application/json", "application/xml")) or dest.endswith((".py", ".txt", ".md", ".csv", ".yaml", ".yml", ".toml", ".log")):
-                user_text = f"{file_info}\nBu dosyayı oku ve içeriğini özetle."
-            elif dest.lower().endswith(".pdf") or mime == "application/pdf":
+            if any(mime.startswith(p) for p in ("text/", "application/json", "application/xml")) or str(dest).endswith((".py", ".txt", ".md", ".csv", ".yaml", ".yml", ".toml", ".log")):
+                try:
+                    preview = dest.read_text(encoding="utf-8", errors="replace")[:500]
+                except Exception:
+                    preview = ""
+                preview_section = f"\n[Dosya önizleme başlangıcı]\n{preview}\n[Dosya önizleme sonu]" if preview else ""
+                user_text = f"{file_info}{preview_section}\nBu dosyayı oku ve içeriğini kısa özetle."
+            elif str(dest).lower().endswith(".pdf") or mime == "application/pdf":
                 user_text = f"{file_info}\nBu PDF dosyasını oku ve içeriğini özetle."
             else:
                 user_text = f"{file_info}\nDosya kaydedildi. Kullanıcı ne yapmamı istediğini söyleyecek."
+
+    recent = _recent_attachments_by_chat.get(chat_id)
+    if recent and not (msg and (msg.photo or msg.document)):
+        files_list = "\n".join(f"- {f}" for f in recent)
+        user_text = f"[Son Telegram dosyaları]\n{files_list}\n\nKullanıcı komutu:\n{user_text}"
 
     if not user_text:
         return
@@ -373,7 +417,7 @@ async def _process_message(update, context, agent_factory: Callable,
             context.bot,
             bot_loop,
             kb_manager,
-            bool(cfg.get("tool_approval", False)),
+            bool((_bot_cfg or {}).get("tool_approval", False)),
         )
     agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
 
@@ -390,7 +434,10 @@ async def _process_message(update, context, agent_factory: Callable,
             match = _re_bg.search(r"Sub-agent ([a-f0-9]{8})", result)
             agent_id = match.group(1) if match else "unknown"
             confirmation = f"🚀 Arka planda çalışıyorum: `{agent_id}`\nGörev: {user_text[:100]}"
-            await context.bot.send_message(chat_id=chat_id, text=confirmation)
+            reply_markup = None
+            if kb_manager:
+                reply_markup = kb_manager.build_task_control_kb(agent_id)
+            await context.bot.send_message(chat_id=chat_id, text=confirmation, reply_markup=reply_markup)
             # Register completion watcher to notify when done
             from skills.agents.notifier import SubAgentNotifier
             SubAgentNotifier.start()

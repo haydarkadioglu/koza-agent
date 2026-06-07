@@ -224,3 +224,25 @@ class InputDispatcher:
             self.renderer.finalize(elapsed)
             self._processing.clear()
             self.layout.set_prompt_indicator(busy=False)
+
+            # Spawn background self-improvement review asynchronously
+            from config import load_config
+            try:
+                cfg = load_config()
+                if cfg.get("self_improvement", {}).get("enabled", True):
+                    if self.agent.messages:
+                        def _bg_review():
+                            try:
+                                from skills.agents.evolution import run_self_improvement
+                                from .ui._colors import _C
+                                summary = run_self_improvement(cfg["db_path"], self.agent.messages)
+                                if summary and "Nothing to save" not in summary:
+                                    self.layout.append_output(
+                                        _C(f"\n  💾 Self-improvement review: {summary}\n", "grey")
+                                    )
+                            except Exception:
+                                pass
+                        t_bg = threading.Thread(target=_bg_review, daemon=True)
+                        t_bg.start()
+            except Exception:
+                pass

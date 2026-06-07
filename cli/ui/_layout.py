@@ -16,6 +16,14 @@ from prompt_toolkit.layout import HSplit, VSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.widgets import TextArea
+from prompt_toolkit.completion import WordCompleter
+
+_SLASH_CMDS = [
+    "/help", "/sessions", "/save", "/title", "/clear", "/retry", "/undo",
+    "/provider", "/model", "/kanban", "/memory", "/tools",
+    "/plugins", "/skills", "/compress", "/reset",
+    "/mode coding", "/mode off", "/swarm", "/self-improve",
+]
 
 
 _MAX_OUTPUT_LINES = 10_000
@@ -65,6 +73,8 @@ class ChatLayout:
             dont_extend_height=True,
             history=InMemoryHistory(),
             focusable=True,
+            completer=WordCompleter(_SLASH_CMDS, ignore_case=True),
+            complete_while_typing=True,
         )
         # Attach custom key bindings to the TextArea's BufferControl
         self.input_area.control.key_bindings = self._create_input_bindings()

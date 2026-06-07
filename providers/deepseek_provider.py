@@ -36,7 +36,7 @@ class DeepSeekProvider(LLMProvider):
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
         import json, re
         kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages), "stream": True}
         if tools:
@@ -78,6 +78,10 @@ class DeepSeekProvider(LLMProvider):
                 yield p
 
         for chunk in resp:
+            if cancel_event and cancel_event.is_set():
+                if hasattr(resp, "close"):
+                    resp.close()
+                break
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]

@@ -60,7 +60,7 @@ class StreamRenderer:
         "credential_get": "Fetching credential", "credential_set": "Saving credential",
         "spawn_subagent": "Spawning sub-agent", "get_subagent_status": "Checking sub-agent",
         "translate": "Translating text", "summarize": "Summarizing",
-        "diff": "Comparing files",
+        "diff": "Comparing files", "run_swarm": "Running parallel swarm",
     }
 
     # Args that are too bulky to show in preview
@@ -440,6 +440,8 @@ class StreamRenderer:
             emoji = "📨"
         elif "skill" in name or "plugin" in name:
             emoji = "🧩"
+        elif "swarm" in name:
+            emoji = "🐝"
         self.layout.append_output(
             "\n"
             + _C("  ╭─ ", self._tool_box_color)

@@ -79,7 +79,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "agent":      ["spawn_subagent", "get_subagent_status", "list_subagents",
                    "cancel_subagent", "subagent_get_result", "subagent_update",
                    "start_coding_session", "start_tracked_coding_task", "list_capabilities",
-                   "create_project", "list_projects", "extract_project"],
+                   "create_project", "list_projects", "extract_project", "run_swarm"],
     "message":    ["send_message", "get_messages", "telegram_send", "telegram_get_updates",
                    "telegram_send_photo", "telegram_send_video",
                    "telegram_status", "start_telegram_daemon",
@@ -341,6 +341,7 @@ class Agent:
         # Interrupt/cancel support — set to cancel the current stream_chat loop
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
+        self._stream_lock: threading.Lock = threading.Lock()
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)
@@ -376,11 +377,19 @@ class Agent:
 
     @property
     def messages(self) -> list[dict]:
-        return self._ctx.messages
+        # Fallback for test instances created with Agent.__new__() without _ctx
+        if hasattr(self, "_ctx"):
+            return self._ctx.messages
+        if not hasattr(self, "_messages"):
+            self._messages = []
+        return self._messages
 
     @messages.setter
     def messages(self, value: list[dict]) -> None:
-        self._ctx.messages = value
+        if hasattr(self, "_ctx"):
+            self._ctx.messages = value
+        else:
+            self._messages = value
 
     @property
     def _context_summary(self) -> str:
@@ -397,7 +406,9 @@ class Agent:
         self._ctx.maybe_build_rolling_summary()
 
     def _trim_messages(self) -> list[dict]:
-        return self._ctx.trim(getattr(self.provider, "supports_vision", False))
+        if hasattr(self, "_ctx"):
+            return self._ctx.trim(getattr(self.provider, "supports_vision", False))
+        return self.messages
 
     def interrupt(self) -> bool:
         """Cancel the current in-progress stream_chat. Returns True if was busy."""
@@ -515,6 +526,8 @@ class Agent:
 
         self._cancel.clear()
         self._busy = True
+        if hasattr(self, "_stream_lock"):
+            self._stream_lock.acquire()
 
         try:
             MAX_ROUNDS = 25  # safety cap — allows complex multi-step tasks
@@ -533,7 +546,7 @@ class Agent:
                 _stream_retried = False
                 while True:
                     try:
-                        for item in self.provider.stream_chat(self._trim_messages(), tools=tools):
+                        for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
                             if self._cancel.is_set():
                                 yield {"type": "interrupted"}
                                 return
@@ -565,7 +578,9 @@ class Agent:
                             full = ""
                             _tool_buf = {}
                             continue
-                        raise
+                        # For any other exception, yield an error event instead of crashing
+                        yield {"type": "error", "message": str(_e)}
+                        return
 
                 # ── No tool calls → pure text response, done ─────────────────────
                 if not _tool_buf:
@@ -639,6 +654,11 @@ class Agent:
         finally:
             self._busy = False
             self._cancel.clear()
+            if hasattr(self, "_stream_lock") and self._stream_lock.locked():
+                try:
+                    self._stream_lock.release()
+                except RuntimeError:
+                    pass  # already released
 
     def _refresh_memory_context(self, user_input: str) -> None:
         """

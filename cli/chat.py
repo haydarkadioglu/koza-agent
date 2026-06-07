@@ -286,6 +286,24 @@ def _plain_cli(agent, cfg: dict) -> None:
             total_tokens = renderer._total_tokens
             _processing.clear()
 
+            # Spawn background self-improvement review asynchronously
+            from config import load_config
+            try:
+                cfg_bg = load_config()
+                if cfg_bg.get("self_improvement", {}).get("enabled", True):
+                    if agent.messages:
+                        def _bg_review():
+                            try:
+                                from skills.agents.evolution import run_self_improvement
+                                summary = run_self_improvement(cfg_bg["db_path"], agent.messages)
+                                if summary and "Nothing to save" not in summary:
+                                    print(_C(f"\n  💾 Self-improvement review: {summary}", "grey"))
+                            except Exception:
+                                pass
+                        threading.Thread(target=_bg_review, daemon=True).start()
+            except Exception:
+                pass
+
         # Print status bar after response completes
         if had_response:
             print()
@@ -798,6 +816,72 @@ def _plain_cli(agent, cfg: dict) -> None:
                 print(result)
             return True
 
+        # ── /swarm <goal> ── Run parallel agent swarm ───────────────────────
+        if user_input.startswith("/swarm"):
+            parts = user_input.split(None, 1)
+            swarm_goal = parts[1].strip() if len(parts) > 1 else ""
+            if not swarm_goal:
+                _out(_C("  Usage: /swarm <goal>\n", "grey"))
+                return True
+            
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output(_C(f"  🐝 Launching parallel swarm for goal: '{swarm_goal}'...\n", "yellow"))
+            else:
+                print(_C(f"  🐝 Launching parallel swarm for goal: '{swarm_goal}'...\n", "yellow"))
+            
+            def _run_swarm_bg():
+                try:
+                    from skills.agents.swarm import run_swarm
+                    final_result = run_swarm(swarm_goal)
+                    if layout is not None:
+                        layout.append_output(_C("\n  🐝 Swarm synthesis completed successfully:\n", "green"))
+                        layout.append_output(final_result + "\n\n")
+                    else:
+                        print(_C("\n  🐝 Swarm synthesis completed successfully:\n", "green"))
+                        print(final_result + "\n\n")
+                except Exception as e:
+                    err_msg = _C(f"  ✗ Swarm execution failed: {e}\n", "red")
+                    if layout is not None:
+                        layout.append_output(err_msg)
+                    else:
+                        print(err_msg)
+            
+            threading.Thread(target=_run_swarm_bg, daemon=True).start()
+            return True
+
+        # ── /self-improve ── Run self-evolution pass ────────────────────────
+        if user_input == "/self-improve":
+            layout = _ui_layout[0]
+            if layout is not None:
+                layout.append_output(_C("  💾 Running self-improvement review on recent context...\n", "yellow"))
+            else:
+                print(_C("  💾 Running self-improvement review on recent context...\n", "yellow"))
+            
+            def _run_improve_bg():
+                try:
+                    from skills.agents.evolution import run_self_improvement
+                    from config import load_config
+                    cfg_local = load_config()
+                    summary = run_self_improvement(cfg_local["db_path"], agent.messages)
+                    if "Nothing to save" in summary:
+                        msg = _C("  💾 Self-improvement: Nothing to save.\n", "grey")
+                    else:
+                        msg = _C(f"  💾 Self-improvement complete: {summary}\n", "green")
+                    if layout is not None:
+                        layout.append_output(msg)
+                    else:
+                        print(msg)
+                except Exception as e:
+                    err_msg = _C(f"  ✗ Self-improvement failed: {e}\n", "red")
+                    if layout is not None:
+                        layout.append_output(err_msg)
+                    else:
+                        print(err_msg)
+            
+            threading.Thread(target=_run_improve_bg, daemon=True).start()
+            return True
+
         return False
 
     # ── Main loop — prompt_toolkit Application (split-pane UI) ──────────────────
@@ -841,7 +925,7 @@ def _plain_cli(agent, cfg: dict) -> None:
                     "/help", "/sessions", "/save", "/title", "/clear", "/retry", "/undo",
                     "/provider", "/model", "/kanban", "/memory", "/tools",
                     "/plugins", "/skills", "/compress", "/reset",
-                    "/mode coding", "/mode off",
+                    "/mode coding", "/mode off", "/swarm", "/self-improve",
                 ]
                 layout.append_output(
                     _C("  Commands: ", "grey")
@@ -972,7 +1056,7 @@ def _plain_cli(agent, cfg: dict) -> None:
             continue
         # Slash hint in fallback mode too
         if user_input == "/":
-            print(_C("  Commands: /help /sessions /save /title /clear /retry /undo /provider /model /kanban /memory /tools /plugins /skills /compress /reset", "grey"))
+            print(_C("  Commands: /help /sessions /save /title /clear /retry /undo /provider /model /kanban /memory /tools /plugins /skills /compress /reset /swarm /self-improve", "grey"))
             continue
         cmd = _handle_inline(user_input)
         if cmd is None:

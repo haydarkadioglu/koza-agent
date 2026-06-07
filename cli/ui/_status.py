@@ -78,7 +78,7 @@ def format_status(
     # Build segments list
     segments = []
     if coding_mode:
-        segments.append(_C("🎯 Coding", "magenta", "bold"))
+        segments.append(_C("🎯 Coding Mode", "magenta", "bold"))
     segments.append(state_text)
     if mode:
         segments.append(_C(mode, "grey"))
@@ -87,7 +87,7 @@ def format_status(
     segments.append(_C(tok_str, "grey"))
     segments.append(_C(s_time, "grey"))
     if bg_task_count > 0:
-        segments.append(_C(f"⧗ {bg_task_count}", "yellow"))
+        segments.append(_C(f"⧗ {bg_task_count} tasks", "yellow"))
     segments.append(_C(f"📁 {cwd}", "grey"))
     if mem_segment:
         segments.append(_C(mem_segment, "grey"))

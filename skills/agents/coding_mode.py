@@ -127,34 +127,49 @@ class CodingSession:
         self._backend_dev  = _make_agent(BACKEND_DEV_PROMPT,  cfg, db_path)
         self._frontend_dev = _make_agent(FRONTEND_DEV_PROMPT, cfg, db_path)
         self._test_eng     = _make_agent(TEST_ENGINEER_PROMPT, cfg, db_path)
+        # Reference to the active generator so interrupt() can close it
+        self._current_gen = None
 
     def interrupt(self) -> None:
         self._cancel.set()
+        # Close the active sub-agent generator so finally blocks fire
+        if self._current_gen is not None:
+            try:
+                self._current_gen.close()
+            except Exception:
+                pass
+            self._current_gen = None
         for agent in (self._team_lead, self._backend_dev,
                       self._frontend_dev, self._test_eng):
+            agent._busy = False
             agent.interrupt()
 
     def _stream_agent(self, agent: Agent, prompt: str,
                       persona_name: str) -> Generator[dict, None, str]:
         """Stream an agent and yield display events. Returns full response."""
         full = ""
-        for event in agent.stream_chat(prompt):
-            if self._cancel.is_set():
-                return full
-            if isinstance(event, dict):
-                if event.get("type") == "text":
-                    tok = event.get("token", "")
-                    full += tok
-                    yield {"type": "persona_token", "persona": persona_name, "token": tok}
-                elif event.get("type") == "tool_start":
-                    yield {"type": "persona_tool", "persona": persona_name,
-                           "tool": event["name"], "phase": "start"}
-                elif event.get("type") == "tool_done":
-                    yield {"type": "persona_tool", "persona": persona_name,
-                           "tool": event["name"], "phase": "done",
-                           "elapsed": event.get("elapsed", 0)}
-                elif event.get("type") == "thinking":
-                    yield {"type": "persona_thinking", "persona": persona_name}
+        gen = agent.stream_chat(prompt)
+        self._current_gen = gen
+        try:
+            for event in gen:
+                if self._cancel.is_set():
+                    return full
+                if isinstance(event, dict):
+                    if event.get("type") == "text":
+                        tok = event.get("token", "")
+                        full += tok
+                        yield {"type": "persona_token", "persona": persona_name, "token": tok}
+                    elif event.get("type") == "tool_start":
+                        yield {"type": "persona_tool", "persona": persona_name,
+                               "tool": event["name"], "phase": "start"}
+                    elif event.get("type") == "tool_done":
+                        yield {"type": "persona_tool", "persona": persona_name,
+                               "tool": event["name"], "phase": "done",
+                               "elapsed": event.get("elapsed", 0)}
+                    elif event.get("type") == "thinking":
+                        yield {"type": "persona_thinking", "persona": persona_name}
+        finally:
+            self._current_gen = None
         return full
 
     def run(self, user_prompt: str) -> Generator[dict, None, None]:

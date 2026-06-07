@@ -45,6 +45,10 @@ class TestAutoDetectionIntegration:
             update.message.text = "implement a REST API for users"
             update.message.caption = None
             update.message.photo = None
+            update.message.document = None
+            update.message.video = None
+            update.message.audio = None
+            update.message.voice = None
             update.edited_message = None
 
             context = MagicMock()
@@ -60,18 +64,17 @@ class TestAutoDetectionIntegration:
             agent_factory = MagicMock(return_value=mock_agent)
 
             with patch(
-                "bots.telegram.BackgroundTaskManager.create_task",
-                return_value="abc12345",
-            ) as mock_create:
-                with patch("bots.telegram._register_completion_watcher") as mock_watcher:
+                "skills.agents.spawn_subagent",
+                return_value="Sub-agent abc12345 launched (background)",
+            ) as mock_spawn:
+                with patch("skills.agents.notifier.SubAgentNotifier.start") as mock_notifier:
                     with patch("bots.telegram._get_or_create_agent", return_value=mock_agent):
                         asyncio.run(_process_message(update, context, agent_factory))
 
-                    # Verify create_task was called with the user text
-                    mock_create.assert_called_once_with(
+                    # Verify spawn_subagent was called with the user text
+                    mock_spawn.assert_called_once_with(
                         "implement a REST API for users",
-                        tg_module._bot_cfg,
-                        ":memory:",
+                        wait=False,
                     )
 
                     # Verify confirmation message was sent
@@ -100,6 +103,10 @@ class TestAutoDetectionIntegration:
             update.message.text = "what is the weather today?"
             update.message.caption = None
             update.message.photo = None
+            update.message.document = None
+            update.message.video = None
+            update.message.audio = None
+            update.message.voice = None
             update.edited_message = None
 
             context = MagicMock()
@@ -115,13 +122,13 @@ class TestAutoDetectionIntegration:
             agent_factory = MagicMock(return_value=mock_agent)
 
             with patch(
-                "bots.telegram.BackgroundTaskManager.create_task"
-            ) as mock_create:
+                "skills.agents.spawn_subagent"
+            ) as mock_spawn:
                 with patch("bots.telegram._get_or_create_agent", return_value=mock_agent):
                     asyncio.run(_process_message(update, context, agent_factory))
 
-                    # create_task should NOT be called for non-coding messages
-                    mock_create.assert_not_called()
+                    # spawn_subagent should NOT be called for non-coding messages
+                    mock_spawn.assert_not_called()
         finally:
             tg_module._bot_cfg = original_cfg
 
