@@ -19,6 +19,58 @@ TOOL_COMPACT_AFTER = 20
 MAX_TOOL_RESULT_CHARS = 4000
 
 
+def count_tokens(messages: list[dict], model: str = "") -> int:
+    """Calculate token count using tiktoken if available, falling back to estimation."""
+    try:
+        import tiktoken
+        try:
+            clean_model = model.split("/")[-1] if "/" in model else model
+            encoding = tiktoken.encoding_for_model(clean_model)
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
+
+        num_tokens = 0
+        for message in messages:
+            num_tokens += 4
+            for key, value in message.items():
+                if isinstance(value, str):
+                    num_tokens += len(encoding.encode(value))
+                elif isinstance(value, list):
+                    for part in value:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            num_tokens += len(encoding.encode(part.get("text", "")))
+                elif key == "tool_calls" and isinstance(value, list):
+                    for tc in value:
+                        num_tokens += len(encoding.encode(tc.get("name", "")))
+                        args = tc.get("arguments", {})
+                        if isinstance(args, dict):
+                            num_tokens += len(encoding.encode(json.dumps(args)))
+                        elif isinstance(args, str):
+                            num_tokens += len(encoding.encode(args))
+            num_tokens += 2
+        return num_tokens
+    except Exception:
+        # Fallback approximation: 1 token ~= 4 characters
+        total_chars = 0
+        for message in messages:
+            for key, value in message.items():
+                if isinstance(value, str):
+                    total_chars += len(value)
+                elif isinstance(value, list):
+                    for part in value:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            total_chars += len(part.get("text", ""))
+                elif key == "tool_calls" and isinstance(value, list):
+                    for tc in value:
+                        total_chars += len(tc.get("name", ""))
+                        args = tc.get("arguments", {})
+                        if isinstance(args, dict):
+                            total_chars += len(json.dumps(args))
+                        elif isinstance(args, str):
+                            total_chars += len(args)
+        return total_chars // 4
+
+
 class ContextWindow:
     """Manages the agent message list and context window constraints.
 
@@ -33,6 +85,34 @@ class ContextWindow:
         self._provider = provider
         self.messages: list[dict] = []
         self.summary: str = ""  # rolling summary of old overflow
+
+    def _get_context_limit(self) -> int:
+        """Determine token limit for the active provider/model."""
+        provider_name = self._provider.name.lower() if hasattr(self._provider, "name") else ""
+        model_name = getattr(self._provider, "model", "").lower() if hasattr(self._provider, "model") else ""
+
+        limits = {
+            "deepseek": 64_000,
+            "openai": 128_000,
+            "anthropic": 200_000,
+            "gemini": 1_000_000,
+            "ollama": 32_000,
+            "groq": 128_000,
+            "openrouter": 128_000,
+            "codex": 128_000,
+            "google-oauth": 1_000_000,
+        }
+
+        if "gpt-3.5" in model_name:
+            return 16_000
+        if "gpt-4" in model_name or "gpt-4o" in model_name:
+            return 128_000
+        if "claude" in model_name:
+            return 200_000
+        if "gemini" in model_name:
+            return 1_000_000
+
+        return limits.get(provider_name, 32_000)
 
     # ── Dangling call cleanup ─────────────────────────────────────────────────
 
@@ -129,13 +209,26 @@ class ContextWindow:
     # ── Rolling summary ───────────────────────────────────────────────────────
 
     def maybe_build_rolling_summary(self) -> None:
-        """Summarize overflow messages into self.summary when window is full."""
+        """Summarize older overflow messages when token capacity or message limit is exceeded."""
+        limit = self._get_context_limit()
+        model_name = getattr(self._provider, "model", "")
+        total_tokens = count_tokens(self.messages, model=model_name)
+
+        system = [m for m in self.messages if m.get("role") == "system"]
         rest = [m for m in self.messages if m.get("role") != "system"]
-        overflow_count = len(rest) - MAX_CONTEXT_MESSAGES
-        if overflow_count <= 0:
+
+        # Trigger summary if tokens exceed 90% of model limit or message count exceeds MAX_CONTEXT_MESSAGES
+        if total_tokens < 0.9 * limit and len(rest) <= MAX_CONTEXT_MESSAGES:
             return
 
-        overflow = rest[:overflow_count]
+        # Keep last 15 messages intact
+        keep_count = min(15, len(rest))
+        if len(rest) <= keep_count:
+            return
+
+        overflow = rest[:-keep_count]
+        keep = rest[-keep_count:]
+
         lines = []
         for m in overflow:
             role = m.get("role", "")
@@ -144,22 +237,31 @@ class ContextWindow:
                 content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
             if role in ("user", "assistant") and content:
                 lines.append(f"{role.upper()}: {str(content)[:300]}")
+            elif role == "tool":
+                lines.append(f"TOOL ({m.get('name', 'tool')}): {str(m.get('content', ''))[:100]}")
+
         if not lines:
+            self.messages = system + keep
             return
 
-        snippet = "\n".join(lines[-40:])
+        snippet = "\n".join(lines)
+        prompt_content = (
+            "Summarize the key facts, decisions, and outcomes from this "
+            "conversation excerpt in 3-5 bullet points. Be very concise. "
+            "Focus on: what was asked, what was done, key values/names/paths "
+            "mentioned.\n\n"
+        )
+        if self.summary:
+            prompt_content += f"Previous rolling summary:\n{self.summary}\n\nNew conversation excerpt to append/update:\n"
+        prompt_content += snippet
+
         try:
             resp = self._provider.chat(
                 [
                     {"role": "system", "content": "You are a concise summarizer."},
                     {
                         "role": "user",
-                        "content": (
-                            "Summarize the key facts, decisions, and outcomes from this "
-                            "conversation excerpt in 3-5 bullet points. Be very concise. "
-                            "Focus on: what was asked, what was done, key values/names/paths "
-                            f"mentioned.\n\n{snippet}"
-                        ),
+                        "content": prompt_content,
                     },
                 ],
                 tools=None,
@@ -168,7 +270,9 @@ class ContextWindow:
             if summary_text:
                 self.summary = summary_text
         except Exception:
-            self.summary = "\n".join(lines[-10:])
+            self.summary = (self.summary + "\n" if self.summary else "") + "\n".join(lines[-5:])
+
+        self.messages = system + keep
 
     # ── Trimming ──────────────────────────────────────────────────────────────
 

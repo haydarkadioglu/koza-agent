@@ -61,6 +61,11 @@ def cmd_setup(args: list) -> None:
                 f"TTS:{tts_cfg.get('provider', 'kokoro' if voice_cfg.get('use_kokoro') else 'system')}"
             )
 
+        import platform
+        from pathlib import Path
+        is_windows = (platform.system() == "Windows")
+        mingit_status = "✓ installed" if (Path.home() / ".Koza" / "git" / "bin" / "bash.exe").exists() else "not installed"
+
         sections = [
             f"Primary Provider    {_status(f'{cur_provider} / {cur_model}' if cur_provider else '')}",
             f"Fallback Provider   {_status(cur_fallback)}",
@@ -69,10 +74,14 @@ def cmd_setup(args: list) -> None:
             f"Twilio Setup        {_status('✓ configured' if tw_sid else '')}",
             f"Multi-host Sync     {_status(cfg.get('multi_host', {}).get('mode', 'single') if cfg.get('multi_host', {}).get('mode', 'single') != 'single' else '')}",
             f"Voice / STT / TTS   {_status(voice_status or 'disabled')}",
-            "Done — save & exit",
         ]
+        if is_windows:
+            sections.append(f"Portable MinGit     {_status(mingit_status)}")
+        sections.append("Done — save & exit")
+
         try:
-            section = _select_menu("Configure section", sections, default_idx=7)
+            default_idx = len(sections) - 1
+            section = _select_menu("Configure section", sections, default_idx=default_idx)
         except (KeyboardInterrupt, EOFError):
             print(_C("\n  Cancelled.\n", "grey"))
             return
@@ -112,6 +121,10 @@ def cmd_setup(args: list) -> None:
         # ── Voice / STT / TTS ─────────────────────────────────────────────────
         elif section.startswith("Voice"):
             _setup_voice_mode(cfg)
+
+        # ── Portable MinGit ───────────────────────────────────────────────────
+        elif section.startswith("Portable MinGit"):
+            _setup_portable_mingit()
 
     # ── Save & exit ───────────────────────────────────────────────────────────
     save_config(cfg)
@@ -845,3 +858,58 @@ def cmd_provider(args: list) -> None:
     cfg["model"]    = new_model
     save_config(cfg)
     print(_C(f"\n  ✅  Active provider → {chosen}  /  {new_model}\n", "green"))
+
+
+def _setup_portable_mingit() -> None:
+    """Prompt, download and extract Portable MinGit for Windows."""
+    import urllib.request
+    import zipfile
+    from pathlib import Path
+    
+    _hr("·", "grey")
+    print(_C("  Portable MinGit Setup (Windows Command Isolation)", "cyan", "bold"))
+    print(_C("  Koza can download MinGit to run shell commands in a POSIX bash shell.", "grey"))
+    print(_C("  This provides shell environment consistency across platforms.\n", "grey"))
+    
+    target_dir = Path.home() / ".Koza" / "git"
+    bash_exe = target_dir / "bin" / "bash.exe"
+    
+    if bash_exe.exists():
+        print(_C(f"  ✓  MinGit is already installed at: {target_dir}\n", "green"))
+        reinstall = _prompt("Do you want to reinstall/update it?", default="n", choices=["y", "n"])
+        if reinstall.lower() != "y":
+            return
+            
+    confirm = _prompt("Download and extract Portable MinGit (~45MB)?", default="y", choices=["y", "n"])
+    if confirm.lower() != "y":
+        return
+        
+    url = "https://github.com/git-for-windows/git/releases/download/v2.44.0.windows.1/MinGit-2.44.0-64-bit.zip"
+    zip_path = Path.home() / ".Koza" / "mingit.zip"
+    
+    print(_C(f"  Downloading MinGit from Git-for-Windows releases…\n  URL: {url}", "grey"))
+    try:
+        # Download with simple progress updates
+        def progress_hook(count, block_size, total_size):
+            percent = int(count * block_size * 100 / total_size)
+            percent = min(100, percent)
+            sys.stdout.write(f"\r  Progress: {percent}%")
+            sys.stdout.flush()
+            
+        urllib.request.urlretrieve(url, str(zip_path), reporthook=progress_hook)
+        print(_C("\n  ✓  Download complete.", "green"))
+        
+        print(_C(f"  Extracting to: {target_dir}…", "grey"))
+        target_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(target_dir)
+            
+        if zip_path.exists():
+            zip_path.unlink()
+            
+        if bash_exe.exists():
+            print(_C(f"  ✅  Portable MinGit successfully installed!\n", "green"))
+        else:
+            print(_C(f"  ✗  Extraction failed: bin/bash.exe not found under {target_dir}.\n", "red"))
+    except Exception as e:
+        print(_C(f"  ✗  Installation failed: {e}\n", "red"))

@@ -96,11 +96,18 @@ class GeminiProvider(LLMProvider):
             self._client = self._build_genai_client_from_adc()
         else:  # api_key (keeps backward-compatible ADC fallback if api_key is empty)
             from google import genai
-            api_key = cfg.get("api_key")
+            self._cfg = cfg
+            api_key = self._get_api_key(cfg)
             if api_key:
                 self._client = genai.Client(api_key=api_key)
             else:
                 self._client = self._build_genai_client_from_adc()
+
+    def _update_client_key(self) -> None:
+        new_key = self._get_api_key(self._cfg)
+        if new_key and hasattr(self, "_client") and self._auth_mode == "api_key":
+            from google import genai
+            self._client = genai.Client(api_key=new_key)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

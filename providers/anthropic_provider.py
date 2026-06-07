@@ -8,8 +8,15 @@ from .base import LLMProvider
 
 class AnthropicProvider(LLMProvider):
     def __init__(self, cfg: dict):
-        self._client = anthropic.Anthropic(api_key=cfg.get("api_key", ""))
+        self._cfg = cfg
+        api_key = self._get_api_key(cfg) or ""
+        self._client = anthropic.Anthropic(api_key=api_key)
         self._model = cfg.get("model", "claude-3-5-sonnet-20241022")
+
+    def _update_client_key(self) -> None:
+        new_key = self._get_api_key(self._cfg)
+        if new_key and hasattr(self, "_client"):
+            self._client.api_key = new_key
 
     @property
     def name(self) -> str:

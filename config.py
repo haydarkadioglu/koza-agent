@@ -28,6 +28,7 @@ def default_config() -> dict:
             "zai":        {"api_key": "", "base_url": "https://open.bigmodel.cn/api/paas/v4"},
             "deepgram":   {"api_key": ""},
             "elevenlabs": {"api_key": ""},
+            "portal":     {"api_key": "", "base_url": "https://api.nous.portal/v1"},
         },
         "messaging": {
             "telegram":  {"token": "", "chat_id": ""},
@@ -129,6 +130,7 @@ def load_config() -> dict:
         "GEMINI_API_KEY":      ("providers", "gemini", "api_key"),
         "DEEPGRAM_API_KEY":    ("providers", "deepgram", "api_key"),
         "ELEVENLABS_API_KEY":  ("providers", "elevenlabs", "api_key"),
+        "PORTAL_API_KEY":      ("providers", "portal", "api_key"),
         "GITHUB_TOKEN":        ("providers", "github", "token"),
         "TELEGRAM_TOKEN":      ("messaging", "telegram", "token"),
         "TELEGRAM_CHAT_ID":    ("messaging", "telegram", "chat_id"),

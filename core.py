@@ -329,6 +329,8 @@ class Agent:
     def __init__(self, provider: LLMProvider, db_path: str, cfg: dict = None,
                  on_token: Callable[[str], None] | None = None,
                  channel: str = "cli"):
+        import uuid
+        self._session_id = str(uuid.uuid4())
         from core_context import ContextWindow
         self.provider = provider
         self.on_token = on_token
@@ -425,15 +427,29 @@ class Agent:
 
         _retried_400 = False
         for _ in range(10):  # max tool iterations
-            try:
-                response = self.provider.chat(self._trim_messages(), tools=tools)
-            except Exception as _e:
-                _emsg = str(_e)
-                if not _retried_400 and ("tool_calls" in _emsg or "400" in _emsg):
-                    _retried_400 = True
-                    self._drop_dangling_tool_calls()
-                    continue
-                raise
+            response = None
+            for key_try in range(5):
+                try:
+                    response = self.provider.chat(self._trim_messages(), tools=tools)
+                    break
+                except Exception as _e:
+                    _emsg = str(_e).lower()
+                    is_rate_limit = "429" in _emsg or "rate limit" in _emsg or "quota" in _emsg or "exhausted" in _emsg or "limit" in _emsg
+                    if is_rate_limit:
+                        if hasattr(self.provider, "rotate_key") and self.provider.rotate_key():
+                            import logging
+                            logging.getLogger(__name__).warning("Rate limit hit, rotated to next API key.")
+                            continue
+                    
+                    if not _retried_400 and ("tool_calls" in _emsg or "400" in _emsg):
+                        _retried_400 = True
+                        self._drop_dangling_tool_calls()
+                        break
+                    raise
+
+            if response is None:
+                continue
+
             content = response.get("content")
             tool_calls = response.get("tool_calls")
 
@@ -544,6 +560,7 @@ class Agent:
                 _tool_buf: dict[int, dict] = {}
 
                 _stream_retried = False
+                _stream_key_retries = 0
                 while True:
                     try:
                         for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
@@ -566,6 +583,17 @@ class Agent:
                                     yield {"type": "text", "token": token}
                         break  # stream finished successfully
                     except Exception as _e:
+                        _emsg = str(_e).lower()
+                        is_rate_limit = "429" in _emsg or "rate limit" in _emsg or "quota" in _emsg or "exhausted" in _emsg or "limit" in _emsg
+                        if is_rate_limit and _stream_key_retries < 5:
+                            if hasattr(self.provider, "rotate_key") and self.provider.rotate_key():
+                                _stream_key_retries += 1
+                                full = ""
+                                _tool_buf = {}
+                                import logging
+                                logging.getLogger(__name__).warning("Rate limit hit during stream, rotated to next API key.")
+                                continue
+
                         # Auto-recover from "tool_calls must be followed by tool messages" (400)
                         _emsg = str(_e)
                         if not _stream_retried and ("tool_calls" in _emsg or "400" in _emsg):

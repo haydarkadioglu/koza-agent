@@ -49,6 +49,9 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "codex":
         from .codex_provider import CodexProvider
         return CodexProvider(pcfg)
+    elif name == "portal":
+        from .portal_provider import NousPortalProvider
+        return NousPortalProvider(pcfg)
     else:
         raise ValueError(f"Unknown provider: {name}")
 

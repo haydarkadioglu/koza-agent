@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 # Tracks the current working directory across tool calls on a per-thread basis.
+from config import load_config
 _thread_local = threading.local()
 
 
@@ -133,60 +134,18 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
 
     clone_target = _detect_git_clone_target(command.strip(), effective_cwd)
 
-    system = platform.system()
-    # Use Popen for timeout-resilient execution
-    shell_cmd = ["bash", "-c", command] if system != "Windows" else ["pwsh", "-NoProfile", "-Command", command]
-    try:
-        proc = subprocess.Popen(
-            shell_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=effective_cwd,
-        )
-    except FileNotFoundError:
-        if system == "Windows":
-            proc = subprocess.Popen(
-                ["cmd", "/c", command],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                cwd=effective_cwd,
-            )
-        else:
-            return f"ERROR: Shell not found"
-    except Exception as e:
-        return f"ERROR: {e}"
+    cfg = load_config()
+    backend = cfg.get("terminal", {}).get("backend", "local")
 
-    stdout_lines = []
-    stderr_lines = []
-    t_out = threading.Thread(target=_read_stream, args=(proc.stdout, stdout_lines), daemon=True)
-    t_err = threading.Thread(target=_read_stream, args=(proc.stderr, stderr_lines), daemon=True)
-    t_out.start()
-    t_err.start()
-
-    # Poll until timeout, then check if still running
-    deadline = time.time() + timeout
-    poll_interval = 0.5
-    while time.time() < deadline:
-        ret = proc.poll()
-        if ret is not None:
-            break
-        time.sleep(poll_interval)
+    if backend == "docker":
+        from skills.environments import DockerEnvironment
+        ws_path = cfg.get("workspace_path", str(Path(os.path.expanduser("~")) / ".Koza" / "workspace"))
+        env = DockerEnvironment(ws_path)
     else:
-        ret = proc.poll()
+        from skills.environments import LocalEnvironment
+        env = LocalEnvironment()
 
-    # Wait up to 1 second for reader threads to flush and exit if finished
-    if ret is not None:
-        t_out.join(timeout=1.0)
-        t_err.join(timeout=1.0)
-
-    stdout = "".join(stdout_lines)
-    stderr = "".join(stderr_lines)
+    ret, stdout, stderr = env.execute(command, cwd=effective_cwd, timeout=timeout)
 
     output = [f"Working directory: {effective_cwd}"]
     if stdout.strip():
@@ -194,8 +153,8 @@ def run_command(command: str, cwd: str = None, timeout: int = 30) -> str:
     if stderr.strip():
         output.append(f"STDERR:\n{stderr.strip()}")
 
-    if ret is None:
-        output.append(f"⏳ Command still running after {timeout}s. Still in progress — do not retry, wait for next poll.")
+    if ret == -1 and not stdout and not stderr:
+        output.append(f"⏳ Command timed out or execution failed after {timeout}s.")
     else:
         output.append(f"Exit code: {ret}")
 

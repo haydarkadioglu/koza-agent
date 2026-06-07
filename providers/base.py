@@ -110,6 +110,11 @@ class LLMProvider(ABC):
         """Provider identifier (e.g. 'openai')."""
 
     @property
+    def model(self) -> str:
+        """The active model name (e.g. 'gpt-4o')."""
+        return getattr(self, "_model", "")
+
+    @property
     def supports_thinking(self) -> bool:
         """True for models with native reasoning/thinking tokens (e.g. o1, Claude extended thinking, DeepSeek-R1)."""
         return False

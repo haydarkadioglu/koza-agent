@@ -1,19 +1,22 @@
-"""OpenAI provider (API key + Azure OAuth compatible)."""
+"""Nous Portal provider (unified subscription proxy gateway)."""
+from openai import OpenAI
 from typing import Generator
 import json
-from openai import OpenAI
 from .base import LLMProvider
 
 
-class OpenAIProvider(LLMProvider):
+class NousPortalProvider(LLMProvider):
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        api_key = self._get_api_key(cfg) or "sk-placeholder"
+        api_key = self._get_api_key(cfg) or "portal-placeholder"
         self._client = OpenAI(
             api_key=api_key,
-            base_url=cfg.get("base_url", "https://api.openai.com/v1"),
+            base_url=cfg.get("base_url", "https://api.nous.portal/v1"),
+            default_headers={
+                "X-Client-Name": "Koza Agent",
+            },
         )
-        self._model = cfg.get("model", "gpt-4o")
+        self._model = cfg.get("model", "nous/hermes-3-llama-3.1-405b")
 
     def _update_client_key(self) -> None:
         new_key = self._get_api_key(self._cfg)
@@ -22,18 +25,17 @@ class OpenAIProvider(LLMProvider):
 
     @property
     def name(self) -> str:
-        return "openai"
+        return "portal"
 
     @property
     def supports_thinking(self) -> bool:
-        # o1, o3, o4 series have reasoning/thinking
-        return bool(__import__("re").match(r"o[134]", self._model))
+        m = self._model.lower()
+        return "r1" in m or "reasoner" in m or "thinking" in m
 
     @property
     def supports_vision(self) -> bool:
-        # gpt-4o, gpt-4-turbo, and o-series support vision
         m = self._model.lower()
-        return "gpt-4o" in m or "gpt-4-turbo" in m or "gpt-4v" in m or m.startswith("o")
+        return "vision" in m or "gpt-4" in m or "claude-3" in m or "gemini" in m
 
     def chat(self, messages, tools=None, stream=False):
         kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages)}
@@ -45,7 +47,8 @@ class OpenAIProvider(LLMProvider):
         tool_calls = None
         if msg.tool_calls:
             tool_calls = [
-                {"id": tc.id, "name": tc.function.name, "arguments": json.loads(tc.function.arguments)}
+                {"id": tc.id, "name": tc.function.name,
+                 "arguments": json.loads(tc.function.arguments)}
                 for tc in msg.tool_calls
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
@@ -67,7 +70,6 @@ class OpenAIProvider(LLMProvider):
             choice = chunk.choices[0]
             delta = choice.delta
 
-            # Buffer tool call deltas
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -80,12 +82,12 @@ class OpenAIProvider(LLMProvider):
                             tool_chunks[idx]["name"] += tc.function.name
                         if getattr(tc.function, "arguments", None):
                             tool_chunks[idx]["args"] += tc.function.arguments
+                continue
 
-            # Yield text content immediately
             if delta.content:
                 yield delta.content
 
-        # Yield buffered tool call chunks after text stream completes
+        # Yield tool call chunks after text
         for idx, stc in sorted(tool_chunks.items()):
             if stc["name"]:
                 try:
@@ -102,6 +104,14 @@ class OpenAIProvider(LLMProvider):
 
     def list_models(self) -> list[str]:
         try:
-            return [m.id for m in self._client.models.list()]
+            models = self._client.models.list()
+            return [m.id for m in models.data[:50]]
         except Exception:
-            return ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
+            return [
+                "nous/hermes-3-llama-3.1-405b",
+                "nous/hermes-3-llama-3.1-70b",
+                "nous/hermes-3-llama-3.1-8b",
+                "openai/gpt-4o",
+                "anthropic/claude-3-5-sonnet",
+                "deepseek/deepseek-r1",
+            ]

@@ -222,15 +222,37 @@ def gui() -> None:
         from ui.gui_app import start_gui
         start_gui()
     except Exception as exc:
-        print(f"Failed to start GUI: {exc}")
         exc_str = str(exc)
         if "QT or GTK" in exc_str or "guilib" in exc_str or "webview" in exc_str:
-            print("\nTo resolve this on Linux (e.g. Kali, Debian, Ubuntu):")
+            print(f"Failed to start GUI: {exc}")
+            print("\nNo GUI backend (PySide6/PyQt6/GTK) was found in your environment.")
+            try:
+                ans = input("Would you like to install PySide6 automatically now? [y/N]: ").strip().lower()
+            except Exception:
+                ans = "n"
+            if ans in ("y", "yes"):
+                print("Installing PySide6... (this may take a moment)")
+                try:
+                    import sys
+                    import subprocess
+                    subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "PySide6"],
+                        check=True
+                    )
+                    print("PySide6 installed successfully! Starting GUI...")
+                    from ui.gui_app import start_gui
+                    start_gui()
+                    return
+                except Exception as pip_err:
+                    print(f"Failed to install PySide6 automatically: {pip_err}")
+            
+            print("\nTo resolve this manually on Linux (e.g. Kali, Debian, Ubuntu):")
             print("  Option A (Recommended): Install PySide6 into your virtual environment:")
             print("      pip install PySide6")
             print("  Option B: Install system GTK and WebKit packages:")
             print("      sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1")
         else:
+            print(f"Failed to start GUI: {exc}")
             print("Make sure pywebview is installed: pip install pywebview")
 
 
