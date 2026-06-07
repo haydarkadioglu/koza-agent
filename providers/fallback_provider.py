@@ -16,6 +16,11 @@ class FallbackProvider(LLMProvider):
         self.primary = primary
         self.fallback = fallback
 
+    def rotate_key(self) -> bool:
+        if hasattr(self.primary, "rotate_key"):
+            return self.primary.rotate_key()
+        return False
+
     # ── LLMProvider interface ─────────────────────────────────────────────────
 
     def chat(self, messages: list[dict], tools: list[dict] = None) -> dict:

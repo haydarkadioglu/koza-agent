@@ -114,6 +114,32 @@ class LLMProvider(ABC):
         """The active model name (e.g. 'gpt-4o')."""
         return getattr(self, "_model", "")
 
+    def _get_api_key(self, cfg: dict, key_name: str = "api_key") -> str:
+        if not hasattr(self, "_api_keys"):
+            raw_key = cfg.get(key_name) or cfg.get("token") or ""
+            if isinstance(raw_key, list):
+                self._api_keys = [str(k).strip() for k in raw_key if k]
+            elif isinstance(raw_key, str) and "," in raw_key:
+                self._api_keys = [str(k).strip() for k in raw_key.split(",") if k]
+            elif raw_key:
+                self._api_keys = [str(raw_key).strip()]
+            else:
+                self._api_keys = []
+            self._api_key_index = 0
+        if not self._api_keys:
+            return ""
+        return self._api_keys[self._api_key_index]
+
+    def rotate_key(self) -> bool:
+        if not hasattr(self, "_api_keys") or len(self._api_keys) <= 1:
+            return False
+        self._api_key_index = (self._api_key_index + 1) % len(self._api_keys)
+        self._update_client_key()
+        return True
+
+    def _update_client_key(self) -> None:
+        pass
+
     @property
     def supports_thinking(self) -> bool:
         """True for models with native reasoning/thinking tokens (e.g. o1, Claude extended thinking, DeepSeek-R1)."""

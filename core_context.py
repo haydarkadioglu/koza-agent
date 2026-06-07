@@ -6,6 +6,8 @@ cleanup. Extracted from core.Agent to keep it focused on orchestration.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -69,6 +71,92 @@ def count_tokens(messages: list[dict], model: str = "") -> int:
                         elif isinstance(args, str):
                             total_chars += len(args)
         return total_chars // 4
+
+
+def group_into_blocks(messages: list[dict]) -> list[list[dict]]:
+    """Group messages into atomic blocks (e.g. user message, or assistant call + all its tool results).
+
+    Ensures that a tool call and its results are never separated.
+    """
+    blocks: list[list[dict]] = []
+    current_block: list[dict] = []
+    
+    in_tool_block = False
+    pending_tool_ids: set[str] = set()
+    
+    for msg in messages:
+        role = msg.get("role")
+        
+        if role == "system":
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
+            blocks.append([msg])
+            continue
+            
+        if role == "user":
+            if current_block:
+                blocks.append(current_block)
+            current_block = [msg]
+            in_tool_block = False
+            pending_tool_ids = set()
+            
+        elif role == "assistant":
+            if current_block:
+                blocks.append(current_block)
+            current_block = [msg]
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                in_tool_block = True
+                pending_tool_ids = {tc.get("id", tc.get("name", "")) for tc in tool_calls}
+            else:
+                in_tool_block = False
+                pending_tool_ids = set()
+                
+        elif role == "tool":
+            tool_call_id = msg.get("tool_call_id", msg.get("name", ""))
+            if in_tool_block and tool_call_id in pending_tool_ids:
+                current_block.append(msg)
+                pending_tool_ids.discard(tool_call_id)
+                if not pending_tool_ids:
+                    in_tool_block = False
+            else:
+                if current_block:
+                    blocks.append(current_block)
+                current_block = [msg]
+                in_tool_block = False
+                pending_tool_ids = set()
+        else:
+            if current_block:
+                blocks.append(current_block)
+            current_block = [msg]
+            
+    if current_block:
+        blocks.append(current_block)
+        
+    return blocks
+
+
+def get_safe_window(messages: list[dict], max_messages: int) -> list[dict]:
+    """Slices messages to keep at most max_messages while keeping tool blocks intact."""
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    non_system = [m for m in messages if m.get("role") != "system"]
+    
+    blocks = group_into_blocks(non_system)
+    
+    kept_messages: list[dict] = []
+    total_count = 0
+    
+    for block in reversed(blocks):
+        if total_count + len(block) <= max_messages:
+            kept_messages = block + kept_messages
+            total_count += len(block)
+        else:
+            if not kept_messages:
+                kept_messages = block
+            break
+            
+    return system_msgs + kept_messages
 
 
 class ContextWindow:
@@ -150,20 +238,40 @@ class ContextWindow:
     # ── Compaction ────────────────────────────────────────────────────────────
 
     def _compact_tool_messages(self, messages: list[dict]) -> list[dict]:
-        """Replace old tool message pairs with single compact notes.
-
-        Tool call + result pairs older than TOOL_COMPACT_AFTER non-system messages
-        are compressed to a single user-role "[tool log]" message.
-        """
+        """Replace old tool message pairs with single compact notes, preserving blocks."""
         non_system = [m for m in messages if m.get("role") != "system"]
         system_msgs = [m for m in messages if m.get("role") == "system"]
 
         if len(non_system) <= TOOL_COMPACT_AFTER:
             return messages
 
-        cut = len(non_system) - TOOL_COMPACT_AFTER
-        old_msgs = non_system[:cut]
-        recent_msgs = non_system[cut:]
+        blocks = group_into_blocks(non_system)
+        
+        recent_blocks: list[list[dict]] = []
+        old_blocks: list[list[dict]] = []
+        total_recent_count = 0
+        
+        for block in reversed(blocks):
+            if total_recent_count + len(block) <= TOOL_COMPACT_AFTER:
+                recent_blocks.insert(0, block)
+                total_recent_count += len(block)
+            else:
+                if not recent_blocks:
+                    recent_blocks.insert(0, block)
+                    total_recent_count += len(block)
+                else:
+                    old_blocks.insert(0, block)
+        
+        if not old_blocks:
+            return messages
+            
+        old_msgs: list[dict] = []
+        for b in old_blocks:
+            old_msgs.extend(b)
+            
+        recent_msgs: list[dict] = []
+        for b in recent_blocks:
+            recent_msgs.extend(b)
 
         log_lines: list[str] = []
         skip_ids: set[str] = set()
@@ -221,13 +329,23 @@ class ContextWindow:
         if total_tokens < 0.9 * limit and len(rest) <= MAX_CONTEXT_MESSAGES:
             return
 
-        # Keep last 15 messages intact
-        keep_count = min(15, len(rest))
-        if len(rest) <= keep_count:
+        blocks = group_into_blocks(rest)
+        
+        # Keep last 5 blocks intact, summarize the rest
+        keep_blocks_count = min(5, len(blocks))
+        if len(blocks) <= keep_blocks_count:
             return
 
-        overflow = rest[:-keep_count]
-        keep = rest[-keep_count:]
+        overflow_blocks = blocks[:-keep_blocks_count]
+        keep_blocks = blocks[-keep_blocks_count:]
+
+        overflow: list[dict] = []
+        for b in overflow_blocks:
+            overflow.extend(b)
+
+        keep: list[dict] = []
+        for b in keep_blocks:
+            keep.extend(b)
 
         lines = []
         for m in overflow:
@@ -277,19 +395,8 @@ class ContextWindow:
     # ── Trimming ──────────────────────────────────────────────────────────────
 
     def trim(self, provider_supports_vision: bool = False) -> list[dict]:
-        """Return a trimmed, normalized window of messages for an LLM call.
-
-        Applies in order:
-        1. Windowing to MAX_CONTEXT_MESSAGES
-        2. Compact old tool pairs
-        3. Remove orphan tool messages
-        4. Remove dangling assistant+tool_calls
-        5. Normalize to API format
-        6. Flatten vision content for non-vision providers
-        """
-        system = [m for m in self.messages if m.get("role") == "system"]
-        rest = [m for m in self.messages if m.get("role") != "system"]
-        window = system + rest[-MAX_CONTEXT_MESSAGES:]
+        """Return a trimmed, normalized window of messages for an LLM call."""
+        window = get_safe_window(self.messages, MAX_CONTEXT_MESSAGES)
 
         # Pass 0: compact old tool pairs
         window = self._compact_tool_messages(window)

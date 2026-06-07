@@ -421,96 +421,58 @@ class Agent:
 
     def chat(self, user_input: str) -> str:
         """Send a user message, run tool loop, return final response."""
-        self._refresh_memory_context(user_input)
-        self.messages.append({"role": "user", "content": user_input})
-        tools = _select_tools(user_input)
-
-        _retried_400 = False
-        for _ in range(10):  # max tool iterations
-            response = None
-            for key_try in range(5):
-                try:
-                    response = self.provider.chat(self._trim_messages(), tools=tools)
-                    break
-                except Exception as _e:
-                    _emsg = str(_e).lower()
-                    is_rate_limit = "429" in _emsg or "rate limit" in _emsg or "quota" in _emsg or "exhausted" in _emsg or "limit" in _emsg
-                    if is_rate_limit:
-                        if hasattr(self.provider, "rotate_key") and self.provider.rotate_key():
-                            import logging
-                            logging.getLogger(__name__).warning("Rate limit hit, rotated to next API key.")
-                            continue
-                    
-                    if not _retried_400 and ("tool_calls" in _emsg or "400" in _emsg):
-                        _retried_400 = True
-                        self._drop_dangling_tool_calls()
-                        break
-                    raise
-
-            if response is None:
-                continue
-
-            content = response.get("content")
-            tool_calls = response.get("tool_calls")
-
-            if not tool_calls:
-                if content:
-                    self.messages.append({"role": "assistant", "content": content})
-                return content or ""
-
-            self.messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
-            permanent_failure = False
-            for tc in tool_calls:
-                name, args = tc["name"], tc.get("arguments", {})
-                if self.permission_callback and not self.permission_callback(name, args):
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", name),
-                        "name": name,
-                        "content": "Permission denied by user.",
-                    })
-                    continue
-                result = self._execute_tool(name, args)
-                result_str = str(result)
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", name),
-                    "name": name,
-                    "content": result_str,
-                })
-                if "PERMANENT FAILURE" in result_str:
-                    permanent_failure = True
-
-            # Expand tools for next round if model called something outside current set
-            tools = _expand_tools_for_call(tools, [tc["name"] for tc in tool_calls])
-
-            if permanent_failure:
-                self.messages.append({"role": "user", "content": "The tool returned a PERMANENT FAILURE. Report the error to the user and stop."})
-                response = self.provider.chat(self._trim_messages(), tools=[])
-                final = (response.get("content") or "").strip()
-                if final:
-                    self.messages.append({"role": "assistant", "content": final})
-                return final or ""
-
-        return "Max tool iterations reached."
+        import time
+        from skills.agents.trajectory import record_trajectory
+        
+        t0 = time.time()
+        final_response_tokens = []
+        for event in self._run_conversation_loop(user_input):
+            if event.get("type") == "text":
+                final_response_tokens.append(event.get("token", ""))
+            
+        elapsed = time.time() - t0
+        res = "".join(final_response_tokens)
+        record_trajectory(self._session_id, {
+            "elapsed_time": elapsed,
+            "provider": self.provider.name,
+            "model": getattr(self.provider, "model", ""),
+            "user_input": user_input,
+            "response": res,
+        })
+        return res
 
     def stream_chat(self, user_input: str, image_path: str | None = None):
+        import time
+        from skills.agents.trajectory import record_trajectory
+        
+        t0 = time.time()
+        final_response_tokens = []
+        for event in self._run_conversation_loop(user_input, image_path):
+            if event.get("type") == "text":
+                final_response_tokens.append(event.get("token", ""))
+            yield event
+            
+        elapsed = time.time() - t0
+        res = "".join(final_response_tokens)
+        record_trajectory(self._session_id, {
+            "elapsed_time": elapsed,
+            "provider": self.provider.name,
+            "model": getattr(self.provider, "model", ""),
+            "user_input": user_input,
+            "response": res,
+        })
+
+    def _run_conversation_loop(self, user_input: str, image_path: str | None = None):
         """
-        Stream chat — yields structured events:
+        Unified conversation loop that drives one turn.
+        Yields structured events:
           {"type": "thinking"}                         — waiting for LLM
+          {"type": "text", "token": token}             — text token from LLM
           {"type": "tool_start", "name": ..., "args": ...}
           {"type": "tool_done",  "name": ..., "result": ..., "elapsed": float}
           {"type": "tool_denied", "name": ...}
-          {"type": "text", "token": ...}               — streamed response token
-
-        Args:
-            user_input: The user's text message.
-            image_path: Optional path to an image file. When provided and the
-                current provider supports vision, the image is encoded as base64
-                and sent alongside the text in a multi-part content message.
-
-        Agentic loop: keeps calling tools until the model produces a pure-text
-        response (no more tool calls / DSML bleed-through).
+          {"type": "error", "message": ...}
+          {"type": "interrupted"}
         """
         import time, json as _json
 
@@ -547,6 +509,7 @@ class Agent:
 
         try:
             MAX_ROUNDS = 25  # safety cap — allows complex multi-step tasks
+            empty_retries = 0
             for _round in range(MAX_ROUNDS):
                 if self._cancel.is_set():
                     yield {"type": "interrupted"}
@@ -609,6 +572,26 @@ class Agent:
                         # For any other exception, yield an error event instead of crashing
                         yield {"type": "error", "message": str(_e)}
                         return
+
+                # ── Empty response detection & recovery ──────────────────────────
+                if not full and not _tool_buf:
+                    if empty_retries < 3:
+                        empty_retries += 1
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"Empty response from model — retry {empty_retries}/3"
+                        )
+                        # We trigger a status/thinking event and continue the loop to retry
+                        if self.provider.supports_thinking:
+                            yield {"type": "thinking"}
+                        continue
+                    else:
+                        # Retries exhausted
+                        self.messages.append({"role": "assistant", "content": ""})
+                        return
+
+                # Reset empty retries counter if we got some content or tool calls
+                empty_retries = 0
 
                 # ── No tool calls → pure text response, done ─────────────────────
                 if not _tool_buf:
