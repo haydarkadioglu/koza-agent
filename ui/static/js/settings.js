@@ -53,9 +53,6 @@ function switchSettingsTab(subTabId) {
     const activePanel = document.getElementById(`settings-panel-${subTabId}`);
     if (activePanel) activePanel.classList.add('active');
     
-    if (subTabId === 'skills') {
-        loadPluginsAndSkills();
-    }
 }
 
 function loadSettings() {
@@ -117,6 +114,13 @@ function loadSettings() {
             // General settings
             document.getElementById('setting-tool-approval').checked = !!cfg.tool_approval;
             document.getElementById('setting-coding-autotest').checked = !!(cfg.coding_mode && cfg.coding_mode.auto_test);
+            
+            // Self-Improvement Curator setting
+            const selfImproveEnabled = !!(cfg.self_improvement && cfg.self_improvement.enabled);
+            const selfImproveEl = document.getElementById('setting-self-improvement');
+            if (selfImproveEl) {
+                selfImproveEl.checked = selfImproveEnabled;
+            }
             
             // Voice settings
             const voiceEnabled = !!(cfg.voice && cfg.voice.enabled);

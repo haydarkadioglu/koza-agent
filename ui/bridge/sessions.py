@@ -16,6 +16,7 @@ class SessionMixin:
             sys_msg = self.agent.messages[0] if self.agent.messages and self.agent.messages[0].get("role") == "system" else None
             self.agent.messages = ([sys_msg] if sys_msg else []) + msgs
             self.agent._context_summary = ""
+            self.agent._active_session_id = session_id
             
             # Filter user/assistant messages for presentation
             chat_history = [m for m in msgs if m.get("role") in ("user", "assistant")]

@@ -93,6 +93,15 @@ def default_config() -> dict:
             "default": "plain",          # plain | tui
             "refresh_interval_ms": 1500,
         },
+        "self_improvement": {
+            "enabled": True,
+        },
+        "disabled_skills": [
+            "browser_control", "cron", "creative", "datascience", "devops", 
+            "email_skill", "finance", "gaming", "github_skill", "mcp_skill", 
+            "media", "mlops", "productivity", "research", "security", 
+            "smarthome", "social", "messaging", "sync", "vision"
+        ],
     }
 
 
@@ -110,6 +119,8 @@ def load_config() -> dict:
                 cfg["multi_host"].update(val)
             elif key == "ui" and isinstance(val, dict):
                 cfg["ui"].update(val)
+            elif key == "self_improvement" and isinstance(val, dict):
+                cfg["self_improvement"].update(val)
             elif key == "voice" and isinstance(val, dict):
                 default_stt = dict(cfg["voice"].get("stt", {}))
                 default_tts = dict(cfg["voice"].get("tts", {}))

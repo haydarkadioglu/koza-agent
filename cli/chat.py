@@ -588,6 +588,7 @@ def _plain_cli(agent, cfg: dict) -> None:
                 sys_msg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
                 agent.messages = ([sys_msg] if sys_msg else []) + msgs
                 agent._context_summary = ""
+                agent._active_session_id = sid
                 if _ui_renderer[0]:
                     _ui_renderer[0]._total_tokens = 0
                 user_msgs = [m for m in msgs if m.get("role") in ("user", "assistant")]

@@ -74,19 +74,25 @@ def _conn():
 
 # ─── Tool: save_session ──────────────────────────────────────────────────────
 
-def save_session(title: str, messages: list, summary: str = "") -> str:
-    """Save current conversation to persistent storage."""
+def save_session(title: str, messages: list, summary: str = "", session_id: int | None = None) -> int:
+    """Save or update conversation to persistent storage. Returns the session ID (int)."""
     if not _db_path:
-        return "Session DB not initialized."
+        return 0
     now = time.time()
     messages_json = json.dumps(messages, ensure_ascii=False)
     with _conn() as conn:
-        cursor = conn.execute(
-            "INSERT INTO sessions (title, started, ended, messages, summary) VALUES (?, ?, ?, ?, ?)",
-            (title, now, now, messages_json, summary),
-        )
-        session_id = cursor.lastrowid
-    return f"Session #{session_id} saved: '{title}'"
+        if session_id:
+            conn.execute(
+                "UPDATE sessions SET title = ?, ended = ?, messages = ?, summary = ? WHERE id = ?",
+                (title, now, messages_json, summary, session_id),
+            )
+        else:
+            cursor = conn.execute(
+                "INSERT INTO sessions (title, started, ended, messages, summary) VALUES (?, ?, ?, ?, ?)",
+                (title, now, now, messages_json, summary),
+            )
+            session_id = cursor.lastrowid
+    return session_id
 
 
 # ─── Tool: recall_sessions ───────────────────────────────────────────────────
@@ -306,6 +312,6 @@ HANDLERS: dict = {
     "recall_sessions":         lambda query, limit=5: recall_sessions(query, int(limit)),
     "recall_recent_sessions":  lambda hours=24, limit=5: recall_recent_sessions(int(hours), int(limit)),
     "list_sessions":           lambda limit=20: list_sessions(int(limit)),
-    "save_session":            lambda title, messages=None, summary="": save_session(title, messages or [], summary),
+    "save_session":            lambda title, messages=None, summary="": f"Session #{save_session(title, messages or [], summary)} saved: '{title}'",
     "delete_session":          lambda session_id: delete_session(int(session_id)),
 }

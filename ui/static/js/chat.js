@@ -1,3 +1,46 @@
+let currentAttachments = [];
+
+function handleAttachClick() {
+    window.pywebview.api.upload_file().then(res => {
+        if (res && res.status === 'success' && res.file) {
+            currentAttachments.push(res.file);
+            renderAttachments();
+        } else if (res && res.status === 'error') {
+            alert(res.message);
+        }
+    });
+}
+
+function renderAttachments() {
+    const area = document.getElementById('attachment-preview-area');
+    if (!area) return;
+    area.innerHTML = '';
+    if (currentAttachments.length === 0) {
+        area.style.display = 'none';
+        return;
+    }
+    area.style.display = 'flex';
+    currentAttachments.forEach((file, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'attachment-chip';
+        
+        const iconClass = file.is_image ? 'fa-solid fa-file-image' : 'fa-solid fa-file';
+        chip.innerHTML = `
+            <i class="${iconClass}"></i>
+            <span class="file-name" title="${file.path}">${file.name}</span>
+            <button class="remove-btn" onclick="removeAttachment(${idx})">
+                <i class="fa-solid fa-times"></i>
+            </button>
+        `;
+        area.appendChild(chip);
+    });
+}
+
+function removeAttachment(idx) {
+    currentAttachments.splice(idx, 1);
+    renderAttachments();
+}
+
 function fillInput(text) {
     const input = document.getElementById('chat-input');
     input.value = text;
@@ -26,17 +69,40 @@ function sendMessage() {
     const welcome = document.querySelector('.welcome-box');
     if (welcome) welcome.remove();
 
-    appendMessageBubble('user', message);
+    // Capture attachments
+    const attachmentsToSend = [...currentAttachments];
+    currentAttachments = [];
+    renderAttachments();
+
+    // Render bubble with attachments
+    appendMessageBubble('user', message, attachmentsToSend);
     
     document.getElementById('stream-status').style.display = 'flex';
     document.getElementById('status-text').innerText = LOCALIZATION[currentLanguage].thinking;
     
-    window.pywebview.api.send_chat_message(message).then(res => {
+    // Process attachments
+    let processedMessage = message;
+    let imagePath = null;
+    
+    const imageAttach = attachmentsToSend.find(att => att.is_image);
+    if (imageAttach) {
+        imagePath = imageAttach.path;
+    }
+    
+    const nonImages = attachmentsToSend.filter(att => !att.is_image);
+    if (nonImages.length > 0) {
+        processedMessage += "\n\n--- Attached Files ---\n";
+        nonImages.forEach(att => {
+            processedMessage += `[File: ${att.name} (Location: ${att.path})]\n`;
+        });
+    }
+    
+    window.pywebview.api.send_chat_message(processedMessage, imagePath).then(res => {
         console.log('Chat stream started:', res);
     });
 }
 
-function appendMessageBubble(role, content) {
+function appendMessageBubble(role, content, attachments = []) {
     const chatMsgs = document.getElementById('chat-messages');
     
     const messageDiv = document.createElement('div');
@@ -49,6 +115,36 @@ function appendMessageBubble(role, content) {
     const bubble = document.createElement('div');
     bubble.classList.add('message-bubble');
     bubble.innerHTML = formatMarkdown(content);
+    
+    if (attachments && attachments.length > 0) {
+        const attachContainer = document.createElement('div');
+        attachContainer.className = 'bubble-attachments';
+        attachContainer.style.display = 'flex';
+        attachContainer.style.flexWrap = 'wrap';
+        attachContainer.style.gap = '8px';
+        attachContainer.style.marginTop = '8px';
+        attachContainer.style.borderTop = '1px solid rgba(255, 255, 255, 0.05)';
+        attachContainer.style.paddingTop = '6px';
+        
+        attachments.forEach(file => {
+            const chip = document.createElement('div');
+            chip.className = 'attachment-chip bubble-chip';
+            chip.style.background = 'rgba(255, 255, 255, 0.05)';
+            chip.style.border = '1px solid rgba(255, 255, 255, 0.08)';
+            chip.style.borderRadius = '6px';
+            chip.style.padding = '3px 8px';
+            chip.style.fontSize = '11px';
+            chip.style.display = 'flex';
+            chip.style.alignItems = 'center';
+            chip.style.gap = '6px';
+            chip.style.color = 'var(--text-primary)';
+            
+            const iconClass = file.is_image ? 'fa-solid fa-file-image' : 'fa-solid fa-file';
+            chip.innerHTML = `<i class="${iconClass}"></i><span>${file.name}</span>`;
+            attachContainer.appendChild(chip);
+        });
+        bubble.appendChild(attachContainer);
+    }
     
     messageDiv.appendChild(label);
     messageDiv.appendChild(bubble);

@@ -331,6 +331,7 @@ class Agent:
                  channel: str = "cli"):
         import uuid
         self._session_id = str(uuid.uuid4())
+        self._active_session_id = None
         from core_context import ContextWindow
         self.provider = provider
         self.on_token = on_token
@@ -402,10 +403,37 @@ class Agent:
         self._ctx.summary = value
 
     def _drop_dangling_tool_calls(self) -> int:
-        return self._ctx.drop_dangling_tool_calls()
+        if hasattr(self, "_ctx"):
+            return self._ctx.drop_dangling_tool_calls()
+        result_ids = {
+            m.get("tool_call_id", "")
+            for m in self.messages
+            if m.get("role") == "tool"
+        }
+        removed = 0
+        clean = []
+        skip_ids = set()
+        for m in self.messages:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                missing = [
+                    tc for tc in m["tool_calls"]
+                    if tc.get("id", tc.get("name", "")) not in result_ids
+                ]
+                if missing:
+                    for tc in m["tool_calls"]:
+                        skip_ids.add(tc.get("id", tc.get("name", "")))
+                    removed += 1
+                    continue
+            if m.get("role") == "tool" and m.get("tool_call_id", "") in skip_ids:
+                removed += 1
+                continue
+            clean.append(m)
+        self.messages = clean
+        return removed
 
     def _maybe_build_rolling_summary(self) -> None:
-        self._ctx.maybe_build_rolling_summary()
+        if hasattr(self, "_ctx"):
+            self._ctx.maybe_build_rolling_summary()
 
     def _trim_messages(self) -> list[dict]:
         if hasattr(self, "_ctx"):
@@ -570,7 +598,7 @@ class Agent:
 
                         # Auto-recover from "tool_calls must be followed by tool messages" (400)
                         _emsg = str(_e)
-                        if not _stream_retried and ("tool_calls" in _emsg or "400" in _emsg):
+                        if not _stream_retried and not full and not _tool_buf and ("tool_calls" in _emsg or "400" in _emsg):
                             _stream_retried = True
                             n = self._drop_dangling_tool_calls()
                             import logging as _logging
@@ -831,6 +859,7 @@ class Agent:
 
     def reset(self):
         self.auto_save()  # save session before clearing
+        self._active_session_id = None  # reset active session ID
         self.messages = [{"role": "system", "content": build_system_prompt(channel=self.channel)}]
         self._context_summary = ""
         working_memory.wm_clear()  # wipe short-term memory on reset
@@ -845,4 +874,7 @@ class Agent:
                     break
             title = title or "Untitled Session"
         msgs = [m for m in self.messages if m.get("role") != "system"]
-        return session_memory.save_session(title, msgs, summary)
+        active_id = getattr(self, "_active_session_id", None)
+        new_id = session_memory.save_session(title, msgs, summary, session_id=active_id)
+        self._active_session_id = new_id
+        return f"Session #{new_id} saved: '{title}'"

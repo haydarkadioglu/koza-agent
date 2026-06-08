@@ -77,4 +77,5 @@ function switchTab(tabId) {
     if (tabId === 'kanban') loadKanbanTasks();
     if (tabId === 'sessions') loadSessions();
     if (tabId === 'settings') loadSettings();
+    if (tabId === 'skills') loadPluginsAndSkills();
 }

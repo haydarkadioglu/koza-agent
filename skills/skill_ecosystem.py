@@ -149,6 +149,61 @@ def skill_get_context(names: list[str]) -> str:
     return "\n".join(parts) if parts else ""
 
 
+def enable_core_skill(skill_id: str) -> str:
+    """Dynamically enable a core built-in skill/toolset (e.g. 'browser_control', 'finance', 'github_skill', etc.) so its tools become available in the next turns."""
+    from config import load_config, save_config
+    from tools.registry import rebuild_registry, STATIC_SKILL_MODULES
+    
+    if skill_id not in STATIC_SKILL_MODULES:
+        return f"❌ Skill '{skill_id}' is not a valid built-in skill. Valid choices: {list(STATIC_SKILL_MODULES.keys())}"
+        
+    cfg = load_config()
+    disabled = cfg.get("disabled_skills", [])
+    if skill_id in disabled:
+        disabled.remove(skill_id)
+        cfg["disabled_skills"] = disabled
+        save_config(cfg)
+        rebuild_registry()
+        return f"✅ Skill '{skill_id}' has been successfully enabled. Its tools are now available for your next calls."
+    else:
+        return f"ℹ️ Skill '{skill_id}' was already enabled."
+
+
+def disable_core_skill(skill_id: str) -> str:
+    """Disable a core built-in skill/toolset so its tools are removed from your next turns."""
+    from config import load_config, save_config
+    from tools.registry import rebuild_registry, STATIC_SKILL_MODULES
+    
+    if skill_id not in STATIC_SKILL_MODULES:
+        return f"❌ Skill '{skill_id}' is not a valid built-in skill. Valid choices: {list(STATIC_SKILL_MODULES.keys())}"
+        
+    cfg = load_config()
+    disabled = cfg.get("disabled_skills", [])
+    if skill_id not in disabled:
+        disabled.append(skill_id)
+        cfg["disabled_skills"] = disabled
+        save_config(cfg)
+        rebuild_registry()
+        return f"⏹️ Skill '{skill_id}' has been disabled."
+    else:
+        return f"ℹ️ Skill '{skill_id}' was already disabled."
+
+
+def list_core_skills() -> str:
+    """List all available core built-in skills, indicating which ones are currently enabled or disabled."""
+    from config import load_config
+    from tools.registry import STATIC_SKILL_MODULES
+    
+    cfg = load_config()
+    disabled = cfg.get("disabled_skills", [])
+    
+    lines = ["Core Built-in Skills Status:"]
+    for s_id in sorted(STATIC_SKILL_MODULES.keys()):
+        status = "DISABLED" if s_id in disabled else "ENABLED"
+        lines.append(f"  - {s_id}: {status}")
+    return "\n".join(lines)
+
+
 # ─── Tool definitions ────────────────────────────────────────────────────────
 
 TOOL_DEFINITIONS = [
@@ -204,6 +259,36 @@ TOOL_DEFINITIONS = [
             "required": ["name"],
         },
     },
+    {
+        "name": "enable_core_skill",
+        "description": "Dynamically enable a core built-in skill/toolset (e.g. 'browser_control', 'finance', 'github_skill', etc.) so its tools become available in the next turns.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string", "description": "The ID of the built-in skill (e.g. 'browser_control', 'finance', 'github_skill', 'cron', 'creative', 'datascience', 'devops', 'email_skill', 'gaming', 'mcp_skill', 'media', 'mlops', 'productivity', 'research', 'security', 'smarthome', 'social', 'messaging', 'sync', 'vision')"},
+            },
+            "required": ["skill_id"],
+        },
+    },
+    {
+        "name": "disable_core_skill",
+        "description": "Disable a core built-in skill/toolset so its tools are removed from your next turns.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string", "description": "The ID of the built-in skill to disable"},
+            },
+            "required": ["skill_id"],
+        },
+    },
+    {
+        "name": "list_core_skills",
+        "description": "List all available core built-in skills, indicating which ones are currently enabled or disabled.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 HANDLERS: dict = {
@@ -211,4 +296,7 @@ HANDLERS: dict = {
     "skill_load":   lambda name: skill_load(name),
     "skill_list":   lambda tag="": skill_list(tag),
     "skill_delete": lambda name: skill_delete(name),
+    "enable_core_skill":  lambda skill_id: enable_core_skill(skill_id),
+    "disable_core_skill": lambda skill_id: disable_core_skill(skill_id),
+    "list_core_skills":   lambda: list_core_skills(),
 }

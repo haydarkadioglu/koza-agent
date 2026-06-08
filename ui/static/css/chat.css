@@ -276,3 +276,75 @@
 @keyframes spin {
     to { transform: rotate(360deg); }
 }
+
+/* File Attachments Styling */
+.attach-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-glass);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-fast);
+}
+
+.attach-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--border-focus);
+    color: var(--text-primary);
+    transform: scale(1.03);
+}
+
+.attachment-preview-area {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 24px;
+    background: rgba(10, 8, 22, 0.3);
+    border-top: 1px solid var(--border-glass);
+}
+
+.attachment-chip {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+    max-width: 200px;
+}
+
+.attachment-chip i {
+    color: #00F2FE;
+}
+
+.attachment-chip .file-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1;
+}
+
+.attachment-chip .remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    transition: var(--transition-fast);
+}
+
+.attachment-chip .remove-btn:hover {
+    color: var(--color-red);
+}
+

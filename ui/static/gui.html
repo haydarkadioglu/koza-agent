@@ -21,7 +21,6 @@
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <div class="brand">
-                <i class="fa-solid fa-microchip brand-logo"></i>
                 <div class="brand-text">
                     <h1>KOZA</h1>
                     <span data-localize="brand-sub">AUTONOMOUS AI AGENT</span>
@@ -40,6 +39,10 @@
                 <button class="nav-item" onclick="switchTab('sessions')">
                     <i class="fa-solid fa-history"></i>
                     <span data-localize="nav-sessions">Sessions</span>
+                </button>
+                <button class="nav-item" onclick="switchTab('skills')">
+                    <i class="fa-solid fa-toolbox"></i>
+                    <span data-localize="nav-skills">Skills</span>
                 </button>
                 <button class="nav-item" onclick="switchTab('settings')">
                     <i class="fa-solid fa-sliders"></i>
@@ -113,7 +116,11 @@
                     </div>
 
                     <!-- Input Bar -->
+                    <div class="attachment-preview-area" id="attachment-preview-area" style="display: none;"></div>
                     <div class="chat-input-area">
+                        <button class="attach-btn" id="attach-btn" onclick="handleAttachClick()" title="Attach File">
+                            <i class="fa-solid fa-paperclip"></i>
+                        </button>
                         <textarea id="chat-input" data-localize-placeholder="chat-input-placeholder" placeholder="Type a message to Koza... (Press Enter to send, Shift+Enter for new line)"></textarea>
                         <button class="send-btn" id="send-btn" onclick="handleSendClick()">
                             <i class="fa-solid fa-paper-plane"></i>
@@ -193,7 +200,6 @@
                         <button class="settings-sub-item" onclick="switchSettingsTab('media')" data-localize="sub-media">Media Gen</button>
                         <button class="settings-sub-item" onclick="switchSettingsTab('messaging')" data-localize="sub-messaging">Messaging & Sync</button>
                         <button class="settings-sub-item" onclick="switchSettingsTab('voice')" data-localize="sub-voice">Voice & Hardware</button>
-                        <button class="settings-sub-item" onclick="switchSettingsTab('skills')" data-localize="sub-skills">Plugins & Skills</button>
                         <button class="settings-sub-item" onclick="switchSettingsTab('general')" data-localize="sub-general">General</button>
                     </aside>
 
@@ -416,46 +422,63 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </section>
 
-                        <!-- Panel: Plugins & Skills -->
-                        <div id="settings-panel-skills" class="settings-panel">
-                            <h3 data-localize="sub-skills" style="margin-bottom:15px;">Plugins & Skills Manager</h3>
-                            <p data-localize="skills-desc" style="font-size:12px; color:var(--text-secondary); margin-bottom:20px;">
-                                Enable or disable built-in skill categories and external plugins. Toggling core skills updates config immediately.
-                            </p>
-                            
-                            <!-- Section: External Plugins -->
-                            <div class="skills-section">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                                    <h4 style="color:var(--color-yellow); font-size:14px; display:flex; align-items:center; gap:8px; margin:0;"><i class="fa-solid fa-puzzle-piece"></i> <span data-localize="sec-plugins">External Plugins</span></h4>
-                                    <button class="btn btn-secondary" onclick="openCreatePluginModal()" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">
-                                        <i class="fa-solid fa-plus"></i> <span data-localize="btn-new-plugin">New Plugin</span>
-                                    </button>
-                                </div>
-                                <div id="plugins-list-container" class="skills-grid">
-                                    <!-- Populated dynamically -->
-                                </div>
-                            </div>
-                            
-                            <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 25px 0;">
-                            
-                            <!-- Section: Built-in Core Skills -->
-                            <div class="skills-section">
-                                <h4 style="margin-bottom:12px; color:var(--color-green); font-size:14px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-toolbox"></i> <span data-localize="sec-core-skills">Core Built-in Skills</span></h4>
-                                <div id="core-skills-list-container" class="skills-grid">
-                                    <!-- Populated dynamically -->
-                                </div>
-                            </div>
+            <!-- TAB: PLUGINS & SKILLS -->
+            <section id="tab-skills" class="tab-pane" style="overflow-y: auto;">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="skills-title">Plugins & Skills</h2>
+                        <p data-localize="skills-desc">Enable or disable built-in skill categories, manage external plugins, or browse saved templates.</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="openCreatePluginModal()">
+                        <i class="fa-solid fa-plus"></i> <span data-localize="btn-new-plugin">New Plugin</span>
+                    </button>
+                </header>
+                
+                <div class="skills-container" style="display: flex; flex-direction: column; gap: 24px;">
+                    <!-- Section: Self-Improvement Curator Configuration -->
+                    <div class="skills-section" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); border-radius: 12px; padding: 16px;">
+                        <h4 style="margin-bottom:8px; font-size:14px; color:var(--text-primary); display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-brain"></i> <span data-localize="self-improve-title">Self-Improvement Curator Loop</span></h4>
+                        <p data-localize="self-improve-desc" style="font-size:11px; color:var(--text-secondary); margin-bottom:14px; line-height:1.4;">
+                            Analyze conversation logs automatically in the background to discover new skills and remember user preferences.
+                        </p>
+                        <div class="form-group checkbox-group" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="setting-self-improvement" onchange="updateNestedConfig('self_improvement.enabled', this.checked)">
+                            <label for="setting-self-improvement" data-localize="self-improve-label" style="font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-primary);">Enable Background Self-Evolution (Curator)</label>
+                        </div>
+                    </div>
 
-                            <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 25px 0;">
-                            
-                            <!-- Section: Reusable Skill Templates -->
-                            <div class="skills-section">
-                                <h4 style="margin-bottom:12px; color:var(--text-primary); font-size:14px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-file-code"></i> <span data-localize="sec-templates">Saved Skill Templates</span></h4>
-                                <div id="templates-list-container" class="skills-grid">
-                                    <!-- Populated dynamically -->
-                                </div>
-                            </div>
+                    <!-- Section: External Plugins -->
+                    <div class="skills-section">
+                        <h4 style="color:var(--color-yellow); font-size:14px; display:flex; align-items:center; gap:8px; margin-bottom:12px;"><i class="fa-solid fa-puzzle-piece"></i> <span data-localize="sec-plugins">External Plugins</span></h4>
+                        <div id="plugins-list-container" class="skills-grid">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                    
+                    <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 5px 0;">
+                    
+                    <!-- Section: Built-in Core Skills -->
+                    <div class="skills-section">
+                        <h4 style="margin-bottom:12px; color:var(--color-green); font-size:14px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-toolbox"></i> <span data-localize="sec-core-skills">Core Built-in Skills</span></h4>
+                        <div id="core-skills-list-container" class="skills-grid">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 5px 0;">
+                    
+                    <!-- Section: Reusable Skill Templates -->
+                    <div class="skills-section">
+                        <h4 style="margin-bottom:12px; color:var(--text-primary); font-size:14px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-file-code"></i> <span data-localize="sec-templates">Saved Skill Templates</span></h4>
+                        <div id="templates-list-container" class="skills-grid">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- TAB: SUB-AGENTS & BACKGROUND TASKS -->

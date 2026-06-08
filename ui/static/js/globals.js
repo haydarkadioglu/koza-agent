@@ -89,7 +89,12 @@ const LOCALIZATION = {
         "btn-stop-task": "Stop Task",
         "btn-view-logs": "View Logs",
         "label-capabilities": "Capabilities",
-        "run-modal-title": "Run Kanban Task"
+        "run-modal-title": "Run Kanban Task",
+        "nav-skills": "Skills",
+        "skills-title": "Plugins & Skills",
+        "self-improve-title": "Self-Evolution Loop (Curator)",
+        "self-improve-desc": "Analyze conversation logs automatically in the background to discover new skills and remember user preferences.",
+        "self-improve-label": "Enable Background Self-Evolution (Curator)"
     },
     tr: {
         "brand-sub": "OTONOM YAPAY ZEKA AJANI",
@@ -172,6 +177,11 @@ const LOCALIZATION = {
         "btn-stop-task": "Durdur",
         "btn-view-logs": "Günlükleri Gör",
         "label-capabilities": "Yetenekler",
-        "run-modal-title": "Kanban Görevini Çalıştır"
+        "run-modal-title": "Kanban Görevini Çalıştır",
+        "nav-skills": "Yetenekler",
+        "skills-title": "Eklentiler & Yetenekler",
+        "self-improve-title": "Öz-Gelişim Küratör Döngüsü",
+        "self-improve-desc": "Yeni yetenekler keşfetmek ve kullanıcı tercihlerini hatırlamak için arka planda konuşma günlüklerini otomatik analiz eder.",
+        "self-improve-label": "Arka Planda Öz-Gelişimi Etkinleştir (Küratör)"
     }
 };

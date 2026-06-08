@@ -16,6 +16,7 @@ def build_agent_from_config(cfg: dict, session_id: int | None = None):
             raise ValueError(f"Session #{session_id} not found or empty.")
         sys_msg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
         agent.messages = ([sys_msg] if sys_msg else []) + msgs
+        agent._active_session_id = session_id
     return agent
 
 
