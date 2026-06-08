@@ -174,6 +174,17 @@ else
     "${VENV_PIP}" install "${PIP_FLAGS[@]}" "python-telegram-bot>=21.0" || warn "python-telegram-bot install failed (optional, Telegram bot won't work)"
 fi
 
+# ── Install optional PySide6 dep on Linux for GUI ────────────────────────────
+if [[ "$(uname -s)" == "Linux" ]]; then
+    if [[ "${LOW_MEMORY_INSTALL}" == "1" ]]; then
+        warn "Skipping optional PySide6 GUI dependency in low-memory mode."
+    else
+        info "Installing PySide6 for GUI support on Linux …"
+        "${VENV_PIP}" install "${PIP_FLAGS[@]}" "PySide6>=6.0.0" || warn "PySide6 install failed (optional, GUI mode won't work without it or system GTK)"
+    fi
+fi
+
+
 # ── koza entry point (created by pip install -e .) ───────────────────────────
 VENV_KOZA="${VENV_DIR}/bin/koza"
 

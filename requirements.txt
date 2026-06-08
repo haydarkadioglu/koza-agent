@@ -43,5 +43,5 @@ python-telegram-bot>=21.0
 # GUI
 pywebview>=5.0.0
 # Note: On Linux, PySide6 (or system GTK/WebKit) is required by pywebview:
-# PySide6>=6.0.0
+PySide6>=6.0.0
 

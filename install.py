@@ -122,6 +122,14 @@ try:
 except subprocess.CalledProcessError:
     warn("python-telegram-bot install failed (optional, Telegram bot won't work).")
 
+if platform.system() == "Linux":
+    info("Installing optional dependencies (PySide6 for GUI support) …")
+    try:
+        run([str(venv_python), "-m", "pip", "install", "--quiet", "PySide6>=6.0.0"])
+        ok("PySide6 installed.")
+    except subprocess.CalledProcessError:
+        warn("PySide6 install failed (optional, GUI mode won't work without it or system GTK).")
+
 if not venv_koza.exists():
     err(f"pip install did not create '{venv_koza}'. Check pyproject.toml [project.scripts].")
 
