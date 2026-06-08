@@ -314,6 +314,14 @@ def _plain_cli(agent, cfg: dict) -> None:
     _ui_renderer = [None]    # StreamRenderer instance (or None in fallback mode)
     _ui_dispatcher = [None]  # InputDispatcher instance (or None in fallback mode)
 
+    def _out(txt: str) -> None:
+        layout = _ui_layout[0]
+        if layout is not None:
+            layout.append_output(txt)
+        else:
+            sys.stdout.write(txt)
+            sys.stdout.flush()
+
     # ── Inline command handler ────────────────────────────────────────────────
     def _handle_inline(user_input: str) -> bool:
         """Returns True if input was a slash command (consumed)."""
@@ -969,11 +977,22 @@ def _plain_cli(agent, cfg: dict) -> None:
             _render_session_history(layout, agent.messages, max_lines=500)
             layout.append_output(_C("  ✓  Screen refreshed from conversation history.\n", "grey"))
 
-        app = Application(
-            layout=layout.create_layout(),
-            full_screen=False,
-            key_bindings=kb,
-        )
+        tui_output = None
+        try:
+            from prompt_toolkit.output import create_output
+            tui_output = create_output(stdout=sys.stdout)
+        except Exception:
+            pass
+
+        app_kwargs = {
+            "layout": layout.create_layout(),
+            "full_screen": False,
+            "key_bindings": kb,
+        }
+        if tui_output is not None:
+            app_kwargs["output"] = tui_output
+
+        app = Application(**app_kwargs)
         layout._app = app
         layout.set_status(renderer._format_status(_C("● Idle", "green")))
 
@@ -982,9 +1001,26 @@ def _plain_cli(agent, cfg: dict) -> None:
         # a handful of truncated messages.
         _render_session_history(layout, agent.messages, max_lines=500)
 
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+
+        if tui_output is not None:
+            class TuiRedirector:
+                def __init__(self, layout):
+                    self.layout = layout
+                def write(self, data):
+                    if data:
+                        self.layout.append_output(data)
+                def flush(self):
+                    pass
+            sys.stdout = TuiRedirector(layout)
+            sys.stderr = TuiRedirector(layout)
+
         try:
             app.run()
         finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
             # Auto-save session on exit
             try:
                 agent.auto_save()

@@ -28,11 +28,12 @@ from providers.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
+
 # Google OAuth client credentials — sadece env var'dan okunur
 # Kendi OAuth client'inizi GCP Console'da olusturup atayin:
 #   export HERMES_GEMINI_CLIENT_ID=xxx.apps.googleusercontent.com
 #   export HERMES_GEMINI_CLIENT_SECRET=GOCSPX-...
-# Ayarlanmazsa Google'in gemini-cli public client'i kullanilir.
+# Ayarlanmazsa Google'in Antigravity public client'i kullanilir.
 _CLIENT_ID = os.environ.get("HERMES_GEMINI_CLIENT_ID")
 _CLIENT_SECRET = os.environ.get("HERMES_GEMINI_CLIENT_SECRET")
 
@@ -44,11 +45,11 @@ def _client_secret() -> str:
     return _CLIENT_SECRET or _CLIENT_SECRET_FALLBACK
 _CLIENT_ID_FALLBACK = os.environ.get(
     "_KOZA_CLIENT_ID_FALLBACK",
-    "681255809395" + "-" + "oo8ft2oprdrnp9e3aqf6av3hmdib135j" + ".apps.googleusercontent.com",
+    "1071006060591" + "-" + "tmhssin2h21lcre235vtolojh4g403ep" + ".apps.googleusercontent.com",
 )
 _CLIENT_SECRET_FALLBACK = os.environ.get(
     "_KOZA_CLIENT_SECRET_FALLBACK",
-    "GOCSPX" + "-" + "4uHgMPm" + "-" + "1o7Sk" + "-" + "geV6Cu5clXFsxl",
+    "GOCSPX" + "-" + "K58FWR486LdLJ1mLB8sXC4z6qDAf",
 )
 
 # Scope'lar
@@ -105,7 +106,7 @@ def _save_tokens(data: dict) -> None:
     tmp = TOKEN_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.chmod(0o600)
-    tmp.rename(TOKEN_PATH)
+    tmp.replace(TOKEN_PATH)
 
 
 def _token_expired(token_data: dict) -> bool:
@@ -202,8 +203,8 @@ def run_oauth_login() -> bool:
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(
-                "<html><body><h3>✅ Koza - Google hesabina baglandi!</h3>"
-                "<p>Terminale donup bekleyebilirsiniz.</p></body></html>".encode()
+                "<html><body><h3>✅ Koza - Connected to Google account!</h3>"
+                "<p>You can close this tab and return to the terminal.</p></body></html>".encode()
             )
 
         def log_message(self, format, *args):
@@ -221,14 +222,14 @@ def run_oauth_login() -> bool:
 
     if server is None:
         # Headless fallback - paste mode
-        print("\n  🌐 Google hesabina baglanmak icin tarayicida su adresi ac:")
+        print("\n  🌐 Open the following URL in a browser to connect to your Google account:")
         print(f"  {auth_url}")
-        print("\n  Adresi actiktan sonra Google sizi yonlendirecek.")
-        print("  Yonlendirme basarisiz olursa, yonlendirildiginiz URL'yi buraya yapistirin:\n")
+        print("\n  After signing in, Google will redirect you.")
+        print("  If the redirect fails, copy the redirect URL and paste it here:\n")
         try:
             callback_url = input("  URL: ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\n  Iptal edildi.")
+            print("\n  Cancelled.")
             return False
         if callback_url:
             parsed = urllib.parse.urlparse(callback_url)
@@ -238,20 +239,20 @@ def run_oauth_login() -> bool:
     else:
         # Browser flow
         import webbrowser
-        print(f"\n  🌐 Tarayici aciliyor...")
-        print(f"  Google hesabina giris yapin.")
-        print(f"  (5 dakika icinde tamamlanmazsa zaman asina ugrar)\n")
+        print(f"\n  🌐 Opening browser...")
+        print(f"  Please sign in to your Google account.")
+        print(f"  (Will timeout in 5 minutes if not completed)\n")
         webbrowser.open(auth_url)
         server_ready.set()
         server.handle_request()
         server.server_close()
 
     if not received_code or not received_state[0]:
-        print("  ❌ Kod alinamadi.")
+        print("  ❌ Could not retrieve authorization code.")
         return False
 
     if received_state[0] != state:
-        print("  ❌ State eslesmedi (CSRF).")
+        print("  ❌ State mismatch (CSRF).")
         return False
 
     # Exchange code for tokens
@@ -296,8 +297,8 @@ def run_oauth_login() -> bool:
         }
 
         # Get/Create GCP project
-        print(f"  📧 Hesap: {email}")
-        print("  🔄 Proje olusturuluyor...")
+        print(f"  📧 Account: {email}")
+        print("  🔄 Setting up project...")
 
         project_id = None
         try:
@@ -309,14 +310,14 @@ def run_oauth_login() -> bool:
             token_data["refresh"] = f"{tokens.get('refresh_token', '')}|{project_id}|{project_id}"
 
         _save_tokens(token_data)
-        print(f"  ✅ Google hesabina baglandi: {email}")
+        print(f"  ✅ Connected to Google account: {email}")
         if project_id:
-            print(f"  📁 Proje: {project_id}")
-        print(f"  🧠 Kullanilabilir modeller: {', '.join(GEMINI_MODELS)}")
-        print(f"  💡 Kullanmak icin: /model gemini-2.5-pro (veya /provider ile secin)")
+            print(f"  📁 Project: {project_id}")
+        print(f"  🧠 Available models: {', '.join(GEMINI_MODELS)}")
+        print(f"  💡 To use: /model gemini-2.5-pro (or select via /provider)")
         return True
     except Exception as e:
-        print(f"  ❌ Token alinamadi: {e}")
+        print(f"  ❌ Failed to retrieve token: {e}")
         return False
 
 
@@ -566,12 +567,12 @@ class GoogleOAuthProvider(LLMProvider):
         """Ensure valid access token and project ID. Returns (token, project_id)."""
         if not self._token_data:
             raise RuntimeError(
-                "Google hesabina bagli degil. "
-                "Terminalde 'google-login' yazarak giris yapin."
+                "Not connected to Google account. "
+                "Run 'google-login' in the terminal to sign in."
             )
         token = get_valid_access_token(self._token_data)
         if not token:
-            raise RuntimeError("Token suresi dolmus. Tekrar giris yapmak icin 'google-login' yazin.")
+            raise RuntimeError("Token expired. Run 'google-login' in the terminal to sign in again.")
         project_id = self._project_id or "default"
         return token, project_id
 
@@ -622,8 +623,8 @@ class GoogleOAuthProvider(LLMProvider):
 def cmd_google_login() -> str:
     """Run the Google OAuth login flow from CLI."""
     if _load_tokens():
-        print("  ℹ  Zaten giris yapilmis. Yeniden baglanmak icin once ~/.Koza/google_oauth.json silin.")
+        print("  ℹ  Already signed in. To reconnect, delete ~/.Koza/google_oauth.json first.")
         return ""
     if run_oauth_login():
-        return "✅ Google hesabina baglandi. /model gemini-2.5-pro ile kullanabilirsiniz."
-    return "❌ Baglanti basarisiz."
+        return "✅ Connected to Google account. You can use it with: /model gemini-2.5-pro"
+    return "❌ Connection failed."

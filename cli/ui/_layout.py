@@ -31,6 +31,13 @@ _MAX_OUTPUT_LINES = 10_000
 # Minimum interval (seconds) between UI invalidation calls during streaming
 _INVALIDATE_MIN_INTERVAL = 0.1  # 100ms
 
+def _sanitize_ansi(text: str) -> str:
+    if not text:
+        return ""
+    # Replace single-byte CSI character \x9b with visual angle quote ›
+    # to prevent prompt_toolkit from crashing on misdecoded CP1252/CP1254 characters on Windows.
+    return text.replace("\x9b", "›")
+
 
 class ChatLayout:
     """Terminal UI layout: scrollable output pane + status bar + framed input bar."""
@@ -180,7 +187,12 @@ class ChatLayout:
         def _output_content():
             with self._text_lock:
                 self._render_snapshot = self._output_text
-            return ANSI(self._render_snapshot) if self._render_snapshot else ""
+            if not self._render_snapshot:
+                return ""
+            try:
+                return ANSI(_sanitize_ansi(self._render_snapshot))
+            except Exception:
+                return self._render_snapshot.replace("\x1b", "").replace("\x9b", "")
 
         def _cursor_pos():
             if not self._auto_scroll:
@@ -198,10 +210,16 @@ class ChatLayout:
         )
 
         # Middle: status bar
+        def _status_content():
+            if not self.status_text:
+                return ""
+            try:
+                return ANSI(_sanitize_ansi(self.status_text))
+            except Exception:
+                return self.status_text.replace("\x1b", "").replace("\x9b", "")
+
         status_bar = Window(
-            content=FormattedTextControl(
-                lambda: ANSI(self.status_text) if self.status_text else "",
-            ),
+            content=FormattedTextControl(_status_content),
             height=Dimension.exact(1),
         )
 

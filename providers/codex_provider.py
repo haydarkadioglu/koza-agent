@@ -55,7 +55,7 @@ def _save_tokens(data: dict) -> None:
     tmp = TOKEN_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.chmod(0o600)
-    tmp.rename(TOKEN_PATH)
+    tmp.replace(TOKEN_PATH)
 
 
 # ─── Login Flow ──────────────────────────────────────────────────────────────

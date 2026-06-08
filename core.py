@@ -432,7 +432,12 @@ class Agent:
             
         elapsed = time.time() - t0
         res = "".join(final_response_tokens)
-        record_trajectory(self._session_id, {
+        session_id = getattr(self, "_session_id", None)
+        if not session_id:
+            import uuid
+            self._session_id = str(uuid.uuid4())
+            session_id = self._session_id
+        record_trajectory(session_id, {
             "elapsed_time": elapsed,
             "provider": self.provider.name,
             "model": getattr(self.provider, "model", ""),
@@ -454,13 +459,19 @@ class Agent:
             
         elapsed = time.time() - t0
         res = "".join(final_response_tokens)
-        record_trajectory(self._session_id, {
+        session_id = getattr(self, "_session_id", None)
+        if not session_id:
+            import uuid
+            self._session_id = str(uuid.uuid4())
+            session_id = self._session_id
+        record_trajectory(session_id, {
             "elapsed_time": elapsed,
             "provider": self.provider.name,
             "model": getattr(self.provider, "model", ""),
             "user_input": user_input,
             "response": res,
         })
+
 
     def _run_conversation_loop(self, user_input: str, image_path: str | None = None):
         """
