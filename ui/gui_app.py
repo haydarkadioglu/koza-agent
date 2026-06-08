@@ -50,7 +50,7 @@ def start_gui():
     webview_window.events.loaded += on_loaded
     
     # Run the native webview application
-    webview.start(debug=True)
+    webview.start(debug=False)
 
 if __name__ == "__main__":
     start_gui()
