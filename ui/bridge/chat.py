@@ -8,11 +8,31 @@ class ChatMixin:
         """Asynchronously stream the agent's response to the client."""
         def run():
             try:
+                full_response_tokens = []
                 for event in self.agent.stream_chat(message, image_path=image_path):
+                    if event.get("type") == "text":
+                        full_response_tokens.append(event.get("token", ""))
                     if self.webview_window:
                         # Serialize and push event to Javascript
                         payload = json.dumps(event)
                         self.webview_window.evaluate_js(f"receiveChatEvent({payload})")
+                
+                # If voice mode is active, read the accumulated response out loud
+                if getattr(self, "voice_loop_active", False):
+                    full_response = "".join(full_response_tokens).strip()
+                    if full_response:
+                        if self.webview_window:
+                            self.webview_window.evaluate_js("updateVoiceStatus('speaking')")
+                        try:
+                            from skills.voice import tts_speak_configured, normalize_voice_config
+                            voice_cfg = normalize_voice_config(self.cfg)
+                            output_device = voice_cfg.get("output_device")
+                            tts_speak_configured(full_response, self.cfg, output_device=output_device)
+                        except Exception as tts_err:
+                            print(f"Voice TTS error: {tts_err}")
+                        finally:
+                            if self.webview_window:
+                                self.webview_window.evaluate_js("updateVoiceStatus('listening')")
             except Exception as e:
                 if self.webview_window:
                     err_event = json.dumps({"type": "error", "message": str(e)})

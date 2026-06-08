@@ -121,6 +121,9 @@
                         <button class="attach-btn" id="attach-btn" onclick="handleAttachClick()" title="Attach File">
                             <i class="fa-solid fa-paperclip"></i>
                         </button>
+                        <button class="mic-btn" id="mic-btn" onclick="toggleChatVoice()" title="Enable Voice Mode" style="display:none;">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
                         <textarea id="chat-input" data-localize-placeholder="chat-input-placeholder" placeholder="Type a message to Koza... (Press Enter to send, Shift+Enter for new line)"></textarea>
                         <button class="send-btn" id="send-btn" onclick="handleSendClick()">
                             <i class="fa-solid fa-paper-plane"></i>
@@ -222,7 +225,13 @@
                             </div>
                             <div class="form-group" id="group-api-key" style="display:none;">
                                 <label id="label-api-key" for="setting-api-key">API Key</label>
-                                <input type="password" id="setting-api-key" placeholder="Enter API key..." onchange="onApiKeyChanged(this.value)">
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <input type="password" id="setting-api-key" placeholder="Enter API key..." style="flex:1;" oninput="onApiKeyInput('setting-api-key','btn-test-api-key')">
+                                    <button class="btn btn-secondary" id="btn-test-api-key" onclick="testAndSaveApiKey()" style="white-space:nowrap; padding:8px 14px; font-size:12px;">
+                                        <i class="fa-solid fa-plug"></i> Test &amp; Save
+                                    </button>
+                                </div>
+                                <div id="api-key-status" style="margin-top:6px; font-size:12px; display:none;"></div>
                             </div>
                             <div class="form-group" id="group-oauth-actions" style="display:none; gap: 8px;">
                                 <button class="btn btn-primary" id="btn-google-oauth" onclick="triggerGoogleOAuth()">
@@ -256,7 +265,13 @@
                                 </div>
                                 <div class="form-group" id="group-fallback-key" style="display:none;">
                                     <label for="setting-fallback-key">Fallback API Key</label>
-                                    <input type="password" id="setting-fallback-key" placeholder="Enter fallback key..." onchange="onFallbackKeyChanged(this.value)">
+                                    <div style="display:flex; gap:8px; align-items:center;">
+                                        <input type="password" id="setting-fallback-key" placeholder="Enter fallback key..." style="flex:1;" oninput="onApiKeyInput('setting-fallback-key','btn-test-fallback-key')">
+                                        <button class="btn btn-secondary" id="btn-test-fallback-key" onclick="testAndSaveFallbackKey()" style="white-space:nowrap; padding:8px 14px; font-size:12px;">
+                                            <i class="fa-solid fa-plug"></i> Test &amp; Save
+                                        </button>
+                                    </div>
+                                    <div id="fallback-key-status" style="margin-top:6px; font-size:12px; display:none;"></div>
                                 </div>
                             </div>
                         </div>
@@ -275,7 +290,13 @@
                             </div>
                             <div class="form-group" id="group-media-key" style="display:none;">
                                 <label for="setting-media-key">Media API Key</label>
-                                <input type="password" id="setting-media-key" placeholder="Enter media API key..." onchange="onMediaKeyChanged(this.value)">
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <input type="password" id="setting-media-key" placeholder="Enter media API key..." style="flex:1;" oninput="onApiKeyInput('setting-media-key','btn-test-media-key')">
+                                    <button class="btn btn-secondary" id="btn-test-media-key" onclick="testAndSaveMediaKey()" style="white-space:nowrap; padding:8px 14px; font-size:12px;">
+                                        <i class="fa-solid fa-plug"></i> Test &amp; Save
+                                    </button>
+                                </div>
+                                <div id="media-key-status" style="margin-top:6px; font-size:12px; display:none;"></div>
                             </div>
                         </div>
 
@@ -340,6 +361,13 @@
                                     <select id="setting-voice-stt-model" onchange="onSTTModelChanged(this.value)">
                                         <!-- Populated dynamically -->
                                     </select>
+                                    <!-- STT model download status (shown only for local_whisper) -->
+                                    <div id="stt-download-row" style="display:none; margin-top:8px; align-items:center; gap:10px; flex-wrap:wrap;">
+                                        <span id="stt-model-status" style="font-size:12px;"></span>
+                                        <button class="btn btn-secondary" id="btn-download-stt" onclick="downloadVoiceModel('stt')" style="display:none; padding:6px 12px; font-size:11px;">
+                                            <i class="fa-solid fa-download"></i> Download Model
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label for="setting-voice-stt-lang">STT Language</label>
@@ -371,6 +399,13 @@
                                     <select id="setting-voice-tts-voice" onchange="onTTSVoiceChanged(this.value)">
                                         <!-- Populated dynamically -->
                                     </select>
+                                    <!-- TTS model download status (shown only for kokoro) -->
+                                    <div id="tts-download-row" style="display:none; margin-top:8px; align-items:center; gap:10px; flex-wrap:wrap;">
+                                        <span id="tts-model-status" style="font-size:12px;"></span>
+                                        <button class="btn btn-secondary" id="btn-download-tts" onclick="downloadVoiceModel('tts')" style="display:none; padding:6px 12px; font-size:11px;">
+                                            <i class="fa-solid fa-download"></i> Download Model
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label for="setting-voice-input-device">Microphone</label>

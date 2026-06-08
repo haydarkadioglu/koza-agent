@@ -90,12 +90,19 @@ function loadSettings() {
             
             const mediaKeyGroup = document.getElementById('group-media-key');
             const mediaKeyInput = document.getElementById('setting-media-key');
-            if (mediaOption === 'gemini_api') {
+            if (mediaOption === 'gemini_api' || mediaOption === 'openai') {
                 mediaKeyGroup.style.display = 'block';
-                mediaKeyInput.value = (cfg.providers && cfg.providers.gemini_media && cfg.providers.gemini_media.api_key) || '';
-            } else if (mediaOption === 'openai') {
-                mediaKeyGroup.style.display = 'block';
-                mediaKeyInput.value = (cfg.providers && cfg.providers.openai_media && cfg.providers.openai_media.api_key) || '';
+                // Show badge instead of masked value
+                mediaKeyInput.value = '';
+                mediaKeyInput.placeholder = 'Enter new key to update...';
+                const mediaPk = mediaOption === 'gemini_api'
+                    ? (cfg.providers && cfg.providers.gemini_media && cfg.providers.gemini_media.api_key)
+                    : (cfg.providers && cfg.providers.openai_media && cfg.providers.openai_media.api_key);
+                if (mediaPk && mediaPk !== '********') {
+                    showKeyStatus('media-key-status', 'saved');
+                } else if (mediaPk === '********') {
+                    showKeyStatus('media-key-status', 'has_key');
+                }
             } else {
                 mediaKeyGroup.style.display = 'none';
                 mediaKeyInput.value = '';
@@ -127,6 +134,10 @@ function loadSettings() {
             document.getElementById('setting-voice-enable').checked = voiceEnabled;
             document.getElementById('voice-settings-fields').style.display = voiceEnabled ? 'block' : 'none';
             
+            // Sync mic button visibility with voice.enabled
+            const micBtn = document.getElementById('mic-btn');
+            if (micBtn) micBtn.style.display = voiceEnabled ? 'flex' : 'none';
+            
             if (cfg.voice) {
                 const sttProv = cfg.voice.stt ? cfg.voice.stt.provider : 'local_whisper';
                 const sttModel = cfg.voice.stt ? cfg.voice.stt.model : 'base';
@@ -150,6 +161,12 @@ function loadSettings() {
                 
                 updateVoiceKeysVisibility(sttProv, ttsProv);
                 loadAudioDevices(cfg.voice.input_device, cfg.voice.output_device);
+                
+                // Check model download status
+                if (voiceEnabled) {
+                    if (sttProv === 'local_whisper') checkSTTModelStatus(sttModel);
+                    if (ttsProv === 'kokoro') checkTTSModelStatus();
+                }
             }
         });
     });
@@ -207,16 +224,28 @@ function updateApiKeyFieldVisibility(provider, cfg) {
     const oauthGroup = document.getElementById('group-oauth-actions');
     const label = document.getElementById('label-api-key');
     const keyInput = document.getElementById('setting-api-key');
+    const statusEl = document.getElementById('api-key-status');
     
     const needsKey = providersMetadata.needs_key.includes(provider) || provider.includes('api');
     
     if (needsKey) {
         apiKeyGroup.style.display = 'block';
         label.innerText = `${provider.toUpperCase()} API Key`;
-        const pKey = cfg.providers && cfg.providers[provider] ? cfg.providers[provider].api_key : '';
-        keyInput.value = pKey || '';
+        // Don't show masked "********" — show empty with badge instead
+        keyInput.value = '';
+        keyInput.placeholder = 'Enter new key to update...';
+        // Check if a key already exists
+        const savedKey = cfg.providers && cfg.providers[provider] ? cfg.providers[provider].api_key : '';
+        if (savedKey && savedKey !== '********') {
+            showKeyStatus('api-key-status', 'saved');
+        } else if (savedKey === '********') {
+            showKeyStatus('api-key-status', 'has_key');
+        } else if (statusEl) {
+            statusEl.style.display = 'none';
+        }
     } else {
         apiKeyGroup.style.display = 'none';
+        if (statusEl) statusEl.style.display = 'none';
     }
     
     if (provider.includes('gemini') || provider.includes('google')) {
@@ -265,6 +294,110 @@ function onApiKeyChanged(key) {
     if (!key) return;
     const provider = document.getElementById('setting-provider').value;
     updateNestedConfig(`providers.${provider}.api_key`, key);
+}
+
+/* ── API Key status badge helper ─────────────────────────────────────────── */
+/**
+ * state: 'saved' | 'has_key' | 'testing' | 'success' | 'error' | 'idle'
+ */
+function showKeyStatus(elementId, state, message) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    el.style.display = 'block';
+    const icons = {
+        saved:   '<i class="fa-solid fa-check-circle" style="color:#2CB67D"></i>',
+        has_key: '<i class="fa-solid fa-key" style="color:#7f5af0"></i>',
+        testing: '<i class="fa-solid fa-spinner fa-spin" style="color:#f4a261"></i>',
+        success: '<i class="fa-solid fa-check-circle" style="color:#2CB67D"></i>',
+        error:   '<i class="fa-solid fa-times-circle" style="color:#e63946"></i>',
+        idle:    ''
+    };
+    const labels = {
+        saved:   currentLanguage === 'tr' ? 'Kaydedildi ✓' : 'Saved ✓',
+        has_key: currentLanguage === 'tr' ? 'Key kayıtlı (değiştirmek için yenisini girin)' : 'Key saved — enter a new key to update',
+        testing: currentLanguage === 'tr' ? 'Test ediliyor...' : 'Testing...',
+        success: message || (currentLanguage === 'tr' ? 'Bağlantı başarılı ✓' : 'Connection successful ✓'),
+        error:   message || (currentLanguage === 'tr' ? 'Hata — key geçersiz' : 'Error — key invalid'),
+        idle:    ''
+    };
+    el.innerHTML = `${icons[state] || ''} <span style="margin-left:4px;">${labels[state] || message || ''}</span>`;
+    if (state === 'idle') el.style.display = 'none';
+}
+
+/** Called on every keypress in an API key input — enables the Test button */
+function onApiKeyInput(inputId, btnId) {
+    const input = document.getElementById(inputId);
+    const btn   = document.getElementById(btnId);
+    if (btn) btn.disabled = !input || !input.value.trim();
+}
+
+/** Test & Save the primary LLM API key */
+function testAndSaveApiKey() {
+    const provider = document.getElementById('setting-provider').value;
+    const key = document.getElementById('setting-api-key').value.trim();
+    if (!key) return;
+    showKeyStatus('api-key-status', 'testing');
+    document.getElementById('btn-test-api-key').disabled = true;
+    window.pywebview.api.test_api_key(provider, key).then(res => {
+        document.getElementById('btn-test-api-key').disabled = false;
+        if (res.status === 'success') {
+            showKeyStatus('api-key-status', 'success', res.message);
+        } else {
+            showKeyStatus('api-key-status', 'error', res.message);
+        }
+    }).catch(err => {
+        document.getElementById('btn-test-api-key').disabled = false;
+        showKeyStatus('api-key-status', 'error', String(err));
+    });
+}
+
+/** Test & Save the fallback API key */
+function testAndSaveFallbackKey() {
+    const provider = document.getElementById('setting-fallback-provider').value;
+    const key = document.getElementById('setting-fallback-key').value.trim();
+    if (!key) return;
+    showKeyStatus('fallback-key-status', 'testing');
+    document.getElementById('btn-test-fallback-key').disabled = true;
+    window.pywebview.api.test_api_key(provider, key).then(res => {
+        document.getElementById('btn-test-fallback-key').disabled = false;
+        if (res.status === 'success') {
+            showKeyStatus('fallback-key-status', 'success', res.message);
+        } else {
+            showKeyStatus('fallback-key-status', 'error', res.message);
+        }
+    }).catch(err => {
+        document.getElementById('btn-test-fallback-key').disabled = false;
+        showKeyStatus('fallback-key-status', 'error', String(err));
+    });
+}
+
+/** Save the media API key (no test — complex provider routing) */
+function testAndSaveMediaKey() {
+    const val = document.getElementById('setting-media-provider').value;
+    const key = document.getElementById('setting-media-key').value.trim();
+    if (!key) return;
+    const statusEl = document.getElementById('media-key-status');
+    showKeyStatus('media-key-status', 'testing');
+    document.getElementById('btn-test-media-key').disabled = true;
+    let promise;
+    if (val === 'gemini_api') {
+        promise = updateNestedConfig('providers.gemini_media.api_key', key);
+    } else if (val === 'openai') {
+        promise = updateNestedConfig('providers.openai_media.api_key', key);
+    } else {
+        promise = Promise.resolve({status: 'error', message: 'No media provider selected'});
+    }
+    promise.then(res => {
+        document.getElementById('btn-test-media-key').disabled = false;
+        if (res && res.status === 'success') {
+            showKeyStatus('media-key-status', 'saved');
+        } else {
+            showKeyStatus('media-key-status', 'error', res ? res.message : 'Save failed');
+        }
+    }).catch(err => {
+        document.getElementById('btn-test-media-key').disabled = false;
+        showKeyStatus('media-key-status', 'error', String(err));
+    });
 }
 
 /* Fallback Provider logic */
@@ -425,10 +558,29 @@ function toggleVoice(enabled) {
         if (fields) {
             fields.style.display = enabled ? 'block' : 'none';
         }
+        // Only toggle mic button visibility — do NOT start/stop the voice loop.
+        // The VAD loop starts only when the user explicitly clicks the mic button on chat.
+        const micBtn = document.getElementById('mic-btn');
+        if (micBtn) micBtn.style.display = enabled ? 'flex' : 'none';
+        
         if (enabled) {
             window.pywebview.api.get_config().then(cfg => {
                 loadAudioDevices(cfg.voice ? cfg.voice.input_device : null, cfg.voice ? cfg.voice.output_device : null);
+                // Check model status when voice is enabled
+                const sttProv = cfg.voice && cfg.voice.stt ? cfg.voice.stt.provider : 'local_whisper';
+                const sttModel = cfg.voice && cfg.voice.stt ? cfg.voice.stt.model : 'base';
+                const ttsProv = cfg.voice && cfg.voice.tts ? cfg.voice.tts.provider : 'system';
+                if (sttProv === 'local_whisper') checkSTTModelStatus(sttModel);
+                if (ttsProv === 'kokoro') checkTTSModelStatus();
             });
+        } else {
+            // If voice loop is running, stop it
+            if (typeof voiceModeActive !== 'undefined' && voiceModeActive) {
+                window.pywebview.api.stop_voice_loop().then(() => {
+                    if (typeof voiceModeActive !== 'undefined') voiceModeActive = false;
+                    if (typeof updateVoiceStatus === 'function') updateVoiceStatus('off');
+                });
+            }
         }
     });
 }
@@ -444,12 +596,19 @@ function onSTTProvChanged(val) {
         updateNestedConfig('voice.stt.model', defaultModel).then(() => {
             populateSTTModels(val, defaultModel);
             updateVoiceKeysVisibility(val, document.getElementById('setting-voice-tts-prov').value);
+            // Show/hide STT download row based on provider
+            const sttRow = document.getElementById('stt-download-row');
+            if (sttRow) sttRow.style.display = (val === 'local_whisper') ? 'flex' : 'none';
+            if (val === 'local_whisper') checkSTTModelStatus(defaultModel);
         });
     });
 }
 
 function onSTTModelChanged(val) {
     updateNestedConfig('voice.stt.model', val);
+    // Re-check model status for local whisper
+    const sttProv = document.getElementById('setting-voice-stt-prov').value;
+    if (sttProv === 'local_whisper') checkSTTModelStatus(val);
 }
 
 function onTTSProvChanged(val) {
@@ -471,6 +630,10 @@ function onTTSProvChanged(val) {
             updateNestedConfig('voice.tts.voice', defaultVoice).then(() => {
                 populateTTSVoices(val, defaultVoice);
                 updateVoiceKeysVisibility(document.getElementById('setting-voice-stt-prov').value, val);
+                // Show/hide TTS download row based on provider
+                const ttsRow = document.getElementById('tts-download-row');
+                if (ttsRow) ttsRow.style.display = (val === 'kokoro') ? 'flex' : 'none';
+                if (val === 'kokoro') checkTTSModelStatus();
             });
         });
     });
@@ -574,6 +737,133 @@ function loadAudioDevices(selectedInputIdx, selectedOutputIdx) {
             }
         }
     });
+}
+
+/* ── Voice Model Status & Download ──────────────────────────────────────── */
+
+/**
+ * Check if the selected Local Whisper STT model is downloaded.
+ * Updates #stt-model-status badge and shows/hides #btn-download-stt.
+ */
+function checkSTTModelStatus(modelName) {
+    const row = document.getElementById('stt-download-row');
+    const statusEl = document.getElementById('stt-model-status');
+    const downloadBtn = document.getElementById('btn-download-stt');
+    if (!row || !statusEl) return;
+    row.style.display = 'flex';
+    statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="color:#f4a261; margin-right:4px;"></i>' +
+        (currentLanguage === 'tr' ? 'Kontrol ediliyor...' : 'Checking...');
+    if (downloadBtn) downloadBtn.style.display = 'none';
+
+    if (!window.pywebview || !window.pywebview.api) return;
+    window.pywebview.api.check_voice_model_status('stt', modelName).then(res => {
+        if (res.status === 'ready') {
+            statusEl.innerHTML = '<i class="fa-solid fa-check-circle" style="color:#2CB67D; margin-right:4px;"></i>' +
+                (currentLanguage === 'tr' ? 'Model hazır ✓' : 'Model ready ✓') + ` (${modelName})`;
+            if (downloadBtn) downloadBtn.style.display = 'none';
+        } else if (res.status === 'missing') {
+            statusEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f4a261; margin-right:4px;"></i>' +
+                (currentLanguage === 'tr' ? 'İndirilmemiş' : 'Not downloaded') + ` — ${modelName}`;
+            if (downloadBtn) downloadBtn.style.display = 'inline-flex';
+        } else {
+            statusEl.innerHTML = '<i class="fa-solid fa-times-circle" style="color:#e63946; margin-right:4px;"></i>' +
+                (res.message || 'Error');
+            if (downloadBtn) downloadBtn.style.display = 'inline-flex';
+        }
+    }).catch(err => {
+        statusEl.innerHTML = '<i class="fa-solid fa-times-circle" style="color:#e63946; margin-right:4px;"></i>' + String(err);
+    });
+}
+
+/**
+ * Check if Kokoro ONNX TTS model files are downloaded.
+ */
+function checkTTSModelStatus() {
+    const row = document.getElementById('tts-download-row');
+    const statusEl = document.getElementById('tts-model-status');
+    const downloadBtn = document.getElementById('btn-download-tts');
+    if (!row || !statusEl) return;
+    row.style.display = 'flex';
+    statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="color:#f4a261; margin-right:4px;"></i>' +
+        (currentLanguage === 'tr' ? 'Kontrol ediliyor...' : 'Checking...');
+    if (downloadBtn) downloadBtn.style.display = 'none';
+
+    if (!window.pywebview || !window.pywebview.api) return;
+    window.pywebview.api.check_voice_model_status('tts', 'kokoro').then(res => {
+        if (res.status === 'ready') {
+            statusEl.innerHTML = '<i class="fa-solid fa-check-circle" style="color:#2CB67D; margin-right:4px;"></i>' +
+                (currentLanguage === 'tr' ? 'Kokoro hazır ✓' : 'Kokoro ONNX ready ✓');
+            if (downloadBtn) downloadBtn.style.display = 'none';
+        } else if (res.status === 'missing') {
+            statusEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f4a261; margin-right:4px;"></i>' +
+                (currentLanguage === 'tr' ? 'İndirilmemiş (~350MB)' : 'Not downloaded (~350MB)');
+            if (downloadBtn) downloadBtn.style.display = 'inline-flex';
+        } else {
+            statusEl.innerHTML = '<i class="fa-solid fa-times-circle" style="color:#e63946; margin-right:4px;"></i>' +
+                (res.message || 'Error');
+            if (downloadBtn) downloadBtn.style.display = 'inline-flex';
+        }
+    }).catch(err => {
+        statusEl.innerHTML = '<i class="fa-solid fa-times-circle" style="color:#e63946; margin-right:4px;"></i>' + String(err);
+    });
+}
+
+/**
+ * Start downloading a voice model (STT or TTS).
+ * category: 'stt' | 'tts'
+ * Progress is reported via onVoiceModelDownloadProgress() called from Python.
+ */
+function downloadVoiceModel(category) {
+    const modelName = category === 'stt'
+        ? document.getElementById('setting-voice-stt-model').value
+        : 'kokoro';
+
+    const statusElId = category === 'stt' ? 'stt-model-status' : 'tts-model-status';
+    const downloadBtnId = category === 'stt' ? 'btn-download-stt' : 'btn-download-tts';
+    const statusEl = document.getElementById(statusElId);
+    const downloadBtn = document.getElementById(downloadBtnId);
+
+    if (downloadBtn) downloadBtn.disabled = true;
+    if (statusEl) {
+        statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="color:#f4a261; margin-right:4px;"></i>' +
+            (currentLanguage === 'tr' ? 'İndiriliyor...' : 'Downloading...');
+    }
+
+    window.pywebview.api.download_voice_model(category, modelName).then(res => {
+        console.log('Download started:', res);
+    }).catch(err => {
+        if (downloadBtn) downloadBtn.disabled = false;
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fa-solid fa-times-circle" style="color:#e63946; margin-right:4px;"></i>' + String(err);
+        }
+    });
+}
+
+/**
+ * Callback called by Python backend with download progress.
+ * payload: { category, model, status: 'downloading'|'ready'|'error', message }
+ */
+function onVoiceModelDownloadProgress(payload) {
+    const category = payload.category;
+    const statusElId = category === 'stt' ? 'stt-model-status' : 'tts-model-status';
+    const downloadBtnId = category === 'stt' ? 'btn-download-stt' : 'btn-download-tts';
+    const statusEl = document.getElementById(statusElId);
+    const downloadBtn = document.getElementById(downloadBtnId);
+
+    if (!statusEl) return;
+
+    if (payload.status === 'downloading') {
+        statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="color:#f4a261; margin-right:4px;"></i>' +
+            (payload.message || (currentLanguage === 'tr' ? 'İndiriliyor...' : 'Downloading...'));
+    } else if (payload.status === 'ready') {
+        statusEl.innerHTML = '<i class="fa-solid fa-check-circle" style="color:#2CB67D; margin-right:4px;"></i>' +
+            (payload.message || (currentLanguage === 'tr' ? 'Hazır ✓' : 'Ready ✓'));
+        if (downloadBtn) { downloadBtn.disabled = false; downloadBtn.style.display = 'none'; }
+    } else if (payload.status === 'error') {
+        statusEl.innerHTML = '<i class="fa-solid fa-times-circle" style="color:#e63946; margin-right:4px;"></i>' +
+            (payload.message || 'Error');
+        if (downloadBtn) { downloadBtn.disabled = false; downloadBtn.style.display = 'inline-flex'; }
+    }
 }
 
 /* Background Daemon Management */

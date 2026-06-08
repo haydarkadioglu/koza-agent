@@ -497,13 +497,12 @@ def vad_listen_loop(
     language: str | None = None,
     stop_event=None,       # threading.Event — set to break the loop
     cfg: dict | None = None,
+    status_callback=None,  # Callable[[str], None]
 ):
     """
     Generator that continuously listens and yields transcribed utterances.
 
     Yields str (transcribed text) whenever speech is detected and ends.
-    Caller can display real-time status via the _status dict yielded between
-    utterances (yield type is dict with key 'status').
     """
     import numpy as np
     import sounddevice as sd
@@ -520,6 +519,9 @@ def vad_listen_loop(
         sys.stdout.write(f"\r  {msg:<70}")
         sys.stdout.flush()
 
+    if status_callback:
+        status_callback("listening")
+
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
                         device=input_device) as stream:
         while not (stop_event and stop_event.is_set()):
@@ -535,6 +537,8 @@ def vad_listen_loop(
 
                 if amp > SPEECH_THRESH:
                     state = "recording"
+                    if status_callback:
+                        status_callback("recording")
                     chunks = list(pre_roll)   # include pre-roll
                     silent_count = 0
 
@@ -554,10 +558,13 @@ def vad_listen_loop(
                         sys.stdout.flush()
                         _show("⚙   Transcribing…")
                         sys.stdout.flush()
+                        if status_callback:
+                            status_callback("transcribing")
                         text = _transcribe(chunks, language=language, cfg=cfg)
                         chunks = []
                         sys.stdout.write("\r" + " " * 72 + "\r")
                         sys.stdout.flush()
+                        if status_callback:
+                            status_callback("listening")
                         if text:
                             yield text
-

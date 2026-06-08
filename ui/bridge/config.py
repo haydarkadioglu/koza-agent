@@ -17,6 +17,52 @@ class ConfigMixin:
                     details[key] = "********"
         return display_cfg
 
+    def has_api_key(self, provider):
+        """Return whether a real (non-empty) API key is saved for a provider."""
+        try:
+            cfg = load_config()
+            key = cfg.get("providers", {}).get(provider, {}).get("api_key", "")
+            return {"has_key": bool(key and key.strip())}
+        except Exception as e:
+            return {"has_key": False, "error": str(e)}
+
+    def test_api_key(self, provider, api_key):
+        """Test whether the given API key works for the specified provider.
+        Saves the key first, then makes a minimal test call, reverts on failure."""
+        try:
+            cfg = load_config()
+            old_key = cfg.get("providers", {}).get(provider, {}).get("api_key", "")
+            # Temporarily write the key so get_provider uses it
+            cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = api_key
+            save_config(cfg)
+
+            # Resolve the internal provider name
+            provider_name_map = {
+                "gemini api": "gemini",
+                "gemini cli": "gemini",
+            }
+            test_provider = provider_name_map.get(provider, provider)
+
+            try:
+                test_cfg = dict(cfg)
+                test_cfg["provider"] = provider
+                prov = get_provider(test_cfg)
+                # Make a cheap single-token call
+                result = ""
+                for event in prov.stream_chat([{"role": "user", "content": "Hi"}], {}):
+                    if isinstance(event, dict) and event.get("type") == "text":
+                        result += event.get("token", "")
+                    if len(result) > 0:
+                        break
+                return {"status": "success", "message": "Connection successful ✓"}
+            except Exception as e:
+                # Revert key on failure
+                cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = old_key
+                save_config(cfg)
+                return {"status": "error", "message": str(e)}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     def get_providers_metadata(self):
         """Return the CLI provider lists and model catalogs."""
         try:

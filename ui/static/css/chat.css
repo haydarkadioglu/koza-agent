@@ -348,3 +348,37 @@
     color: var(--color-red);
 }
 
+.mic-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-glass);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-fast);
+}
+
+.mic-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--border-focus);
+    color: var(--text-primary);
+    transform: scale(1.03);
+}
+
+.mic-btn.active {
+    color: #ff5555;
+    background: rgba(255, 85, 85, 0.12);
+    border-color: rgba(255, 85, 85, 0.5);
+    box-shadow: 0 0 12px rgba(255, 85, 85, 0.3);
+    animation: mic-pulse 1.5s infinite alternate;
+}
+
+@keyframes mic-pulse {
+    0% { transform: scale(1); box-shadow: 0 0 4px rgba(255, 85, 85, 0.2); }
+    100% { transform: scale(1.06); box-shadow: 0 0 16px rgba(255, 85, 85, 0.5); }
+}
+

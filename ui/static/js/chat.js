@@ -325,3 +325,75 @@ function updateSendButtonState(processing) {
         btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
     }
 }
+
+let voiceModeActive = false;
+
+function toggleChatVoice() {
+    if (voiceModeActive) {
+        window.pywebview.api.stop_voice_loop().then(() => {
+            voiceModeActive = false;
+            updateVoiceStatus('off');
+        });
+    } else {
+        window.pywebview.api.start_voice_loop().then(res => {
+            if (res.status === 'started' || res.status === 'already_running') {
+                voiceModeActive = true;
+                updateVoiceStatus('listening');
+            } else {
+                console.error("Failed to start voice loop:", res);
+            }
+        });
+    }
+}
+
+function updateVoiceStatus(state) {
+    const streamStatus = document.getElementById('stream-status');
+    const micBtn = document.getElementById('mic-btn');
+    if (!streamStatus) return;
+
+    if (state === 'off') {
+        voiceModeActive = false;
+        if (micBtn) micBtn.classList.remove('active');
+        // Only hide the status bar — do NOT touch mic-btn display or settings checkbox.
+        // Voice mode enabled/disabled is controlled by toggleVoice() in settings.js.
+        streamStatus.style.display = 'none';
+        return;
+    }
+
+    if (micBtn) micBtn.classList.add('active');
+    streamStatus.style.display = 'flex';
+
+    let iconHTML = '';
+    let labelText = '';
+
+    if (state === 'listening') {
+        iconHTML = '<i class="fa-solid fa-microphone-lines" style="color: #2CB67D; margin-right: 8px;"></i>';
+        labelText = currentLanguage === 'tr' ? 'Dinleniyor...' : 'Listening...';
+    } else if (state === 'recording') {
+        iconHTML = '<i class="fa-solid fa-microphone" style="color: #ff5555; margin-right: 8px; animation: mic-pulse 1s infinite alternate;"></i>';
+        labelText = currentLanguage === 'tr' ? 'Kaydediliyor...' : 'Recording...';
+    } else if (state === 'transcribing') {
+        iconHTML = '<div class="spinner-circle" style="margin-right: 8px;"></div>';
+        labelText = currentLanguage === 'tr' ? 'Yazıya Dökülüyor...' : 'Transcribing...';
+    } else if (state === 'speaking') {
+        iconHTML = '<i class="fa-solid fa-volume-high" style="color: #7f5af0; margin-right: 8px;"></i>';
+        labelText = currentLanguage === 'tr' ? 'Konuşuyor...' : 'Speaking...';
+    }
+
+    streamStatus.innerHTML = `${iconHTML}<span id="status-text">${labelText}</span>`;
+}
+
+function onVoiceMessageTranscribed(text) {
+    const input = document.getElementById('chat-input');
+    if (input) {
+        input.value = text;
+        sendMessage();
+    }
+}
+
+function onVoiceError(err) {
+    console.error("Voice error:", err);
+    updateVoiceStatus('off');
+    voiceModeActive = false;
+    alert("Voice Mode Error: " + err);
+}

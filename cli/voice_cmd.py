@@ -298,6 +298,10 @@ def cmd_voice(args: list) -> None:
     if args and args[0] == "off":
         if config_exists():
             cfg = load_config()
+
+    if args and args[0] == "off":
+        if config_exists():
+            cfg = load_config()
             cfg.setdefault("voice", {})["enabled"] = False
             save_config(cfg)
             print(_C("  ✓  Voice disabled.\n", "green"))
@@ -307,16 +311,13 @@ def cmd_voice(args: list) -> None:
         print(_C("  ✗  No config found. Run:  koza setup\n", "red"))
         return
 
-    cfg = load_config()
-    if not cfg.get("voice", {}).get("enabled"):
-        print(_C("  ⚠  Voice is not enabled.\n  Run:  koza voice setup\n", "yellow"))
-        return
+    print(_C("\n  🎙  Koza Voice Mode is now a GUI-exclusive feature.", "yellow"))
+    print(_C("  Please use the GUI Cockpit ('koza start') to talk to Koza.", "grey"))
+    print(_C("  The CLI always-on voice mode is no longer supported.\n", "grey"))
+    return
 
     try:
         from skills.voice import vad_listen_loop, tts_speak_configured, normalize_voice_config
-    except ImportError as e:
-        print(_C(f"  ✗  Voice deps missing: {e}\n  Run:  koza voice setup\n", "red"))
-        return
 
     from core import Agent
     from providers.factory import get_provider
