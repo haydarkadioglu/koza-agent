@@ -8,8 +8,7 @@ from cli.ui import (
 from cli.setup_constants import PROVIDERS, PROVIDER_MODELS, NEEDS_KEY, _OTHER
 from cli.setup_helpers import (
     _validate_api_key, _playwright_gemini_login,
-    _check_playwright_session, _reload_and_patch_media,
-    _check_antigravity_running,
+    _check_playwright_session,
 )
 
 
@@ -144,14 +143,8 @@ def _setup_primary_provider(cfg: dict) -> None:
     _hr("·", "grey")
 
     cur_provider = cfg.get("provider", "")
-    cur_gemini_auth = cfg.get("providers", {}).get("gemini", {}).get("auth", "api_key")
     if cur_provider == "gemini":
-        if cur_gemini_auth == "cookie":
-            cur_provider_choice = "gemini cookie"
-        elif cur_gemini_auth == "antigravity":
-            cur_provider_choice = "gemini antigravity"
-        else:
-            cur_provider_choice = "gemini api"
+        cur_provider_choice = "gemini api"
     else:
         cur_provider_choice = cur_provider
     default_idx = PROVIDERS.index(cur_provider_choice) if cur_provider_choice in PROVIDERS else 0
@@ -162,21 +155,8 @@ def _setup_primary_provider(cfg: dict) -> None:
 
     if provider_choice == "gemini api":
         provider = "gemini"; gemini_auth = "api_key"
-    elif provider_choice == "gemini cookie":
-        provider = "gemini"; gemini_auth = "cookie"
-    elif provider_choice == "gemini antigravity":
-        provider = "gemini"; gemini_auth = "antigravity"
     else:
         provider = provider_choice; gemini_auth = "api_key"
-
-    if provider_choice == "gemini antigravity":
-        ag_url = cfg.get("providers", {}).get("antigravity manager", {}).get("base_url", "http://localhost:5188")
-        ag_running = _check_antigravity_running(ag_url)
-        if ag_running:
-            print(_C(f"  ✓  Antigravity Manager reachable at {ag_url}\n", "green"))
-        else:
-            print(_C(f"  ⚠  Antigravity Manager not reachable at {ag_url}", "yellow"))
-            print(_C("     Make sure it is running before using Koza.\n", "yellow"))
 
     models = PROVIDER_MODELS.get(provider_choice, [""]) + [_OTHER]
     try:
@@ -186,66 +166,8 @@ def _setup_primary_provider(cfg: dict) -> None:
     model = _prompt("Enter model name") if model_choice == _OTHER else model_choice
 
     api_key = ""
-    cookie_setup_done = False
 
-    if provider_choice == "gemini cookie" and gemini_auth == "cookie" and _check_playwright_session():
-        cookie_setup_done = True
-
-    if provider == "gemini" and gemini_auth == "cookie" and not cookie_setup_done:
-        session_ok = _check_playwright_session()
-        if session_ok:
-            print(_C("  ✓  Gemini browser session found.\n", "green"))
-            try:
-                cookie_action = _select_menu(
-                    "Browser session exists",
-                    ["Keep current session",
-                     "Re-login (open browser again)",
-                     "Enter cookies manually (paste __Secure-1PSID)"],
-                    default_idx=0,
-                )
-            except (KeyboardInterrupt, EOFError):
-                cookie_action = "Keep"
-            if "Re-login" in cookie_action:
-                _playwright_gemini_login()
-            elif "manually" in cookie_action:
-                print(_C("\n  Get cookies from browser DevTools → Application → Cookies → .google.com\n", "grey"))
-                psid = _prompt_secret("__Secure-1PSID")
-                psidts = _prompt("__Secure-1PSIDTS (optional, Enter to skip)", default="")
-                if psid:
-                    cfg.setdefault("providers", {}).setdefault("gemini", {})["cookie_1psid"] = psid
-                    if psidts:
-                        cfg["providers"]["gemini"]["cookie_1psidts"] = psidts
-                    cfg["providers"]["gemini"]["auth"] = "cookie"
-                    print(_C("  ✓  Gemini cookies updated.\n", "green"))
-                else:
-                    print(_C("  ⚠  No cookie entered.\n", "yellow"))
-        else:
-            print(_C("  ℹ  No Gemini browser session found.\n", "grey"))
-            try:
-                do_login = _select_menu(
-                    "Set up Gemini cookie auth",
-                    ["Browser login (Playwright — automatic)",
-                     "Enter cookies manually (paste __Secure-1PSID)",
-                     "Skip — set up later"],
-                    default_idx=0,
-                )
-            except (KeyboardInterrupt, EOFError):
-                do_login = "Skip"
-            if "Browser" in do_login:
-                _playwright_gemini_login()
-            elif "manually" in do_login:
-                print(_C("\n  Get cookies from browser DevTools → Application → Cookies → .google.com\n", "grey"))
-                psid = _prompt_secret("__Secure-1PSID")
-                psidts = _prompt("__Secure-1PSIDTS (optional, Enter to skip)", default="")
-                if psid:
-                    cfg.setdefault("providers", {}).setdefault("gemini", {})["cookie_1psid"] = psid
-                    if psidts:
-                        cfg["providers"]["gemini"]["cookie_1psidts"] = psidts
-                    cfg["providers"]["gemini"]["auth"] = "cookie"
-                    print(_C("  ✓  Gemini cookies saved.\n", "green"))
-                else:
-                    print(_C("  ⚠  No cookie entered.\n", "yellow"))
-    elif provider_choice in NEEDS_KEY:
+    if provider_choice in NEEDS_KEY:
         existing = cfg.get("providers", {}).get(provider, {}).get("api_key", "")
         if existing:
             print(_C(f"  ✓  Existing key found for {provider_choice}.", "green"))
@@ -273,12 +195,6 @@ def _setup_primary_provider(cfg: dict) -> None:
     ollama_url = "http://localhost:11434"
     if provider == "ollama":
         ollama_url = _prompt("Ollama base URL", default="http://localhost:11434")
-    antigravity_url = "http://localhost:5188"
-    if provider == "antigravity manager":
-        antigravity_url = _prompt("Antigravity Tools LS URL", default="http://localhost:5188")
-    elif gemini_auth == "antigravity":
-        ag_existing = cfg.get("providers", {}).get("antigravity manager", {}).get("base_url", "http://localhost:5188")
-        antigravity_url = _prompt("Antigravity Manager URL", default=ag_existing)
     if provider == "google-oauth":
         print(_C("\n  🔑 Google OAuth login baslatiliyor...\n", "cyan"))
         from providers.google_oauth_provider import run_oauth_login
@@ -302,14 +218,10 @@ def _setup_primary_provider(cfg: dict) -> None:
         cfg.setdefault("providers", {}).setdefault("gemini", {})["auth"] = gemini_auth
         if gemini_auth == "api_key" and api_key:
             cfg["providers"]["gemini"]["api_key"] = api_key
-        if gemini_auth == "antigravity":
-            cfg["providers"]["gemini"]["antigravity_url"] = antigravity_url
     elif api_key:
         cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = api_key
     if provider == "ollama":
         cfg.setdefault("providers", {}).setdefault("ollama", {})["base_url"] = ollama_url
-    if provider == "antigravity manager":
-        cfg.setdefault("providers", {}).setdefault("antigravity manager", {})["base_url"] = antigravity_url
     if provider == "openrouter" and openrouter_url:
         cfg.setdefault("providers", {}).setdefault("openrouter", {})["base_url"] = openrouter_url
     print(_C(f"\n  ✓  Primary provider set to {provider} / {model}\n", "green"))

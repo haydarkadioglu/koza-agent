@@ -2,8 +2,7 @@
 
 PROVIDERS = [
     "ollama", "openai", "anthropic", "deepseek", "groq", "openrouter",
-    "kimi", "minimax", "zai", "gemini api", "gemini cookie",
-    "gemini antigravity", "antigravity manager", "github", "google-oauth", "codex",
+    "kimi", "minimax", "zai", "gemini api", "github", "google-oauth", "codex",
 ]
 
 PROVIDER_MODELS = {
@@ -25,9 +24,7 @@ PROVIDER_MODELS = {
     "zai":                 ["glm-z1-air", "glm-z1-flash", "glm-4-plus", "glm-4-air", "glm-4-flash"],
     "gemini api":          ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],
     "gemini cli":          ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],
-    "gemini cookie":       ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash", "gemini-3.1-pro", "gemini-3-pro", "gemini-3-flash-thinking", "gemini-3-pro-plus", "gemini-3-flash-advanced", "gemini-3-pro-advanced"],
-    "gemini antigravity":  ["gemini-3.1-pro-high", "gemini-3-flash-agent", "gemini-3.5-flash", "gemini-3.1-flash-lite"],
-    "gemini":              ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],    "antigravity manager": ["gemini-3.1-pro-high", "gemini-3-flash-agent", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"],
+    "gemini":              ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],
     "ollama":              ["llama3.2", "mistral", "codellama"],
     "github":              ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
     "google-oauth":        ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"],

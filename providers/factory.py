@@ -26,11 +26,6 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "zai":
         from .zai_provider import ZAIProvider
         return ZAIProvider(pcfg)
-    elif name == "antigravity manager":
-        from .openai_provider import OpenAIProvider
-        pcfg["base_url"] = pcfg.get("base_url", "http://localhost:5188") + "/v1"
-        pcfg["api_key"] = "antigravity"
-        return OpenAIProvider(pcfg)
     elif name == "ollama":
         from .ollama_provider import OllamaProvider
         return OllamaProvider(pcfg)
