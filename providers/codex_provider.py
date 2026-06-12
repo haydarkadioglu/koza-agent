@@ -119,6 +119,7 @@ class CodexProvider(LLMProvider):
         return CODEX_MODELS
 
     def _get_api_key(self) -> str:
+        self._token_data = _load_tokens() or self._token_data
         if not self._token_data:
             raise RuntimeError(
                 "Codex auth yok. Terminalde 'codex-login' yazarak API Key girin "

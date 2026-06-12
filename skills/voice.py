@@ -522,6 +522,16 @@ def vad_listen_loop(
     if status_callback:
         status_callback("listening")
 
+    # In GUI mode (status_callback set) we skip all console VU-meter output;
+    # state is communicated via the callback instead.
+    _gui_mode = bool(status_callback)
+
+    def _show(msg: str):
+        if _gui_mode:
+            return          # silent in GUI — no console spam
+        sys.stdout.write(f"\r  {msg:<70}")
+        sys.stdout.flush()
+
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
                         device=input_device) as stream:
         while not (stop_event and stop_event.is_set()):
@@ -554,17 +564,20 @@ def vad_listen_loop(
                     if silent_count >= silent_needed:
                         state = "idle"
                         pre_roll.clear()
-                        sys.stdout.write("\r" + " " * 72 + "\r")
-                        sys.stdout.flush()
+                        if not _gui_mode:
+                            sys.stdout.write("\r" + " " * 72 + "\r")
+                            sys.stdout.flush()
                         _show("⚙   Transcribing…")
                         sys.stdout.flush()
                         if status_callback:
                             status_callback("transcribing")
                         text = _transcribe(chunks, language=language, cfg=cfg)
                         chunks = []
-                        sys.stdout.write("\r" + " " * 72 + "\r")
-                        sys.stdout.flush()
+                        if not _gui_mode:
+                            sys.stdout.write("\r" + " " * 72 + "\r")
+                            sys.stdout.flush()
                         if status_callback:
                             status_callback("listening")
                         if text:
                             yield text
+

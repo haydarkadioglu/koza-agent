@@ -789,6 +789,19 @@ def _plain_cli(agent, cfg: dict) -> None:
                 _out(_C(f"  ❌ Hata: {e}\n", "red"))
             return True
 
+        # ── anthropic-login / /anthropic-login ── OAuth login ──────────────────
+        if user_input in ("anthropic-login", "/anthropic-login", "claude-login", "/claude-login"):
+            _out(_C("\n  🔑 Anthropic OAuth login baslatiliyor...\n", "cyan"))
+            try:
+                from providers.anthropic_oauth_provider import run_oauth_login
+                if run_oauth_login():
+                    _out(_C("  ✅ Anthropic hesabina baglandi. Provider'i kullanmak icin /model claude-3-5-sonnet-20241022\n", "green"))
+                else:
+                    _out(_C("  ❌ Baglanti basarisiz.\n", "red"))
+            except Exception as e:
+                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+            return True
+
         # ── codex-login / /codex-login ── Codex login ────────────────────────
         if user_input in ("codex-login", "/codex-login"):
             _out(_C("\n  🅾️  OpenAI Codex login baslatiliyor...\n", "cyan"))

@@ -18,10 +18,11 @@ def default_config() -> dict:
         "providers": {
             "openai":     {"api_key": "", "base_url": "https://api.openai.com/v1"},
             "anthropic":  {"api_key": ""},
+            "anthropic-oauth": {},
             "deepseek":   {"api_key": "", "base_url": "https://api.deepseek.com/v1"},
             "gemini":     {"api_key": "", "auth": "api_key"},
             "ollama":     {"base_url": "http://localhost:11434"},
-            "antigravity manager": {"base_url": "http://localhost:5188"},
+            "antigravity": {"api_key": "", "base_url": "http://127.0.0.1:8045/v1"},
             "github":     {"token": ""},
             "kimi":       {"api_key": "", "base_url": "https://api.moonshot.cn/v1"},
             "minimax":    {"api_key": "", "base_url": "https://api.minimax.io/v1"},

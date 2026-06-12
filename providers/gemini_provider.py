@@ -705,12 +705,30 @@ class GeminiProvider(LLMProvider):
         contents, system_text = self._messages_to_contents(messages)
 
         from google.genai import types as _types
-        cfg_kwargs: dict = {}
+        safety_settings = [
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+        ]
+        cfg_kwargs: dict = {"safety_settings": safety_settings}
         if system_text:
             cfg_kwargs["system_instruction"] = system_text
         if tools:
             cfg_kwargs["tools"] = self._convert_tools(tools)
-        config = _types.GenerateContentConfig(**cfg_kwargs) if cfg_kwargs else None
+        config = _types.GenerateContentConfig(**cfg_kwargs)
 
         gen_kwargs: dict = {"model": self._model, "contents": contents}
         if config:
@@ -792,12 +810,30 @@ class GeminiProvider(LLMProvider):
         contents, system_text = self._messages_to_contents(messages)
 
         from google.genai import types as _types
-        cfg_kwargs: dict = {}
+        safety_settings = [
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            _types.SafetySetting(
+                category=_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=_types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+        ]
+        cfg_kwargs: dict = {"safety_settings": safety_settings}
         if system_text:
             cfg_kwargs["system_instruction"] = system_text
         if tools:
             cfg_kwargs["tools"] = self._convert_tools(tools)
-        stream_config = _types.GenerateContentConfig(**cfg_kwargs) if cfg_kwargs else None
+        stream_config = _types.GenerateContentConfig(**cfg_kwargs)
 
         gen_stream_kwargs: dict = {"model": self._model, "contents": contents}
         if stream_config:

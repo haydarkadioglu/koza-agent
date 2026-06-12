@@ -96,6 +96,23 @@ class ConfigMixin:
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+    def update_provider_and_model(self, provider, model):
+        """Update both provider and model and reinitialize the agent once."""
+        try:
+            self.cfg = load_config()
+            self.cfg["provider"] = provider
+            self.cfg["model"] = model
+            save_config(self.cfg)
+            
+            p = get_provider(self.cfg)
+            self.agent = Agent(p, db_path=self.db_path, cfg=self.cfg, channel="gui")
+            self.agent.permission_callback = self._gui_permission_callback
+            
+            return {"status": "success", "message": "Provider and model updated successfully"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+
     def update_nested_config(self, dot_path, value):
         """Set a value in config.yaml using a dot-separated path (e.g. 'providers.openai.api_key')."""
         try:
@@ -112,6 +129,35 @@ class ConfigMixin:
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+    def get_google_oauth_status(self):
+        """Check if Google OAuth is connected and return email/project status."""
+        try:
+            from providers.google_oauth_provider import _load_tokens
+            tokens = _load_tokens()
+            if tokens:
+                refresh = tokens.get("refresh", "")
+                project_id = ""
+                if "|" in refresh:
+                    project_id = refresh.split("|")[1]
+                return {
+                    "connected": True,
+                    "email": tokens.get("email", "unknown"),
+                    "project_id": project_id
+                }
+            return {"connected": False}
+        except Exception as e:
+            return {"connected": False, "error": str(e)}
+
+    def logout_google_oauth(self):
+        """Disconnect Google OAuth and delete tokens."""
+        try:
+            from providers.google_oauth_provider import TOKEN_PATH
+            if TOKEN_PATH.exists():
+                TOKEN_PATH.unlink()
+            return {"status": "success"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     def run_google_oauth(self):
         """Start Google OAuth login in a background thread."""
         def run():
@@ -125,6 +171,46 @@ class ConfigMixin:
                 if self.webview_window:
                     res = json.dumps({"status": "error", "message": str(e)})
                     self.webview_window.evaluate_js(f"onOAuthCompleted({res})")
+        threading.Thread(target=run, daemon=True).start()
+        return {"status": "started"}
+
+    def get_anthropic_oauth_status(self):
+        """Check if Anthropic OAuth is connected and return status."""
+        try:
+            from providers.anthropic_oauth_provider import _load_tokens
+            tokens = _load_tokens()
+            if tokens:
+                return {
+                    "connected": True,
+                    "email": tokens.get("email", "connected")
+                }
+            return {"connected": False}
+        except Exception as e:
+            return {"connected": False, "error": str(e)}
+
+    def logout_anthropic_oauth(self):
+        """Disconnect Anthropic OAuth and delete tokens."""
+        try:
+            from providers.anthropic_oauth_provider import TOKEN_PATH
+            if TOKEN_PATH.exists():
+                TOKEN_PATH.unlink()
+            return {"status": "success"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def run_anthropic_oauth(self):
+        """Start Anthropic OAuth login in a background thread."""
+        def run():
+            try:
+                from providers.anthropic_oauth_provider import run_oauth_login
+                success = run_oauth_login()
+                if self.webview_window:
+                    res = json.dumps({"status": "success" if success else "failed"})
+                    self.webview_window.evaluate_js(f"onAnthropicOAuthCompleted({res})")
+            except Exception as e:
+                if self.webview_window:
+                    res = json.dumps({"status": "error", "message": str(e)})
+                    self.webview_window.evaluate_js(f"onAnthropicOAuthCompleted({res})")
         threading.Thread(target=run, daemon=True).start()
         return {"status": "started"}
 

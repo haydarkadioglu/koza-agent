@@ -220,21 +220,64 @@ function populateModelsDropdown(provider, selectedModel) {
 }
 
 function updateApiKeyFieldVisibility(provider, cfg) {
-    const apiKeyGroup = document.getElementById('group-api-key');
-    const oauthGroup = document.getElementById('group-oauth-actions');
-    const label = document.getElementById('label-api-key');
-    const keyInput = document.getElementById('setting-api-key');
-    const statusEl = document.getElementById('api-key-status');
-    
+    const apiKeyGroup   = document.getElementById('group-api-key');
+    const oauthGroup    = document.getElementById('group-oauth-actions');
+    const anthropicOauthGroup = document.getElementById('group-anthropic-oauth-actions');
+    const antigravGroup = document.getElementById('group-antigravity');
+    const label         = document.getElementById('label-api-key');
+    const keyInput      = document.getElementById('setting-api-key');
+    const statusEl      = document.getElementById('api-key-status');
+
+    // ── Antigravity Direct OAuth mode ──────────────────────────────
+    if (provider === 'antigravity') {
+        antigravGroup.style.display = 'none'; // Hide the proxy inputs completely
+        apiKeyGroup.style.display   = 'none';
+        oauthGroup.style.display    = 'flex'; // Show Google OAuth
+        if (anthropicOauthGroup) anthropicOauthGroup.style.display = 'flex'; // Show Anthropic OAuth
+        
+        // Query Python bridge for current Google OAuth status
+        window.pywebview.api.get_google_oauth_status().then(status => {
+            const statusEl = document.getElementById('oauth-connection-status');
+            const logoutBtn = document.getElementById('btn-google-logout');
+            if (statusEl) {
+                if (status.connected) {
+                    statusEl.innerHTML = `<span style="color:#2CB67D;"><i class="fa-solid fa-circle-check"></i> Connected to Google: <b>${status.email}</b>${status.project_id ? ` (Project: ${status.project_id})` : ''}</span>`;
+                    if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+                } else {
+                    statusEl.innerHTML = `<span style="color:var(--text-secondary);"><i class="fa-solid fa-circle-info"></i> Not connected to Google account</span>`;
+                    if (logoutBtn) logoutBtn.style.display = 'none';
+                }
+            }
+        });
+
+        // Query Python bridge for current Anthropic OAuth status
+        if (anthropicOauthGroup) {
+            window.pywebview.api.get_anthropic_oauth_status().then(status => {
+                const statusEl = document.getElementById('anthropic-oauth-connection-status');
+                const logoutBtn = document.getElementById('btn-anthropic-logout');
+                if (statusEl) {
+                    if (status.connected) {
+                        statusEl.innerHTML = `<span style="color:#2CB67D;"><i class="fa-solid fa-circle-check"></i> Connected to Anthropic Claude</span>`;
+                        if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+                    } else {
+                        statusEl.innerHTML = `<span style="color:var(--text-secondary);"><i class="fa-solid fa-circle-info"></i> Not connected to Anthropic account</span>`;
+                        if (logoutBtn) logoutBtn.style.display = 'none';
+                    }
+                }
+            });
+        }
+        return;
+    }
+
+    // ── Standard API key providers ─────────────────────────────────
+    antigravGroup.style.display = 'none';
     const needsKey = providersMetadata.needs_key.includes(provider) || provider.includes('api');
-    
+
     if (needsKey) {
         apiKeyGroup.style.display = 'block';
         label.innerText = `${provider.toUpperCase()} API Key`;
-        // Don't show masked "********" — show empty with badge instead
         keyInput.value = '';
         keyInput.placeholder = 'Enter new key to update...';
-        // Check if a key already exists
         const savedKey = cfg.providers && cfg.providers[provider] ? cfg.providers[provider].api_key : '';
         if (savedKey && savedKey !== '********') {
             showKeyStatus('api-key-status', 'saved');
@@ -247,28 +290,100 @@ function updateApiKeyFieldVisibility(provider, cfg) {
         apiKeyGroup.style.display = 'none';
         if (statusEl) statusEl.style.display = 'none';
     }
-    
-    if (provider.includes('gemini') || provider.includes('google')) {
+
+    if (provider.includes('gemini') || provider.includes('google') || provider === 'google-oauth') {
         oauthGroup.style.display = 'flex';
+        if (anthropicOauthGroup) anthropicOauthGroup.style.display = 'none';
+        // Query Python bridge for current Google OAuth status
+        window.pywebview.api.get_google_oauth_status().then(status => {
+            const statusEl = document.getElementById('oauth-connection-status');
+            const logoutBtn = document.getElementById('btn-google-logout');
+            if (statusEl) {
+                if (status.connected) {
+                    statusEl.innerHTML = `<span style="color:#2CB67D;"><i class="fa-solid fa-circle-check"></i> Connected to Google: <b>${status.email}</b>${status.project_id ? ` (Project: ${status.project_id})` : ''}</span>`;
+                    if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+                } else {
+                    statusEl.innerHTML = `<span style="color:var(--text-secondary);"><i class="fa-solid fa-circle-info"></i> Not connected to Google account</span>`;
+                    if (logoutBtn) logoutBtn.style.display = 'none';
+                }
+            }
+        });
+    } else if (provider === 'anthropic-oauth') {
+        oauthGroup.style.display = 'none';
+        if (anthropicOauthGroup) {
+            anthropicOauthGroup.style.display = 'flex';
+            // Query Python bridge for current Anthropic OAuth status
+            window.pywebview.api.get_anthropic_oauth_status().then(status => {
+                const statusEl = document.getElementById('anthropic-oauth-connection-status');
+                const logoutBtn = document.getElementById('btn-anthropic-logout');
+                if (statusEl) {
+                    if (status.connected) {
+                        statusEl.innerHTML = `<span style="color:#2CB67D;"><i class="fa-solid fa-circle-check"></i> Connected to Anthropic Claude</span>`;
+                        if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+                    } else {
+                        statusEl.innerHTML = `<span style="color:var(--text-secondary);"><i class="fa-solid fa-circle-info"></i> Not connected to Anthropic account</span>`;
+                        if (logoutBtn) logoutBtn.style.display = 'none';
+                    }
+                }
+            });
+        }
     } else {
         oauthGroup.style.display = 'none';
+        if (anthropicOauthGroup) anthropicOauthGroup.style.display = 'none';
     }
 }
 
 function onProviderChanged(provider) {
-    window.pywebview.api.update_config_value('root', 'provider', provider).then(res => {
-        let lookupKey = provider;
-        if (!providersMetadata.models[lookupKey]) {
-            lookupKey = Object.keys(providersMetadata.models).find(k => k.startsWith(provider)) || provider;
-        }
-        const defaultModel = (providersMetadata.models[lookupKey] || [''])[0];
-        
-        window.pywebview.api.update_config_value('root', 'model', defaultModel).then(() => {
+    let lookupKey = provider;
+    if (!providersMetadata.models[lookupKey]) {
+        lookupKey = Object.keys(providersMetadata.models).find(k => k.startsWith(provider)) || provider;
+    }
+    const defaultModel = (providersMetadata.models[lookupKey] || [''])[0];
+
+    window.pywebview.api.update_provider_and_model(provider, defaultModel).then(res => {
+        if (res && res.status === 'success') {
             window.pywebview.api.get_config().then(cfg => {
                 populateModelsDropdown(provider, defaultModel);
                 updateApiKeyFieldVisibility(provider, cfg);
             });
-        });
+        } else {
+            console.error("Error updating provider and model:", res ? res.message : "unknown error");
+            const errMsg = res ? res.message : "unknown error";
+            alert(currentLanguage === 'tr' 
+                ? "Sağlayıcı ve model güncellenirken hata oluştu: " + errMsg 
+                : "Error updating provider and model: " + errMsg
+            );
+        }
+    }).catch(err => {
+        console.error("Promise rejected in onProviderChanged:", err);
+    });
+}
+
+
+/** Save Antigravity Manager proxy settings (base URL + optional API key). */
+function saveAntigravityConfig() {
+    const url = document.getElementById('setting-antigravity-url').value.trim()
+                || 'http://127.0.0.1:8045/v1';
+    const key = document.getElementById('setting-antigravity-key').value.trim();
+    const statusDiv = document.getElementById('antigravity-save-status');
+    const btn = document.getElementById('btn-save-antigravity');
+
+    btn.disabled = true;
+    statusDiv.style.display = 'inline-flex';
+    statusDiv.innerHTML = '<span style="color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin"></i> Saving…</span>';
+
+    const saves = [
+        updateNestedConfig('providers.antigravity.base_url', url),
+    ];
+    if (key) saves.push(updateNestedConfig('providers.antigravity.api_key', key));
+
+    Promise.all(saves).then(() => {
+        statusDiv.innerHTML = '<span style="color:#2CB67D;"><i class="fa-solid fa-check"></i> Saved</span>';
+        document.getElementById('setting-antigravity-key').value = '';
+        document.getElementById('setting-antigravity-key').placeholder = 'sk-… (key saved)';
+    }).catch(err => {
+        statusDiv.innerHTML = `<span style="color:#ff5555;"><i class="fa-solid fa-xmark"></i> Error: ${err}</span>`;
+        btn.disabled = false;
     });
 }
 
@@ -521,12 +636,30 @@ function triggerGeminiBrowserLogin() {
     window.pywebview.api.run_gemini_browser_login();
 }
 
+function logoutGoogleOAuth() {
+    if (confirm(currentLanguage === 'tr' ? 'Google OAuth bağlantısını kesmek istiyor musunuz?' : 'Are you sure you want to disconnect Google OAuth?')) {
+        window.pywebview.api.logout_google_oauth().then(res => {
+            if (res.status === 'success') {
+                alert(currentLanguage === 'tr' ? 'Bağlantı kesildi.' : 'Disconnected.');
+                window.pywebview.api.get_config().then(cfg => {
+                    updateApiKeyFieldVisibility(cfg.provider, cfg);
+                });
+            } else {
+                alert('Error: ' + res.message);
+            }
+        });
+    }
+}
+
 function onOAuthCompleted(res) {
     if (res.status === 'success') {
         alert(currentLanguage === 'tr' ? 'Google OAuth bağlantısı başarıyla tamamlandı!' : 'Google OAuth login completed successfully!');
     } else {
         alert(currentLanguage === 'tr' ? 'Giriş başarısız veya iptal edildi.' : 'Login failed or was cancelled.');
     }
+    window.pywebview.api.get_config().then(cfg => {
+        updateApiKeyFieldVisibility(cfg.provider, cfg);
+    });
 }
 
 function onGeminiBrowserLoginCompleted(res) {
@@ -535,6 +668,40 @@ function onGeminiBrowserLoginCompleted(res) {
     } else {
         alert(currentLanguage === 'tr' ? 'Tarayıcı oturum kaydı başarısız.' : 'Browser login failed.');
     }
+    window.pywebview.api.get_config().then(cfg => {
+        updateApiKeyFieldVisibility(cfg.provider, cfg);
+    });
+}
+
+function triggerAnthropicOAuth() {
+    alert(currentLanguage === 'tr' ? 'Tarayıcıda Anthropic OAuth giriş penceresi açılıyor. Lütfen takip edin...' : 'Opening Anthropic OAuth login in browser. Please follow the instructions...');
+    window.pywebview.api.run_anthropic_oauth();
+}
+
+function logoutAnthropicOAuth() {
+    if (confirm(currentLanguage === 'tr' ? 'Anthropic OAuth bağlantısını kesmek istiyor musunuz?' : 'Are you sure you want to disconnect Anthropic OAuth?')) {
+        window.pywebview.api.logout_anthropic_oauth().then(res => {
+            if (res.status === 'success') {
+                alert(currentLanguage === 'tr' ? 'Bağlantı kesildi.' : 'Disconnected.');
+                window.pywebview.api.get_config().then(cfg => {
+                    updateApiKeyFieldVisibility(cfg.provider, cfg);
+                });
+            } else {
+                alert('Error: ' + res.message);
+            }
+        });
+    }
+}
+
+function onAnthropicOAuthCompleted(res) {
+    if (res.status === 'success') {
+        alert(currentLanguage === 'tr' ? 'Anthropic OAuth bağlantısı başarıyla tamamlandı!' : 'Anthropic OAuth login completed successfully!');
+    } else {
+        alert(currentLanguage === 'tr' ? 'Giriş başarısız veya iptal edildi.' : 'Login failed or was cancelled.');
+    }
+    window.pywebview.api.get_config().then(cfg => {
+        updateApiKeyFieldVisibility(cfg.provider, cfg);
+    });
 }
 
 /* Twilio, voice and general config updates */

@@ -233,13 +233,88 @@
                                 </div>
                                 <div id="api-key-status" style="margin-top:6px; font-size:12px; display:none;"></div>
                             </div>
-                            <div class="form-group" id="group-oauth-actions" style="display:none; gap: 8px;">
-                                <button class="btn btn-primary" id="btn-google-oauth" onclick="triggerGoogleOAuth()">
-                                    <i class="fa-brands fa-google"></i> <span data-localize="btn-google-login">Login with Google</span>
-                                </button>
-                                <button class="btn btn-secondary" id="btn-gemini-browser" onclick="triggerGeminiBrowserLogin()">
-                                    <i class="fa-solid fa-compass"></i> <span data-localize="btn-browser-login">Browser Session Login</span>
-                                </button>
+                            </div>
+                            <!-- Antigravity config block -->
+                            <div class="form-group" id="group-antigravity" style="display:none;">
+                                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:16px;">
+                                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                                        <i class="fa-solid fa-satellite-dish" style="color:#7f5af0; font-size:16px;"></i>
+                                        <div style="font-weight:600; font-size:13px;">Antigravity Manager Connection</div>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:12px;">
+                                        <div>
+                                            <label style="font-size:11px; color:var(--text-secondary); margin-bottom:4px; display:block;">Proxy Base URL</label>
+                                            <input type="text" id="setting-antigravity-url"
+                                                   placeholder="http://127.0.0.1:8045/v1"
+                                                   style="width:100%; box-sizing:border-box;"
+                                                   oninput="document.getElementById('btn-save-antigravity').disabled=false">
+                                        </div>
+                                        <div>
+                                            <label style="font-size:11px; color:var(--text-secondary); margin-bottom:4px; display:block;">Proxy API Key <span style="opacity:0.5;">(optional)</span></label>
+                                            <input type="password" id="setting-antigravity-key"
+                                                   placeholder="sk-... (leave blank if not set)"
+                                                   style="width:100%; box-sizing:border-box;"
+                                                   oninput="document.getElementById('btn-save-antigravity').disabled=false">
+                                        </div>
+                                        <div style="display:flex; align-items:center; gap:10px;">
+                                            <button class="btn btn-secondary" id="btn-save-antigravity" onclick="saveAntigravityConfig()" style="padding:8px 16px; font-size:12px;">
+                                                <i class="fa-solid fa-floppy-disk"></i> Save Proxy Config
+                                            </button>
+                                            <div id="antigravity-save-status" style="font-size:12px; display:none;"></div>
+                                        </div>
+                                        <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-top:4px;">
+                                            <i class="fa-solid fa-circle-info" style="margin-right:4px;"></i>
+                                            Download: <a href="https://github.com/lbjlaq/Antigravity-Manager" target="_blank" style="color:#7f5af0;">Antigravity Manager →</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Google OAuth config block -->
+                            <div class="form-group" id="group-oauth-actions" style="display:none; flex-direction:column; gap:10px;">
+                                <div style="background:rgba(127,90,240,0.08); border:1px solid rgba(127,90,240,0.25); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <i class="fa-brands fa-google" style="color:#4285F4; font-size:18px;"></i>
+                                        <div>
+                                            <div style="font-weight:600; font-size:13px;">Google Account OAuth Login</div>
+                                            <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Opens browser → sign in → token saved automatically</div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <button class="btn btn-primary" id="btn-google-oauth" onclick="triggerGoogleOAuth()" style="flex:1; min-width:140px;">
+                                            <i class="fa-brands fa-google"></i> Login with Google
+                                        </button>
+                                        <button class="btn btn-secondary" id="btn-gemini-browser" onclick="triggerGeminiBrowserLogin()" style="flex:1; min-width:140px;">
+                                            <i class="fa-solid fa-compass"></i> Browser Session
+                                        </button>
+                                        <button class="btn btn-danger" id="btn-google-logout" onclick="logoutGoogleOAuth()" style="flex:1; min-width:140px; display:none;">
+                                            <i class="fa-solid fa-sign-out-alt"></i> Disconnect
+                                        </button>
+                                    </div>
+                                    <div id="oauth-connection-status" style="font-size:12px; margin-top:4px;"></div>
+                                </div>
+                            </div>
+
+                            <!-- Anthropic OAuth config block -->
+                            <div class="form-group" id="group-anthropic-oauth-actions" style="display:none; flex-direction:column; gap:10px;">
+                                <div style="background:rgba(127,90,240,0.08); border:1px solid rgba(127,90,240,0.25); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <i class="fa-solid fa-brain" style="color:#D97706; font-size:18px;"></i>
+                                        <div>
+                                            <div style="font-weight:600; font-size:13px;">Anthropic Account OAuth Login</div>
+                                            <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Opens browser → sign in → token saved automatically</div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <button class="btn btn-primary" id="btn-anthropic-oauth" onclick="triggerAnthropicOAuth()" style="flex:1; min-width:140px;">
+                                            <i class="fa-solid fa-key"></i> Login with Anthropic
+                                        </button>
+                                        <button class="btn btn-danger" id="btn-anthropic-logout" onclick="logoutAnthropicOAuth()" style="flex:1; min-width:140px; display:none;">
+                                            <i class="fa-solid fa-sign-out-alt"></i> Disconnect
+                                        </button>
+                                    </div>
+                                    <div id="anthropic-oauth-connection-status" style="font-size:12px; margin-top:4px;"></div>
+                                </div>
                             </div>
                         </div>
 

@@ -2,7 +2,8 @@
 
 PROVIDERS = [
     "ollama", "openai", "anthropic", "deepseek", "groq", "openrouter",
-    "kimi", "minimax", "zai", "gemini api", "github", "google-oauth", "codex",
+    "kimi", "minimax", "zai", "gemini api", "github", "google-oauth", "anthropic-oauth", "codex",
+    "antigravity",
 ]
 
 PROVIDER_MODELS = {
@@ -28,7 +29,13 @@ PROVIDER_MODELS = {
     "ollama":              ["llama3.2", "mistral", "codellama"],
     "github":              ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
     "google-oauth":        ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
+    "anthropic-oauth":     ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-latest", "claude-3-opus-20240229"],
     "codex":               ["o4-mini", "o3", "o4-mini-high", "gpt-4.1", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
+    # Antigravity Manager: local proxy — Gemini/Claude via Google & Anthropic web OAuth sessions
+    "antigravity":         [
+        "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash-001", "gemini-1.5-pro",
+        "claude-opus-4", "claude-sonnet-4-5", "claude-3-5-sonnet-20241022", "claude-haiku-3-5",
+    ],
 }
 
 NEEDS_KEY = {

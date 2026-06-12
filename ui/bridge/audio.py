@@ -110,50 +110,96 @@ class AudioMixin:
         return {"status": "started", "message": f"Download started for {category}/{model_name}"}
 
     def start_voice_loop(self):
-        """Start background Voice Mode loop (VAD + STT + TTS) integrated with GUI chat.
-        This is only called when the user explicitly clicks the mic button on the chat page.
+        """Start the conversational Voice Mode loop (VAD → STT → Agent → TTS → repeat).
+        Only called when the user explicitly clicks the mic button on the chat page.
         """
         if hasattr(self, "_voice_thread") and self._voice_thread and self._voice_thread.is_alive():
             return {"status": "already_running"}
-            
+
         self._voice_stop_event = threading.Event()
         self.voice_loop_active = True
-        
+
         def run():
             try:
-                from skills.voice import vad_listen_loop, normalize_voice_config, ensure_audio_deps
+                from skills.voice import (
+                    vad_listen_loop, normalize_voice_config,
+                    ensure_audio_deps, tts_speak_configured
+                )
                 ensure_audio_deps()
-                
-                voice_cfg = normalize_voice_config(self.cfg)
-                language = voice_cfg.get("stt", {}).get("language") or None
-                input_device = voice_cfg.get("input_device")
-                
-                def status_callback(state):
+
+                voice_cfg  = normalize_voice_config(self.cfg)
+                language      = voice_cfg.get("stt", {}).get("language") or None
+                input_device  = voice_cfg.get("input_device")
+                output_device = voice_cfg.get("output_device")
+
+                def _js(code):
                     if self.webview_window:
-                        self.webview_window.evaluate_js(f"updateVoiceStatus('{state}')")
-                
+                        self.webview_window.evaluate_js(code)
+
+                def status_callback(state):
+                    _js(f"updateVoiceStatus('{state}')")
+
                 status_callback("listening")
-                
+
                 for text in vad_listen_loop(
                     input_device=input_device,
                     language=language,
                     stop_event=self._voice_stop_event,
                     cfg=self.cfg,
-                    status_callback=status_callback
+                    status_callback=status_callback,
                 ):
-                    if not text:
+                    if not text or self._voice_stop_event.is_set():
                         continue
-                        
-                    # Send transcription to Javascript frontend
-                    if self.webview_window:
-                        import json
-                        escaped_text = json.dumps(text)
-                        self.webview_window.evaluate_js(f"onVoiceMessageTranscribed({escaped_text})")
-                        
+
+                    # ── 1. Show user bubble in chat ────────────────────────
+                    import json as _json
+                    _js(f"appendMessageBubble('user', {_json.dumps(text)}, [])")
+
+                    # ── 2. Show thinking status ────────────────────────────
+                    status_callback("transcribing")  # reuse "thinking" style
+
+                    # ── 3. Stream agent response ───────────────────────────
+                    full_response = ""
+                    try:
+                        _js("appendMessageBubble('assistant', '…', [])")
+                        for event in self.agent.stream_chat(text):
+                            if self._voice_stop_event.is_set():
+                                break
+                            if isinstance(event, dict) and event.get("type") == "text":
+                                tok = event.get("token", "")
+                                full_response += tok
+                                # Stream token into the last assistant bubble
+                                _js(f"updateLastAssistantBubble({_json.dumps(full_response)})")
+                    except Exception as agent_err:
+                        print(f"[Voice] Agent error: {agent_err}")
+                        full_response = str(agent_err)
+
+                    if not full_response.strip():
+                        status_callback("listening")
+                        continue
+
+                    # ── 4. Speak the response ──────────────────────────────
+                    status_callback("speaking")
+                    try:
+                        tts_speak_configured(
+                            full_response.strip(),
+                            self.cfg,
+                            output_device=output_device,
+                        )
+                    except Exception as tts_err:
+                        print(f"[Voice] TTS error: {tts_err}")
+
+                    # ── 5. Back to listening ───────────────────────────────
+                    if not self._voice_stop_event.is_set():
+                        status_callback("listening")
+
             except Exception as e:
-                print(f"Voice loop error: {e}")
+                print(f"[Voice] Loop error: {e}")
                 if self.webview_window:
-                    self.webview_window.evaluate_js(f"onVoiceError('{str(e)}')")
+                    import json as _json
+                    self.webview_window.evaluate_js(
+                        f"onVoiceError({_json.dumps(str(e))})"
+                    )
             finally:
                 self.voice_loop_active = False
                 if self.webview_window:
@@ -172,3 +218,4 @@ class AudioMixin:
 
     def is_voice_loop_active(self):
         return {"active": getattr(self, "voice_loop_active", False)}
+

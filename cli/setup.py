@@ -202,6 +202,13 @@ def _setup_primary_provider(cfg: dict) -> None:
             print(_C("  ✅ Google hesabina baglandi.\n", "green"))
         else:
             print(_C("  ⚠  Baglanti basarisiz. Setup'a devam ediliyor.\n", "yellow"))
+    if provider == "anthropic-oauth":
+        print(_C("\n  🔑 Anthropic OAuth login baslatiliyor...\n", "cyan"))
+        from providers.anthropic_oauth_provider import run_oauth_login
+        if run_oauth_login():
+            print(_C("  ✅ Anthropic hesabina baglandi.\n", "green"))
+        else:
+            print(_C("  ⚠  Baglanti basarisiz. Setup'a devam ediliyor.\n", "yellow"))
     openrouter_url = ""
     if provider == "openrouter":
         existing_url = cfg.get("providers", {}).get("openrouter", {}).get("base_url", "")

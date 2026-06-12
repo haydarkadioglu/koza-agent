@@ -174,21 +174,7 @@ def run_oauth_login() -> bool:
     verifier, challenge = _generate_pkce()
     state = secrets.token_urlsafe(16)
 
-    # Auth URL
-    params = urllib.parse.urlencode({
-        "client_id": _client_id(),
-        "redirect_uri": "http://127.0.0.1:8085/oauth2callback",
-        "response_type": "code",
-        "scope": " ".join(SCOPES),
-        "access_type": "offline",
-        "prompt": "consent",
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "state": state,
-    })
-    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{params}"
-
-    # Callback server
+    # Callback server handler
     received_code = []
     received_state = []
     server_ready = threading.Event()
@@ -210,15 +196,33 @@ def run_oauth_login() -> bool:
         def log_message(self, format, *args):
             pass
 
-    # Start server on a random port, fallback to 8085
+    # Start server on a free port first to determine redirect_uri
     server = None
+    selected_port = 8085
     for port in [8085, 8086, 8087, 8088, 8089]:
         try:
             server = socketserver.TCPServer(("127.0.0.1", port), CallbackHandler)
             server.timeout = 300  # 5 min timeout
+            selected_port = port
             break
         except OSError:
             continue
+
+    redirect_uri = f"http://127.0.0.1:{selected_port}/oauth2callback"
+
+    # Auth URL
+    params = urllib.parse.urlencode({
+        "client_id": _client_id(),
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(SCOPES),
+        "access_type": "offline",
+        "prompt": "consent",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+    })
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{params}"
 
     if server is None:
         # Headless fallback - paste mode
@@ -264,7 +268,7 @@ def run_oauth_login() -> bool:
             "code": code,
             "code_verifier": verifier,
             "grant_type": "authorization_code",
-            "redirect_uri": "http://127.0.0.1:8085/oauth2callback",
+            "redirect_uri": redirect_uri,
         }).encode()
 
         req = urllib.request.Request(
@@ -479,6 +483,12 @@ def _call_code_assist(
         request_body["systemInstruction"] = system_instruction
     if tools:
         request_body["tools"] = tools
+    request_body["safetySettings"] = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    ]
     request_body["generationConfig"] = {
         "temperature": 0.7,
         "maxOutputTokens": 8192,
@@ -499,8 +509,39 @@ def _call_code_assist(
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = resp.read().decode()
+
+    max_retries = 5
+    backoff = 3.0
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = resp.read().decode()
+            break
+        except urllib.error.HTTPError as e:
+            err_body = ""
+            try:
+                err_body = e.read().decode()
+            except Exception:
+                pass
+            if e.code == 429 and attempt < max_retries - 1:
+                # Try parsing reset time from the response message
+                sleep_time = backoff
+                match = re.search(r"reset after\s+(\d+)s", err_body, re.IGNORECASE)
+                if match:
+                    sleep_time = float(match.group(1)) + 1.0
+                
+                logger.warning(
+                    f"Google Cloud Code Assist API rate limited (429). "
+                    f"Retrying in {sleep_time}s... (Attempt {attempt + 1}/{max_retries})"
+                )
+                time.sleep(sleep_time)
+                backoff *= 2.0
+                continue
+            logger.error(f"HTTP Error {e.code}: {err_body}")
+            raise e
+
+
+
 
     # Parse SSE response
     content = ""
@@ -565,6 +606,7 @@ class GoogleOAuthProvider(LLMProvider):
 
     def _ensure_auth(self) -> tuple[str, str]:
         """Ensure valid access token and project ID. Returns (token, project_id)."""
+        self._token_data = _load_tokens()
         if not self._token_data:
             raise RuntimeError(
                 "Not connected to Google account. "
@@ -573,6 +615,12 @@ class GoogleOAuthProvider(LLMProvider):
         token = get_valid_access_token(self._token_data)
         if not token:
             raise RuntimeError("Token expired. Run 'google-login' in the terminal to sign in again.")
+        
+        # Extract project ID
+        refresh = self._token_data.get("refresh", "")
+        if "|" in refresh:
+            self._project_id = refresh.split("|")[1]
+            
         project_id = self._project_id or "default"
         return token, project_id
 

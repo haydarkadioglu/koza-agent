@@ -11,6 +11,9 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "anthropic":
         from .anthropic_provider import AnthropicProvider
         return AnthropicProvider(pcfg)
+    elif name == "anthropic-oauth":
+        from .anthropic_oauth_provider import AnthropicOAuthProvider
+        return AnthropicOAuthProvider(pcfg)
     elif name == "deepseek":
         from .deepseek_provider import DeepSeekProvider
         return DeepSeekProvider(pcfg)
@@ -47,6 +50,9 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "portal":
         from .portal_provider import NousPortalProvider
         return NousPortalProvider(pcfg)
+    elif name == "antigravity":
+        from .antigravity_provider import AntigravityProvider
+        return AntigravityProvider(pcfg)
     else:
         raise ValueError(f"Unknown provider: {name}")
 
