@@ -124,7 +124,8 @@ class ConfigMixin:
         if not hasattr(self, "agent"):
             return
         old_messages = self.agent.messages
-        old_session_id = self.agent.session_id
+        old_session_id = self.agent._session_id
+        old_active_session_id = self.agent._active_session_id
         
         from core import Agent
         from providers.factory import get_provider
@@ -133,7 +134,8 @@ class ConfigMixin:
         self.agent = Agent(p, db_path=self.db_path, cfg=self.cfg, channel="gui")
         self.agent.permission_callback = getattr(self, "_gui_permission_callback", None)
         self.agent.messages = old_messages
-        self.agent.session_id = old_session_id
+        self.agent._session_id = old_session_id
+        self.agent._active_session_id = old_active_session_id
 
     def update_nested_config(self, dot_path, value):
         """Set a value in config.yaml using a dot-separated path (e.g. 'providers.openai.api_key')."""
