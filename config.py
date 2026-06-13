@@ -89,7 +89,7 @@ def default_config() -> dict:
             "max_retries": 3,       # max retry count when tests fail
             "auto_test":   True,    # run Test Engineer after every coding task
         },
-        "tool_approval": False,     # False = auto-approve tools; True = ask for non-safe tools
+        "tool_approval": True,      # False = auto-approve tools; True = ask for non-safe tools
         "ui": {
             "default": "plain",          # plain | tui
             "refresh_interval_ms": 1500,

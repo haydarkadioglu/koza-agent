@@ -6,17 +6,24 @@ Usage:
     from cli.permissions import make_permission_callback
     agent.permission_callback = make_permission_callback(cfg)
 """
+"""
+Tool permission system for the CLI chat interface.
+
+Extracted from cli/chat.py to keep it maintainable as a standalone module.
+Usage:
+    from cli.permissions import make_permission_callback
+    agent.permission_callback = make_permission_callback(cfg)
+"""
 from __future__ import annotations
 
 # ── Tools that are always auto-approved (no prompt needed) ────────────────────
 SAFE_TOOLS: frozenset[str] = frozenset({
     # Web & search
     "web_search", "fetch_url",
-    # Filesystem
-    "list_dir", "read_file", "write_file", "create_dir", "delete_file",
-    "search_files", "get_cwd", "create_project", "list_projects", "clean_workspace",
-    # Shell / code
-    "run_command", "run_python", "run_node", "run_script",
+    # Filesystem (excluding modification tools)
+    "list_dir", "read_file", "create_dir",
+    "search_files", "get_cwd", "list_projects",
+    # Shell / code (none are auto-approved)
     # Memory
     "wm_add", "wm_get", "wm_list", "wm_clear", "wm_get_context",
     "memory_recall", "memory_search", "memory_list", "memory_store",
@@ -33,7 +40,7 @@ SAFE_TOOLS: frozenset[str] = frozenset({
     "list_background_tasks", "cancel_background_task",
     "list_capabilities",
     # Config
-    "get_config", "set_config", "delete_config",
+    "get_config",
     # Messaging
     "send_message", "get_messages",
     "telegram_send", "telegram_get_updates", "telegram_send_photo",
@@ -53,12 +60,11 @@ SAFE_TOOLS: frozenset[str] = frozenset({
 })
 
 
-def _show_permission_ui(name: str, args: dict, select_fn) -> bool:
+def _show_permission_ui(name: str, args: dict, select_fn) -> str:
     """Render the interactive permission prompt in the terminal.
 
-    Returns True if user approves, False if denied.
-    ``select_fn`` is injected so this function doesn't depend on cli.ui directly
-    (makes it easier to test and avoids circular imports at module level).
+    Returns the choice string.
+    ``select_fn`` is injected so this function doesn't depend on cli.ui directly.
     """
     from cli.ui import _C
 
@@ -73,12 +79,12 @@ def _show_permission_ui(name: str, args: dict, select_fn) -> bool:
         choice = select_fn(
             "Allow this tool?",
             ["Allow (this session)", "Allow all tools (this session)",
-             "Allow permanently", "Allow (once)", "Deny"],
+             "Allow permanently", "Allow (once)", "Edit arguments", "Deny"],
             default_idx=0,
         )
     except (KeyboardInterrupt, EOFError):
-        return False
-    return choice  # caller handles the string value
+        return "Deny"
+    return choice
 
 
 def make_permission_callback(cfg: dict):
@@ -127,6 +133,22 @@ def make_permission_callback(cfg: dict):
             return True
         if choice == "Allow (once)":
             return True
+        if choice == "Edit arguments":
+            import json
+            print(_C("\n  📝 Current Arguments (JSON):", "yellow"))
+            print(json.dumps(args, indent=2))
+            print(_C("  Enter new JSON arguments (leave empty to cancel edit):", "yellow"))
+            try:
+                new_json = input("  JSON: ").strip()
+                if new_json:
+                    edited_args = json.loads(new_json)
+                    args.clear()
+                    args.update(edited_args)
+                    print(_C("  ✓  Arguments updated.", "green"))
+            except Exception as e:
+                print(_C(f"  ❌ Invalid JSON: {e}", "red"))
+            # Re-ask permission with updated (or unchanged) arguments
+            return _ui(name, args)
         print(_C(f"  ✗  {name} denied.\n", "red"))
         return False
 

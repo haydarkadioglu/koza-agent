@@ -156,3 +156,85 @@ class SkillsMixin:
                 return {"status": "error", "message": res}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def get_user_profile(self):
+        """Fetch all user rules and notes."""
+        try:
+            from skills.shared_memory import _db_path as sm_db_path, _conn as sm_conn
+            import skills.user_profile as user_profile
+            # Ensure DB is initialized
+            user_profile.get_user_context(self.db_path)
+            
+            with sm_conn() as conn:
+                rows = conn.execute(
+                    """SELECT key, value, source, updated_at FROM shared_memory
+                       WHERE tags LIKE '%user%'
+                       ORDER BY key""",
+                ).fetchall()
+            data = [dict(r) for r in rows]
+            return {"status": "success", "data": data}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def add_user_rule(self, rule):
+        """Add a custom user rule instruction."""
+        try:
+            import skills.user_profile as user_profile
+            user_profile.get_user_context(self.db_path)
+            res = user_profile.user_rule_add(rule)
+            return {"status": "success", "message": res}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def delete_user_profile_item(self, key):
+        """Delete a rule or note instruction."""
+        try:
+            import skills.user_profile as user_profile
+            user_profile.get_user_context(self.db_path)
+            res = user_profile.user_profile_delete(key)
+            return {"status": "success", "message": res}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def get_mcp_servers(self):
+        """Fetch list of saved MCP servers from config."""
+        try:
+            servers = self.cfg.get("mcp_servers", ["http://localhost:3000"])
+            return {"status": "success", "data": servers}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def add_mcp_server(self, url):
+        """Add an MCP server URL to config."""
+        try:
+            servers = self.cfg.get("mcp_servers", ["http://localhost:3000"])
+            if url not in servers:
+                servers.append(url)
+            self.cfg["mcp_servers"] = servers
+            save_config(self.cfg)
+            return {"status": "success", "data": servers}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def delete_mcp_server(self, url):
+        """Remove an MCP server URL from config."""
+        try:
+            servers = self.cfg.get("mcp_servers", ["http://localhost:3000"])
+            if url in servers:
+                servers.remove(url)
+            self.cfg["mcp_servers"] = servers
+            save_config(self.cfg)
+            return {"status": "success", "data": servers}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def test_mcp_connection(self, url):
+        """Call mcp_list_tools to verify connection."""
+        try:
+            from skills.mcp_skill import mcp_list_tools
+            res = mcp_list_tools(url)
+            if "ERROR" in res:
+                return {"status": "error", "message": res}
+            return {"status": "success", "message": res}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

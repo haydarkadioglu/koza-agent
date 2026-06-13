@@ -418,7 +418,6 @@ def _translate_messages(messages: list[dict]) -> tuple:
                     "functionCall": {
                         "name": name,
                         "args": args,
-                        "thoughtSignature": "skip_thought_signature_validator",
                     }
                 })
             contents.append({"role": "model", "parts": parts})

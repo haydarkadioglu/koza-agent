@@ -93,14 +93,26 @@ class LocalEnvironment(BaseEnvironment):
         else:
             ret = proc.poll()
 
-        if ret is not None:
-            t_out.join(timeout=1.0)
-            t_err.join(timeout=1.0)
+        if ret is None:
+            # Terminate and kill on timeout to free file locks
+            try:
+                proc.terminate()
+                proc.wait(timeout=2.0)
+            except Exception:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1.0)
+                except Exception:
+                    pass
+            ret = -1
+
+        t_out.join(timeout=1.0)
+        t_err.join(timeout=1.0)
 
         stdout = "".join(stdout_lines)
         stderr = "".join(stderr_lines)
 
-        return ret if ret is not None else -1, stdout, stderr
+        return ret, stdout, stderr
 
 class DockerEnvironment(BaseEnvironment):
     def __init__(self, workspace_host_dir: str, container_name: str = "koza-sandbox", image_name: str = "python:3.12-slim"):

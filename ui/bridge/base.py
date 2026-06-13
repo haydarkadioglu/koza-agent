@@ -40,6 +40,7 @@ class BridgeBase:
             
         self._perm_event.clear()
         self._perm_allowed = False
+        self._perm_args = None
         
         # Trigger modal in the frontend
         if self.webview_window:
@@ -48,9 +49,23 @@ class BridgeBase:
             
         # Wait for user input from GUI (timeout after 120 seconds)
         success = self._perm_event.wait(timeout=120)
-        return self._perm_allowed if success else False
+        if success and self._perm_allowed:
+            if self._perm_args is not None:
+                # Update arguments in-place
+                args.clear()
+                args.update(self._perm_args)
+            return True
+        return False
 
-    def resolve_permission(self, allowed: bool):
+    def resolve_permission(self, allowed: bool, edited_args_json: str = None):
         """Called by JS to resume the blocked agent thread."""
         self._perm_allowed = allowed
+        if allowed and edited_args_json:
+            try:
+                self._perm_args = json.loads(edited_args_json)
+            except Exception:
+                self._perm_args = None
+        else:
+            self._perm_args = None
         self._perm_event.set()
+

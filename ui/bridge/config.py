@@ -258,3 +258,29 @@ class ConfigMixin:
                 return {"status": "success", "message": "Daemon stopped"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def get_project_meta(self):
+        """Get project workspace name, directory path, and current git branch."""
+        import os
+        import subprocess
+        cwd = os.getcwd()
+        folder_name = os.path.basename(cwd) or "agent"
+        branch_name = "main"
+        try:
+            res = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                branch_name = res.stdout.strip()
+        except Exception:
+            pass
+        return {
+            "status": "success",
+            "folder_name": folder_name,
+            "folder_path": cwd,
+            "branch_name": branch_name
+        }
