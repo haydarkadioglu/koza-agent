@@ -185,3 +185,82 @@ const LOCALIZATION = {
         "self-improve-label": "Arka Planda Öz-Gelişimi Etkinleştir (Küratör)"
     }
 };
+
+// ── CUSTOM CONFIRM MODAL ──────────────────────────────────────────────────
+let customConfirmCallback = null;
+
+function showConfirmModal(text, onConfirm) {
+    const modal = document.getElementById('custom-confirm-modal');
+    const textEl = document.getElementById('confirm-modal-text');
+    const yesBtn = document.getElementById('confirm-modal-yes');
+    
+    if (modal && textEl && yesBtn) {
+        textEl.innerText = text;
+        customConfirmCallback = onConfirm;
+        
+        yesBtn.onclick = function() {
+            closeConfirmModal();
+            if (customConfirmCallback) customConfirmCallback();
+        };
+        
+        modal.style.display = 'flex';
+    } else {
+        if (confirm(text)) onConfirm();
+    }
+}
+
+function closeConfirmModal() {
+    const modal = document.getElementById('custom-confirm-modal');
+    if (modal) modal.style.display = 'none';
+    customConfirmCallback = null;
+}
+
+function clearAllHistory() {
+    showConfirmModal(
+        currentLanguage === 'tr' ? 'Tüm sohbet geçmişini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.' : 'Are you sure you want to delete ALL conversation history? This cannot be undone.',
+        () => {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.clear_conversation_history().then(res => {
+                    if (res && res.status === 'success') {
+                        if (typeof loadSessions === 'function') loadSessions();
+                        if (typeof switchTab === 'function') switchTab('chat');
+                    }
+                });
+            }
+        }
+    );
+}
+
+// ── NEW SESSION WIZARD MODAL ──────────────────────────────────────────────
+function openNewSessionModal() {
+    const modal = document.getElementById('new-session-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        const input = document.getElementById('wizard-chat-input');
+        if (input) input.focus();
+    }
+}
+
+function closeNewSessionModal() {
+    const modal = document.getElementById('new-session-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function startSessionFromWizard() {
+    const input = document.getElementById('wizard-chat-input');
+    const msg = input ? input.value.trim() : '';
+    closeNewSessionModal();
+    if (typeof startNewSession === 'function') {
+        startNewSession(msg);
+    } else if (typeof sendMessage === 'function') {
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) chatInput.value = msg;
+        sendMessage();
+    }
+}
+
+window.addEventListener('click', function(event) {
+    if (event.target.classList && event.target.classList.contains('modal')) {
+        event.target.style.display = "none";
+    }
+});

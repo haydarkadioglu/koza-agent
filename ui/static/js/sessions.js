@@ -50,9 +50,17 @@ function loadSessionChat(sessId) {
 
 function deleteSession(sessId) {
     const confText = currentLanguage === 'tr' ? 'Bu oturumu kalıcı olarak silmek istiyor musunuz?' : 'Do you want to permanently delete this session?';
-    if (confirm(confText)) {
+    showConfirmModal(confText, () => {
         window.pywebview.api.delete_session(sessId).then(res => {
-            loadSessions();
+            if (res && res.status === 'success') {
+                loadSessions();
+                if (window.activeSessionId === sessId) {
+                    const messages = document.getElementById('chat-messages');
+                    if (messages) messages.innerHTML = '';
+                    document.getElementById('session-title-header').innerText = 'New Session';
+                    window.activeSessionId = null;
+                }
+            }
         });
-    }
+    });
 }

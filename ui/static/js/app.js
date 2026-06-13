@@ -61,21 +61,26 @@ function loadInitialData() {
 function switchTab(tabId) {
     activeTab = tabId;
     
-    document.querySelectorAll('.nav-item').forEach(btn => {
+    document.querySelectorAll('.customization-item').forEach(btn => {
         btn.classList.remove('active');
     });
-    const clickedBtn = Array.from(document.querySelectorAll('.nav-item')).find(btn => 
-        btn.getAttribute('onclick').includes(tabId)
-    );
+    
+    const clickedBtn = document.getElementById(`custom-item-${tabId}`);
     if (clickedBtn) clickedBtn.classList.add('active');
 
     document.querySelectorAll('.tab-pane').forEach(pane => {
         pane.classList.remove('active');
     });
-    document.getElementById(`tab-${tabId}`).classList.add('active');
+    const pane = document.getElementById(`tab-${tabId}`);
+    if (pane) pane.classList.add('active');
     
     if (tabId === 'kanban') loadKanbanTasks();
     if (tabId === 'sessions') loadSessions();
     if (tabId === 'settings') loadSettings();
     if (tabId === 'skills') loadPluginsAndSkills();
+    
+    // Customization tabs empty loaders
+    if (tabId === 'instructions') { if (typeof loadUserProfile === 'function') loadUserProfile(); }
+    if (tabId === 'hooks') { if (typeof loadHooksData === 'function') loadHooksData(); }
+    if (tabId === 'mcp') { if (typeof loadMcpServers === 'function') loadMcpServers(); }
 }
