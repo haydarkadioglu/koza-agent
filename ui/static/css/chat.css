@@ -382,19 +382,7 @@
     100% { transform: scale(1.06); box-shadow: 0 0 16px rgba(255, 85, 85, 0.5); }
 }
 
-/* Chat container state transitions */
-#chat-container.new-session-active .chat-messages {
-    justify-content: center;
-    background: transparent;
-}
-
-#chat-container.new-session-active .chat-input-area {
-    display: none !important;
-}
-
-#chat-container:not(.new-session-active) .welcome-box {
-    display: none !important;
-}
+/* Chat container state transitions removed */
 
 /* Centered Landing Box */
 .welcome-box {
@@ -704,7 +692,5 @@
     margin-bottom: 0;
 }
 
-#tab-chat:has(.chat-container.new-session-active) .pane-header {
-    display: none !important;
-}
+/* Header alignment rule */
 

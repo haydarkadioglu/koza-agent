@@ -235,12 +235,12 @@ function clearAllHistory() {
 function openNewSessionModal() {
     if (window.pywebview && window.pywebview.api) {
         window.pywebview.api.reset_chat().then(() => {
-            const chatLog = document.getElementById('chat-log');
+            const chatLog = document.getElementById('chat-messages');
             if (chatLog) chatLog.innerHTML = '';
             if (typeof switchTab === 'function') switchTab('chat');
         });
     } else {
-        const chatLog = document.getElementById('chat-log');
+        const chatLog = document.getElementById('chat-messages');
         if (chatLog) chatLog.innerHTML = '';
         if (typeof switchTab === 'function') switchTab('chat');
     }
