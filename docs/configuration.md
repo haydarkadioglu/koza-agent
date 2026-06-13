@@ -10,7 +10,7 @@ All settings can be managed through the setup wizard (`python main.py setup`) or
 
 ```yaml
 # Active LLM provider
-provider: ollama          # openai | anthropic | deepseek | gemini | ollama
+provider: ollama          # openai | anthropic | deepseek | gemini | ollama | lm_studio
 
 # Default model (leave empty to use provider default)
 model: ""
@@ -33,6 +33,8 @@ providers:
     antigravity_url: "http://localhost:5188"  # only for auth: antigravity
   ollama:
     base_url: "http://localhost:11434"       # local Ollama server
+  lm_studio:
+    base_url: "http://localhost:1234/v1"     # local LM Studio server
   github:
     token: ""                               # GitHub PAT for github_skill
 
@@ -112,6 +114,11 @@ cp .env.example .env
 1. Install from https://ollama.com
 2. Pull a model: `ollama pull llama3.2`
 3. Koza auto-connects to `http://localhost:11434`
+
+### LM Studio (Local)
+1. Install from https://lmstudio.ai
+2. Load a local model and click "Start Server" in the Developer tab.
+3. Koza auto-connects to `http://localhost:1234/v1`
 
 ## View Current Config
 

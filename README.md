@@ -65,7 +65,7 @@ You can also run Koza Agent in a secure, isolated Docker container:
 
 | Category | What it does |
 |---|---|
-| **Multi-LLM** | OpenAI, Anthropic, DeepSeek, Gemini, Ollama (local), GitHub Models |
+| **Multi-LLM** | OpenAI, Anthropic, DeepSeek, Gemini, Ollama (local), LM Studio (local), GitHub Models |
 | **Rich TUI** | Textual-based chat UI, setup wizard, and Kanban board — navigate with arrow keys |
 | **99+ Tools** | Files, shell, web, code runner, GitHub, research, crypto, smart home, media, and more |
 | **Kanban + Cron** | Task management board + scheduled jobs (syncs to OS crontab / Windows Task Scheduler) |
@@ -131,6 +131,7 @@ DISCORD_WEBHOOK_URL=...
 | `deepseek` | `providers.deepseek.api_key` | deepseek-chat, deepseek-reasoner |
 | `gemini` | `providers.gemini.auth` + (`providers.gemini.api_key` if `api_key`) | API key, local ADC (Gemini CLI/gcloud), or cookie session |
 | `ollama` | `providers.ollama.base_url` | Local models (default: localhost:11434) |
+| `lm_studio` | `providers.lm_studio.base_url` | Local models via LM Studio (default: localhost:1234/v1) |
 | `github` | `providers.github.token` | GitHub Models (free tier via GitHub token) |
 
 ---
