@@ -8,7 +8,7 @@ from .base import LLMProvider
 class GroqProvider(LLMProvider):
     def __init__(self, cfg: dict):
         self._client = OpenAI(
-            api_key=cfg.get("api_key", ""),
+            api_key=cfg.get("api_key") or "sk-placeholder",
             base_url=cfg.get("base_url", "https://api.groq.com/openai/v1"),
         )
         self._model = cfg.get("model", "llama-3.3-70b-versatile")

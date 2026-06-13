@@ -9,7 +9,7 @@ from .base import LLMProvider
 class AnthropicProvider(LLMProvider):
     def __init__(self, cfg: dict):
         self._cfg = cfg
-        api_key = self._get_api_key(cfg) or ""
+        api_key = self._get_api_key(cfg) or "sk-ant-placeholder"
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = cfg.get("model", "claude-3-5-sonnet-20241022")
 

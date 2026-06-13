@@ -93,7 +93,10 @@ class GeminiProvider(LLMProvider):
             self._ag_client = _OAI(base_url=base_url, api_key="antigravity")
 
         elif auth_mode in ("adc", "gcloud", "google_cli", "gemini_cli"):
-            self._client = self._build_genai_client_from_adc()
+            try:
+                self._client = self._build_genai_client_from_adc()
+            except Exception:
+                self._client = genai.Client(api_key="sk-placeholder")
         else:  # api_key (keeps backward-compatible ADC fallback if api_key is empty)
             from google import genai
             self._cfg = cfg
@@ -101,7 +104,10 @@ class GeminiProvider(LLMProvider):
             if api_key:
                 self._client = genai.Client(api_key=api_key)
             else:
-                self._client = self._build_genai_client_from_adc()
+                try:
+                    self._client = self._build_genai_client_from_adc()
+                except Exception:
+                    self._client = genai.Client(api_key="sk-placeholder")
 
     def _update_client_key(self) -> None:
         new_key = self._get_api_key(self._cfg)

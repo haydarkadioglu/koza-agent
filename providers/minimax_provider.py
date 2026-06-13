@@ -7,7 +7,7 @@ from .base import LLMProvider
 class MiniMaxProvider(LLMProvider):
     def __init__(self, cfg: dict):
         self._client = OpenAI(
-            api_key=cfg.get("api_key", ""),
+            api_key=cfg.get("api_key") or "sk-placeholder",
             base_url=cfg.get("base_url", "https://api.minimax.io/v1"),
         )
         self._model = cfg.get("model", "MiniMax-Text-01")

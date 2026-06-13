@@ -20,7 +20,7 @@ _VISION_KEYWORDS = (
 class OpenRouterProvider(LLMProvider):
     def __init__(self, cfg: dict):
         self._client = OpenAI(
-            api_key=cfg.get("api_key", ""),
+            api_key=cfg.get("api_key") or "sk-placeholder",
             base_url=cfg.get("base_url", "https://openrouter.ai/api/v1"),
             default_headers={
                 "HTTP-Referer": "https://github.com/haydarkadioglu/koza-agent",

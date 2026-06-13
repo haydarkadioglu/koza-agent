@@ -7,7 +7,7 @@ from .base import LLMProvider
 class ZAIProvider(LLMProvider):
     def __init__(self, cfg: dict):
         self._client = OpenAI(
-            api_key=cfg.get("api_key", ""),
+            api_key=cfg.get("api_key") or "sk-placeholder",
             base_url=cfg.get("base_url", "https://open.bigmodel.cn/api/paas/v4"),
         )
         self._model = cfg.get("model", "glm-4-plus")
