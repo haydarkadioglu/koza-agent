@@ -27,6 +27,12 @@ def init_db(db_path: str) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_title ON sessions(title)")
 
+        # Safely add project column for grouping
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN project TEXT NOT NULL DEFAULT 'agent'")
+        except sqlite3.OperationalError:
+            pass
+
         # FTS5 virtual table for fast full-text search across session content
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts
@@ -74,22 +80,25 @@ def _conn():
 
 # ─── Tool: save_session ──────────────────────────────────────────────────────
 
-def save_session(title: str, messages: list, summary: str = "", session_id: int | None = None) -> int:
+def save_session(title: str, messages: list, summary: str = "", session_id: int | None = None, project: str = None) -> int:
     """Save or update conversation to persistent storage. Returns the session ID (int)."""
     if not _db_path:
         return 0
+    if not project:
+        import os
+        project = os.path.basename(os.getcwd()) or "agent"
     now = time.time()
     messages_json = json.dumps(messages, ensure_ascii=False)
     with _conn() as conn:
         if session_id:
             conn.execute(
-                "UPDATE sessions SET title = ?, ended = ?, messages = ?, summary = ? WHERE id = ?",
-                (title, now, messages_json, summary, session_id),
+                "UPDATE sessions SET title = ?, ended = ?, messages = ?, summary = ?, project = ? WHERE id = ?",
+                (title, now, messages_json, summary, project, session_id),
             )
         else:
             cursor = conn.execute(
-                "INSERT INTO sessions (title, started, ended, messages, summary) VALUES (?, ?, ?, ?, ?)",
-                (title, now, now, messages_json, summary),
+                "INSERT INTO sessions (title, started, ended, messages, summary, project) VALUES (?, ?, ?, ?, ?, ?)",
+                (title, now, now, messages_json, summary, project),
             )
             session_id = cursor.lastrowid
     return session_id
@@ -213,7 +222,7 @@ def get_session_rows(limit: int = 10) -> list[dict]:
         return []
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT id, title, started, summary FROM sessions ORDER BY started DESC LIMIT ?",
+            "SELECT id, title, started, summary, project FROM sessions ORDER BY started DESC LIMIT ?",
             (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
@@ -245,6 +254,20 @@ def delete_session(session_id: int) -> str:
     with _conn() as conn:
         deleted = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,)).rowcount
     return f"Session #{session_id} deleted." if deleted else f"Session #{session_id} not found."
+
+
+def clear_all_sessions() -> str:
+    """Deletes all sessions from the database."""
+    if not _db_path:
+        return "Session DB not initialized."
+    with _conn() as conn:
+        conn.execute("DELETE FROM sessions")
+        # Reset auto-increment
+        try:
+            conn.execute("DELETE FROM sqlite_sequence WHERE name='sessions'")
+        except Exception:
+            pass
+    return "All sessions have been deleted."
 
 
 # ─── Registry ────────────────────────────────────────────────────────────────

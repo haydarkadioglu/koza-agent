@@ -31,3 +31,13 @@ class SessionMixin:
             return {"status": "success", "message": res}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def clear_conversation_history(self):
+        try:
+            res = session_memory.clear_all_sessions()
+            self.agent.messages = [m for m in self.agent.messages if m.get("role") == "system"]
+            self.agent._context_summary = ""
+            self.agent._active_session_id = None
+            return {"status": "success", "message": res}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
