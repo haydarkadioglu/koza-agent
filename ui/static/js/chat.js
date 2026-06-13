@@ -110,8 +110,27 @@ function appendMessageBubble(role, content, attachments = []) {
     
     const label = document.createElement('div');
     label.classList.add('message-label');
-    label.innerText = role === 'user' ? (currentLanguage === 'tr' ? 'Siz' : 'You') : 'Koza';
     
+    if (role === 'user') {
+        label.innerText = currentLanguage === 'tr' ? 'Siz' : 'You';
+    } else {
+        let providerName = '';
+        let modelName = '';
+        const provEl = document.getElementById('setting-provider');
+        const modEl = document.getElementById('setting-model');
+        const modCustEl = document.getElementById('setting-model-custom');
+        
+        if (provEl && provEl.value) providerName = provEl.value;
+        if (modEl && modEl.value) {
+            modelName = modEl.value === 'other' ? (modCustEl ? modCustEl.value : '') : modEl.value;
+        }
+        
+        if (providerName && modelName) {
+            label.innerText = `Koza — ${providerName}/${modelName}`;
+        } else {
+            label.innerText = 'Koza';
+        }
+    }
     const bubble = document.createElement('div');
     bubble.classList.add('message-bubble');
     bubble.innerHTML = formatMarkdown(content);
@@ -184,6 +203,10 @@ function receiveChatEvent(event) {
     if (event.type === 'thinking') {
         document.getElementById('status-text').innerText = LOCALIZATION[currentLanguage].thinking;
     } 
+    else if (event.type === 'error') {
+        appendMessageBubble('agent', `**Error:** ${event.message}`);
+        finishProcessing();
+    }
     else if (event.type === 'text') {
         document.getElementById('stream-status').style.display = 'none';
         if (!currentBubble) {
