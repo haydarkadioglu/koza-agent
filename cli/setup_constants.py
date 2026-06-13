@@ -1,7 +1,7 @@
 """Setup constants — provider lists, model catalogs, and key requirements."""
 
 PROVIDERS = [
-    "ollama", "openai", "anthropic", "deepseek", "groq", "openrouter",
+    "ollama", "lm_studio", "openai", "anthropic", "deepseek", "groq", "openrouter",
     "kimi", "minimax", "zai", "gemini api", "github", "google-oauth", "anthropic-oauth", "codex",
     "antigravity",
 ]
@@ -27,6 +27,7 @@ PROVIDER_MODELS = {
     "gemini cli":          ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],
     "gemini":              ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-flash-latest"],
     "ollama":              ["llama3.2", "mistral", "codellama"],
+    "lm_studio":           ["local-model"],
     "github":              ["gpt-4.1", "gpt-4o", "Meta-Llama-3.1-70B-Instruct"],
     "google-oauth":        ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
     "anthropic-oauth":     ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-latest", "claude-3-opus-20240229"],

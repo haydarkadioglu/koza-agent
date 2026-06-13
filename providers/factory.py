@@ -32,6 +32,9 @@ def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     elif name == "ollama":
         from .ollama_provider import OllamaProvider
         return OllamaProvider(pcfg)
+    elif name == "lm_studio":
+        from .lm_studio_provider import LMStudioProvider
+        return LMStudioProvider(pcfg)
     elif name == "github":
         from .github_provider import GitHubProvider
         return GitHubProvider(pcfg)
