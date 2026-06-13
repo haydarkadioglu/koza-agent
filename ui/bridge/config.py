@@ -29,23 +29,22 @@ class ConfigMixin:
     def test_api_key(self, provider, api_key):
         """Test whether the given API key works for the specified provider.
         Saves the key first, then makes a minimal test call, reverts on failure."""
+        provider_name_map = {
+            "gemini api": "gemini",
+            "gemini cli": "gemini",
+        }
+        mapped_provider = provider_name_map.get(provider, provider)
+
         try:
             cfg = load_config()
-            old_key = cfg.get("providers", {}).get(provider, {}).get("api_key", "")
+            old_key = cfg.get("providers", {}).get(mapped_provider, {}).get("api_key", "")
             # Temporarily write the key so get_provider uses it
-            cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = api_key
+            cfg.setdefault("providers", {}).setdefault(mapped_provider, {})["api_key"] = api_key
             save_config(cfg)
-
-            # Resolve the internal provider name
-            provider_name_map = {
-                "gemini api": "gemini",
-                "gemini cli": "gemini",
-            }
-            test_provider = provider_name_map.get(provider, provider)
 
             try:
                 test_cfg = dict(cfg)
-                test_cfg["provider"] = provider
+                test_cfg["provider"] = mapped_provider
                 prov = get_provider(test_cfg)
                 # Make a cheap single-token call
                 result = ""
@@ -57,7 +56,7 @@ class ConfigMixin:
                 return {"status": "success", "message": "Connection successful ✓"}
             except Exception as e:
                 # Revert key on failure
-                cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = old_key
+                cfg.setdefault("providers", {}).setdefault(mapped_provider, {})["api_key"] = old_key
                 save_config(cfg)
                 return {"status": "error", "message": str(e)}
         except Exception as e:
@@ -80,6 +79,10 @@ class ConfigMixin:
         """Update a specific configuration value and save it."""
         try:
             self.cfg = load_config()
+            if key == "provider":
+                provider_name_map = {"gemini api": "gemini", "gemini cli": "gemini"}
+                value = provider_name_map.get(value, value)
+
             if section == "root":
                 self.cfg[key] = value
             elif section in self.cfg:
@@ -100,7 +103,10 @@ class ConfigMixin:
         """Update both provider and model and reinitialize the agent once."""
         try:
             self.cfg = load_config()
-            self.cfg["provider"] = provider
+            provider_name_map = {"gemini api": "gemini", "gemini cli": "gemini"}
+            mapped_provider = provider_name_map.get(provider, provider)
+            
+            self.cfg["provider"] = mapped_provider
             self.cfg["model"] = model
             save_config(self.cfg)
             
