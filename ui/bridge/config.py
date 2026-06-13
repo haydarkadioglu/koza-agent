@@ -36,14 +36,14 @@ class ConfigMixin:
         mapped_provider = provider_name_map.get(provider, provider)
 
         try:
-            cfg = load_config()
-            old_key = cfg.get("providers", {}).get(mapped_provider, {}).get("api_key", "")
+            self.cfg = load_config()
+            old_key = self.cfg.get("providers", {}).get(mapped_provider, {}).get("api_key", "")
             # Temporarily write the key so get_provider uses it
-            cfg.setdefault("providers", {}).setdefault(mapped_provider, {})["api_key"] = api_key
-            save_config(cfg)
+            self.cfg.setdefault("providers", {}).setdefault(mapped_provider, {})["api_key"] = api_key
+            save_config(self.cfg)
 
             try:
-                test_cfg = dict(cfg)
+                test_cfg = dict(self.cfg)
                 test_cfg["provider"] = mapped_provider
                 prov = get_provider(test_cfg)
                 # Make a cheap single-token call
@@ -61,8 +61,8 @@ class ConfigMixin:
                 return {"status": "success", "message": "Connection successful ✓"}
             except Exception as e:
                 # Revert key on failure
-                cfg.setdefault("providers", {}).setdefault(mapped_provider, {})["api_key"] = old_key
-                save_config(cfg)
+                self.cfg.setdefault("providers", {}).setdefault(mapped_provider, {})["api_key"] = old_key
+                save_config(self.cfg)
                 return {"status": "error", "message": str(e)}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -123,6 +123,9 @@ class ConfigMixin:
     def _reinit_agent_keeping_history(self):
         if not hasattr(self, "agent"):
             return
+        
+        self.cfg = load_config()
+        
         old_messages = self.agent.messages
         old_session_id = self.agent._session_id
         old_active_session_id = self.agent._active_session_id
