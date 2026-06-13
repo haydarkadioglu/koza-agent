@@ -101,7 +101,7 @@ Koza: [calls discord_send] ✅ Discord sent via webhook
 
 ### Example
 ```
-You: Send a WhatsApp message to +905551234567 saying "Meeting in 10 minutes"
+You: Send a WhatsApp message to +90555123... saying "Meeting in 10 minutes"
 Koza: [calls whatsapp_send] ✅ WhatsApp sent (SID: SM...)
 ```
 

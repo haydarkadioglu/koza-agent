@@ -9,7 +9,7 @@
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourname/koza-agent.git
+git clone https://github.com/haydarkadioglu/koza-agent.git
 cd koza-agent
 
 # (Recommended) Create a virtual environment
