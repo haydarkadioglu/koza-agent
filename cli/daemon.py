@@ -160,7 +160,21 @@ def cmd_start(args: list) -> None:
             _start_telegram_inprocess(cfg)
             print(_C("  ✓  Telegram bot started (in-process)\n", "teal"))
 
-    _plain_cli(agent, cfg)
+    initial_msg = None
+    if len(agent.messages) <= 1:
+        try:
+            from prompt_toolkit import prompt
+            from prompt_toolkit.styles import Style
+            style = Style.from_dict({'prompt': 'ansicyan bold', 'input': 'ansiwhite'})
+            print(_C("\n  ✨ Yeni Oturum Başlatılıyor\n", "cyan"))
+            initial_msg = prompt("  Ne inşa ediyorsunuz? › ", style=style).strip()
+        except Exception:
+            try:
+                initial_msg = input(_C("\n  Ne inşa ediyorsunuz? › ", "cyan")).strip()
+            except (KeyboardInterrupt, EOFError):
+                sys.exit(0)
+
+    _plain_cli(agent, cfg, initial_msg=initial_msg)
 
 
 def _start_telegram_inprocess(cfg: dict) -> None:

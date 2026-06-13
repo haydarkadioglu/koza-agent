@@ -59,7 +59,7 @@ def _render_session_history(layout, messages: list[dict], max_lines: int = 500) 
         layout.append_output(_C("  ── End of history ──\n\n", "grey"))
 
 
-def _plain_cli(agent, cfg: dict) -> None:
+def _plain_cli(agent, cfg: dict, initial_msg: str = None) -> None:
     _print_banner(cfg)
 
     import atexit
@@ -1015,6 +1015,13 @@ def _plain_cli(agent, cfg: dict) -> None:
         # a handful of truncated messages.
         _render_session_history(layout, agent.messages, max_lines=500)
 
+        if initial_msg:
+            def _start_initial():
+                import time
+                time.sleep(0.3)
+                dispatcher.process(initial_msg)
+            threading.Thread(target=_start_initial, daemon=True).start()
+
         old_stdout = sys.stdout
         old_stderr = sys.stderr
 
@@ -1066,6 +1073,9 @@ def _plain_cli(agent, cfg: dict) -> None:
         raise KeyboardInterrupt
 
     _signal.signal(_signal.SIGINT, _sigint_handler)
+
+    if initial_msg:
+        _process(initial_msg)
 
     while True:
         try:
