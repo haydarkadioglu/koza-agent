@@ -51,8 +51,13 @@ class ConfigMixin:
                 for event in prov.stream_chat([{"role": "user", "content": "Hi"}], {}):
                     if isinstance(event, dict) and event.get("type") == "text":
                         result += event.get("token", "")
+                    elif isinstance(event, str):
+                        result += event
+                        
                     if len(result) > 0:
                         break
+                
+                self._reinit_agent_keeping_history()
                 return {"status": "success", "message": "Connection successful ✓"}
             except Exception as e:
                 # Revert key on failure
@@ -91,9 +96,7 @@ class ConfigMixin:
             
             # Reinit agent if provider changed
             if key == "provider" or key == "model":
-                provider = get_provider(self.cfg)
-                self.agent = Agent(provider, db_path=self.db_path, cfg=self.cfg, channel="gui")
-                self.agent.permission_callback = self._gui_permission_callback
+                self._reinit_agent_keeping_history()
                 
             return {"status": "success", "message": "Config updated successfully"}
         except Exception as e:
@@ -110,14 +113,27 @@ class ConfigMixin:
             self.cfg["model"] = model
             save_config(self.cfg)
             
-            p = get_provider(self.cfg)
-            self.agent = Agent(p, db_path=self.db_path, cfg=self.cfg, channel="gui")
-            self.agent.permission_callback = self._gui_permission_callback
+            self._reinit_agent_keeping_history()
             
             return {"status": "success", "message": "Provider and model updated successfully"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+
+    def _reinit_agent_keeping_history(self):
+        if not hasattr(self, "agent"):
+            return
+        old_messages = self.agent.messages
+        old_session_id = self.agent.session_id
+        
+        from core import Agent
+        from providers.factory import get_provider
+        
+        p = get_provider(self.cfg)
+        self.agent = Agent(p, db_path=self.db_path, cfg=self.cfg, channel="gui")
+        self.agent.permission_callback = getattr(self, "_gui_permission_callback", None)
+        self.agent.messages = old_messages
+        self.agent.session_id = old_session_id
 
     def update_nested_config(self, dot_path, value):
         """Set a value in config.yaml using a dot-separated path (e.g. 'providers.openai.api_key')."""
@@ -131,6 +147,11 @@ class ConfigMixin:
                 target = target[part]
             target[parts[-1]] = value
             save_config(self.cfg)
+            
+            # Reinit agent if modifying a provider setting (like api_key or base_url)
+            if parts[0] == "providers":
+                self._reinit_agent_keeping_history()
+                
             return {"status": "success", "message": f"Config {dot_path} updated"}
         except Exception as e:
             return {"status": "error", "message": str(e)}

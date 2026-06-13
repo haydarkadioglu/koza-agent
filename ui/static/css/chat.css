@@ -193,6 +193,7 @@
     font-size: 14px;
     line-height: 1.5;
     word-break: break-word;
+    user-select: text;
 }
 
 .message.user .message-bubble {
@@ -480,7 +481,6 @@
     gap: 6px;
     cursor: pointer;
     transition: var(--transition-fast);
-    user-select: none;
 }
 
 .option-pill-btn:hover {
