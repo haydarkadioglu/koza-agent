@@ -123,7 +123,6 @@ body {
     flex-shrink: 0;
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border-glass);
-    backdrop-filter: blur(20px);
     display: flex;
     flex-direction: column;
     padding: 24px 16px;
@@ -140,10 +139,7 @@ body {
 
 .brand-logo {
     font-size: 24px;
-    background: var(--accent-gradient);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 2px 8px rgba(0, 242, 254, 0.4));
+    color: var(--accent-gradient);
 }
 
 .brand-text h1 {
@@ -193,7 +189,6 @@ body {
 .nav-item.active {
     color: var(--text-primary);
     background: var(--primary-gradient);
-    box-shadow: 0 4px 15px rgba(127, 0, 255, 0.3);
 }
 
 .nav-item i {
@@ -226,12 +221,10 @@ body {
 
 .pulse.green {
     background-color: var(--color-green);
-    box-shadow: 0 0 8px var(--color-green);
 }
 
 .pulse.yellow {
     background-color: var(--color-yellow);
-    box-shadow: 0 0 8px var(--color-yellow);
     animation: blink 1.5s infinite;
 }
 
@@ -246,7 +239,7 @@ body {
     flex-grow: 1;
     height: 100vh;
     position: relative;
-    background: radial-gradient(circle at top right, rgba(0, 242, 254, 0.08), transparent 45%);
+    background: transparent;
 }
 
 
@@ -307,8 +300,7 @@ body {
 }
 
 .btn-primary:hover {
-    box-shadow: var(--shadow-neon);
-    transform: translateY(-1px);
+    filter: brightness(1.1);
 }
 
 .btn-secondary {
@@ -487,7 +479,6 @@ body {
 
 .sidebar-session-item.active .session-dot {
     background: #7f5af0;
-    box-shadow: 0 0 6px #7f5af0;
 }
 
 .session-item-title {
@@ -580,8 +571,8 @@ body {
 }
 
 .customization-item.active {
-    background: rgba(127, 90, 240, 0.08);
-    border-left: 2px solid #7f5af0;
+    background-color: rgba(127, 90, 240, 0.2);
+    border-left: 2px solid var(--primary-gradient);
     color: var(--text-primary);
 }
 
@@ -634,12 +625,10 @@ body {
     justify-content: center;
     gap: 8px;
     transition: var(--transition-fast);
-    box-shadow: 0 4px 12px rgba(0, 242, 254, 0.15);
 }
 
 .btn-sidebar-new-session:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(0, 242, 254, 0.3);
 }
 
 .btn-sidebar-new-session i {

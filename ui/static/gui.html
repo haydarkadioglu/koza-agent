@@ -29,8 +29,8 @@
             </div>
 
             <!-- Big New Session Button -->
-            <div class="sidebar-new-session-container" style="padding: 15px;">
-                <button class="btn-sidebar-new-session" onclick="openNewSessionModal()" title="New Session (Ctrl+N)" style="width: 100%; padding: 12px; font-size: 15px; font-weight: bold; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(127, 90, 240, 0.3); transition: all 0.2s;">
+            <div style="padding: 16px 20px 8px 20px;">
+                <button class="btn-sidebar-new-session" onclick="openNewSessionModal()" title="New Session (Ctrl+N)" style="width: 100%; padding: 12px; font-size: 15px; font-weight: bold; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;">
                     <i class="fa-solid fa-plus"></i>
                     <span data-localize="btn-new-session">New Session</span>
                 </button>
@@ -83,14 +83,12 @@
                             <i class="fa-solid fa-robot"></i>
                             <span data-localize="nav-agents">Agents</span>
                         </div>
-                        <span class="customization-badge" id="badge-agents-count">0</span>
                     </div>
                     <div class="customization-item" id="custom-item-skills" onclick="switchTab('skills')">
                         <div class="customization-left">
                             <i class="fa-solid fa-toolbox"></i>
                             <span data-localize="nav-skills">Skills</span>
                         </div>
-                        <span class="customization-badge" id="badge-skills-count">0</span>
                     </div>
                     <div class="customization-item" id="custom-item-instructions" onclick="switchTab('instructions')">
                         <div class="customization-left">
@@ -109,7 +107,6 @@
                             <i class="fa-solid fa-network-wired"></i>
                             <span data-localize="nav-mcp">MCP Servers</span>
                         </div>
-                        <span class="customization-badge" id="badge-mcp-count">0</span>
                     </div>
                     <div class="customization-item" id="custom-item-settings" onclick="switchTab('settings')">
                         <div class="customization-left">

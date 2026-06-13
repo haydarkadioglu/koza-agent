@@ -233,11 +233,16 @@ function clearAllHistory() {
 
 // ── NEW SESSION WIZARD MODAL ──────────────────────────────────────────────
 function openNewSessionModal() {
-    const modal = document.getElementById('new-session-modal');
-    if (modal) {
-        modal.style.display = 'flex';
-        const input = document.getElementById('wizard-chat-input');
-        if (input) input.focus();
+    if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.reset_chat().then(() => {
+            const chatLog = document.getElementById('chat-log');
+            if (chatLog) chatLog.innerHTML = '';
+            if (typeof switchTab === 'function') switchTab('chat');
+        });
+    } else {
+        const chatLog = document.getElementById('chat-log');
+        if (chatLog) chatLog.innerHTML = '';
+        if (typeof switchTab === 'function') switchTab('chat');
     }
 }
 
