@@ -1158,3 +1158,15 @@ function toggleDaemonFromSidebar() {
 function toggleDaemonFromPanel() {
     toggleDaemon(!isDaemonActive);
 }
+
+function applyGeneralSettings() {
+    const btn = document.getElementById('btn-apply-general');
+    if (!btn) return;
+    const originalHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-check-double"></i> <span data-localize="btn-applied">Applied!</span>';
+    btn.style.background = 'var(--color-green)';
+    setTimeout(() => {
+        btn.innerHTML = originalHTML;
+        btn.style.background = '';
+    }, 2000);
+}

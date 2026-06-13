@@ -243,17 +243,17 @@
                 </header>
                 <div class="settings-container">
                     <aside class="settings-sub-sidebar">
-                        <button class="settings-sub-item active" onclick="switchSettingsTab('llm')" data-localize="sub-llm">LLM & Auth</button>
+                        <button class="settings-sub-item active" onclick="switchSettingsTab('general')" data-localize="sub-general">General</button>
+                        <button class="settings-sub-item" onclick="switchSettingsTab('llm')" data-localize="sub-llm">LLM & Auth</button>
                         <button class="settings-sub-item" onclick="switchSettingsTab('fallback')" data-localize="sub-fallback">Fallback LLM</button>
                         <button class="settings-sub-item" onclick="switchSettingsTab('media')" data-localize="sub-media">Media Gen</button>
                         <button class="settings-sub-item" onclick="switchSettingsTab('messaging')" data-localize="sub-messaging">Messaging & Sync</button>
                         <button class="settings-sub-item" onclick="switchSettingsTab('voice')" data-localize="sub-voice">Voice & Hardware</button>
-                        <button class="settings-sub-item" onclick="switchSettingsTab('general')" data-localize="sub-general">General</button>
                     </aside>
 
                     <div class="settings-panel-content">
                         <!-- Panel: LLM -->
-                        <div id="settings-panel-llm" class="settings-panel active">
+                        <div id="settings-panel-llm" class="settings-panel">
                             <h3 data-localize="card-primary" style="margin-bottom:15px;">Primary LLM</h3>
                             <div class="form-group">
                                 <label for="setting-provider" data-localize="label-provider">Provider</label>
@@ -542,7 +542,7 @@
                             </div>
                         </div>
 
-                        <div id="settings-panel-general" class="settings-panel">
+                        <div id="settings-panel-general" class="settings-panel active">
                             <h3 data-localize="sub-general" style="margin-bottom:15px;">General Settings</h3>
                             <div class="form-group">
                                 <label for="setting-lang">Interface Language / Dil</label>
@@ -567,6 +567,10 @@
                             <div class="form-group checkbox-group">
                                 <input type="checkbox" id="setting-coding-autotest" onchange="updateGeneralConfig('coding_mode', 'auto_test', this.checked)">
                                 <label for="setting-coding-autotest" data-localize="auto-test">Run automatic tests in Coding Mode</label>
+                            </div>
+                            
+                            <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
+                                <button id="btn-apply-general" class="btn btn-primary" onclick="applyGeneralSettings()"><i class="fa-solid fa-check"></i> <span data-localize="btn-apply">Apply / Uygula</span></button>
                             </div>
                             
                             <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 20px 0;">
