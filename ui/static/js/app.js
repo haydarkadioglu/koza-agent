@@ -55,6 +55,24 @@ function loadInitialData() {
     loadKanbanTasks();
     loadSessions();
     loadSettings();
+    checkApiKeyStatus();
+}
+
+function checkApiKeyStatus() {
+    if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.get_config().then(cfg => {
+            const provider = cfg.provider || 'gemini';
+            let hasKey = false;
+            if (provider === 'gemini_browser' || provider === 'antigravity') {
+                hasKey = true;
+            } else {
+                const key = cfg.providers && cfg.providers[provider] ? cfg.providers[provider].api_key : '';
+                if (key && key.trim() !== '') hasKey = true;
+            }
+            const warningEl = document.getElementById('api-key-warning');
+            if (warningEl) warningEl.style.display = hasKey ? 'none' : 'flex';
+        });
+    }
 }
 
 /* Tabs & UI Switcher */

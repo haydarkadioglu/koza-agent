@@ -345,6 +345,7 @@ function onProviderChanged(provider) {
             window.pywebview.api.get_config().then(cfg => {
                 populateModelsDropdown(provider, defaultModel);
                 updateApiKeyFieldVisibility(provider, cfg);
+                if (typeof checkApiKeyStatus === 'function') checkApiKeyStatus();
             });
         } else {
             console.error("Error updating provider and model:", res ? res.message : "unknown error");
@@ -457,6 +458,7 @@ function testAndSaveApiKey() {
         document.getElementById('btn-test-api-key').disabled = false;
         if (res.status === 'success') {
             showKeyStatus('api-key-status', 'success', res.message);
+            if (typeof checkApiKeyStatus === 'function') checkApiKeyStatus();
         } else {
             showKeyStatus('api-key-status', 'error', res.message);
         }
