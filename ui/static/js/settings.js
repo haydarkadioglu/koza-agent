@@ -92,16 +92,18 @@ function loadSettings() {
             const mediaKeyInput = document.getElementById('setting-media-key');
             if (mediaOption === 'gemini_api' || mediaOption === 'openai') {
                 mediaKeyGroup.style.display = 'block';
-                // Show badge instead of masked value
-                mediaKeyInput.value = '';
                 mediaKeyInput.placeholder = 'Enter new key to update...';
                 const mediaPk = mediaOption === 'gemini_api'
                     ? (cfg.providers && cfg.providers.gemini_media && cfg.providers.gemini_media.api_key)
                     : (cfg.providers && cfg.providers.openai_media && cfg.providers.openai_media.api_key);
                 if (mediaPk && mediaPk !== '********') {
+                    mediaKeyInput.value = '••••••••••••••••';
                     showKeyStatus('media-key-status', 'saved');
                 } else if (mediaPk === '********') {
+                    mediaKeyInput.value = '••••••••••••••••';
                     showKeyStatus('media-key-status', 'has_key');
+                } else {
+                    mediaKeyInput.value = '';
                 }
             } else {
                 mediaKeyGroup.style.display = 'none';
@@ -280,11 +282,14 @@ function updateApiKeyFieldVisibility(provider, cfg) {
         keyInput.placeholder = 'Enter new key to update...';
         const savedKey = cfg.providers && cfg.providers[provider] ? cfg.providers[provider].api_key : '';
         if (savedKey && savedKey !== '********') {
+            keyInput.value = '••••••••••••••••';
             showKeyStatus('api-key-status', 'saved');
         } else if (savedKey === '********') {
+            keyInput.value = '••••••••••••••••';
             showKeyStatus('api-key-status', 'has_key');
-        } else if (statusEl) {
-            statusEl.style.display = 'none';
+        } else {
+            keyInput.value = '';
+            if (statusEl) statusEl.style.display = 'none';
         }
     } else {
         apiKeyGroup.style.display = 'none';
@@ -451,7 +456,7 @@ function onApiKeyInput(inputId, btnId) {
 function testAndSaveApiKey() {
     const provider = document.getElementById('setting-provider').value;
     const key = document.getElementById('setting-api-key').value.trim();
-    if (!key) return;
+    if (!key || key === '••••••••••••••••') return;
     showKeyStatus('api-key-status', 'testing');
     document.getElementById('btn-test-api-key').disabled = true;
     window.pywebview.api.test_api_key(provider, key).then(res => {
@@ -472,7 +477,7 @@ function testAndSaveApiKey() {
 function testAndSaveFallbackKey() {
     const provider = document.getElementById('setting-fallback-provider').value;
     const key = document.getElementById('setting-fallback-key').value.trim();
-    if (!key) return;
+    if (!key || key === '••••••••••••••••') return;
     showKeyStatus('fallback-key-status', 'testing');
     document.getElementById('btn-test-fallback-key').disabled = true;
     window.pywebview.api.test_api_key(provider, key).then(res => {
@@ -492,7 +497,7 @@ function testAndSaveFallbackKey() {
 function testAndSaveMediaKey() {
     const val = document.getElementById('setting-media-provider').value;
     const key = document.getElementById('setting-media-key').value.trim();
-    if (!key) return;
+    if (!key || key === '••••••••••••••••') return;
     const statusEl = document.getElementById('media-key-status');
     showKeyStatus('media-key-status', 'testing');
     document.getElementById('btn-test-media-key').disabled = true;
@@ -574,8 +579,10 @@ function onFallbackProviderChanged(provider, selectedModel, cfg) {
     const fbKeyInput = document.getElementById('setting-fallback-key');
     if (providersMetadata.needs_key.includes(provider)) {
         fbKeyGroup.style.display = 'block';
-        if (cfg && cfg.providers && cfg.providers[provider]) {
-            fbKeyInput.value = cfg.providers[provider].api_key || '';
+        if (cfg && cfg.providers && cfg.providers[provider] && cfg.providers[provider].api_key) {
+            fbKeyInput.value = '••••••••••••••••';
+        } else {
+            fbKeyInput.value = '';
         }
     } else {
         fbKeyGroup.style.display = 'none';
