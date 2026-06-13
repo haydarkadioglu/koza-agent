@@ -20,40 +20,107 @@
     <div class="app-container">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
+            <!-- Brand header -->
             <div class="brand">
                 <div class="brand-text">
                     <h1>KOZA</h1>
                     <span data-localize="brand-sub">AUTONOMOUS AI AGENT</span>
                 </div>
             </div>
-            
-            <nav class="nav-menu">
-                <button class="nav-item active" onclick="switchTab('chat')">
-                    <i class="fa-solid fa-comments"></i>
-                    <span data-localize="nav-chat">Chat</span>
-                </button>
-                <button class="nav-item" onclick="switchTab('kanban')">
-                    <i class="fa-solid fa-table-columns"></i>
-                    <span data-localize="nav-kanban">Kanban</span>
-                </button>
-                <button class="nav-item" onclick="switchTab('sessions')">
-                    <i class="fa-solid fa-history"></i>
-                    <span data-localize="nav-sessions">Sessions</span>
-                </button>
-                <button class="nav-item" onclick="switchTab('skills')">
-                    <i class="fa-solid fa-toolbox"></i>
-                    <span data-localize="nav-skills">Skills</span>
-                </button>
-                <button class="nav-item" onclick="switchTab('settings')">
-                    <i class="fa-solid fa-sliders"></i>
-                    <span data-localize="nav-settings">Settings</span>
-                </button>
-                <button class="nav-item" onclick="switchTab('agents')">
-                    <i class="fa-solid fa-robot"></i>
-                    <span data-localize="nav-agents">Sub-agents</span>
-                </button>
-            </nav>
 
+            <!-- Big New Session Button -->
+            <div class="sidebar-new-session-container" style="padding: 15px;">
+                <button class="btn-sidebar-new-session" onclick="openNewSessionModal()" title="New Session (Ctrl+N)" style="width: 100%; padding: 12px; font-size: 15px; font-weight: bold; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(127, 90, 240, 0.3); transition: all 0.2s;">
+                    <i class="fa-solid fa-plus"></i>
+                    <span data-localize="btn-new-session">New Session</span>
+                </button>
+            </div>
+
+            <!-- Sessions Header -->
+            <div class="sidebar-header">
+                <span class="sidebar-header-title" data-localize="nav-sessions">Sessions</span>
+                <div class="sidebar-header-actions">
+                    <button class="sidebar-action-btn" onclick="toggleSessionSearch()" title="Search Sessions">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </button>
+                    <button class="sidebar-action-btn" onclick="loadSessions()" title="Refresh Sessions">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Session Search Bar (hidden by default) -->
+            <div id="session-search-container" style="display: none; padding: 0 8px 8px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); margin-bottom: 8px;">
+                <input type="text" id="session-search-input" placeholder="Search sessions..." oninput="filterSessions(this.value)" style="width: 100%; padding: 6px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; color: var(--text-primary); font-size: 11px;">
+            </div>
+
+            <!-- Grouped Sessions Container -->
+            <div class="sidebar-sessions-list" id="sidebar-sessions-list">
+                <!-- Grouped sessions loaded dynamically -->
+            </div>
+
+            <!-- Customizations Collapsible List -->
+            <div class="customizations-section">
+                <div class="customizations-header" onclick="toggleCustomizations()">
+                    <i class="fa-solid fa-chevron-down" id="customizations-chevron"></i>
+                    <span data-localize="customizations-title">Customizations</span>
+                </div>
+                <div class="customizations-list" id="customizations-list">
+                    <div class="customization-item active" id="custom-item-chat" onclick="switchTab('chat')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-comments"></i>
+                            <span data-localize="nav-chat">Chat</span>
+                        </div>
+                    </div>
+                    <div class="customization-item" id="custom-item-kanban" onclick="switchTab('kanban')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-table-columns"></i>
+                            <span data-localize="nav-kanban">Kanban</span>
+                        </div>
+                    </div>
+                    <div class="customization-item" id="custom-item-agents" onclick="switchTab('agents')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-robot"></i>
+                            <span data-localize="nav-agents">Agents</span>
+                        </div>
+                        <span class="customization-badge" id="badge-agents-count">0</span>
+                    </div>
+                    <div class="customization-item" id="custom-item-skills" onclick="switchTab('skills')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-toolbox"></i>
+                            <span data-localize="nav-skills">Skills</span>
+                        </div>
+                        <span class="customization-badge" id="badge-skills-count">0</span>
+                    </div>
+                    <div class="customization-item" id="custom-item-instructions" onclick="switchTab('instructions')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-file-signature"></i>
+                            <span data-localize="nav-instructions">Instructions</span>
+                        </div>
+                    </div>
+                    <div class="customization-item" id="custom-item-hooks" onclick="switchTab('hooks')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-link"></i>
+                            <span data-localize="nav-hooks">Hooks</span>
+                        </div>
+                    </div>
+                    <div class="customization-item" id="custom-item-mcp" onclick="switchTab('mcp')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-network-wired"></i>
+                            <span data-localize="nav-mcp">MCP Servers</span>
+                        </div>
+                        <span class="customization-badge" id="badge-mcp-count">0</span>
+                    </div>
+                    <div class="customization-item" id="custom-item-settings" onclick="switchTab('settings')">
+                        <div class="customization-left">
+                            <i class="fa-solid fa-sliders"></i>
+                            <span data-localize="nav-settings">Settings</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar footer status -->
             <div class="sidebar-footer">
                 <div class="status-indicator" style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start; width: 100%;">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -85,28 +152,9 @@
                     </button>
                 </header>
 
-                <div class="chat-container">
+                <div class="chat-container new-session-active" id="chat-container">
                     <div class="chat-messages" id="chat-messages">
-                        <!-- Welcome Message -->
-                        <div class="welcome-box">
-                            <i class="fa-solid fa-robot welcome-icon"></i>
-                            <h3 data-localize="welcome-title">I am Koza. How can I help you?</h3>
-                            <p data-localize="welcome-text">I can read files, write and run tests, search the web, or update the Kanban board.</p>
-                            <div class="suggestion-grid">
-                                <div class="suggestion-card" onclick="fillInput('explore project structure and write a report')">
-                                    <i class="fa-solid fa-file-invoice"></i>
-                                    <span data-localize="suggest-1">Explore project structure</span>
-                                </div>
-                                <div class="suggestion-card" onclick="fillInput('add a task to todo column for designing the web layout')">
-                                    <i class="fa-solid fa-tasks"></i>
-                                    <span data-localize="suggest-2">Add Kanban task</span>
-                                </div>
-                                <div class="suggestion-card" onclick="fillInput('write python code to find prime numbers from 1 to 100')">
-                                    <i class="fa-solid fa-code"></i>
-                                    <span data-localize="suggest-3">Write code</span>
-                                </div>
-                            </div>
-                        </div>
+
                     </div>
                     
                     <!-- Thinking and Progress Bar -->
@@ -114,7 +162,7 @@
                         <div class="spinner-circle"></div>
                         <span id="status-text" data-localize="thinking">Thinking...</span>
                     </div>
-
+ 
                     <!-- Input Bar -->
                     <div class="attachment-preview-area" id="attachment-preview-area" style="display: none;"></div>
                     <div class="chat-input-area">
@@ -506,6 +554,15 @@
                                     <option value="tr">Türkçe</option>
                                 </select>
                             </div>
+                            <div class="form-group">
+                                <label for="setting-theme" data-localize="setting-theme-label">Theme / Tema</label>
+                                <select id="setting-theme" onchange="changeTheme(this.value)">
+                                    <option value="classic-dark" data-localize="theme-classic-dark">Classic Dark (Default)</option>
+                                    <option value="slate-dark" data-localize="theme-slate-dark">Slate Gray / Modern Dark</option>
+                                    <option value="cyberpunk-midnight" data-localize="theme-cyberpunk-midnight">Cyberpunk Midnight</option>
+                                    <option value="light-modern" data-localize="theme-light-modern">Light Modern</option>
+                                </select>
+                            </div>
                             <div class="form-group checkbox-group">
                                 <input type="checkbox" id="setting-tool-approval" onchange="updateGeneralConfig('root', 'tool_approval', this.checked)">
                                 <label for="setting-tool-approval" data-localize="tool-approval">Require approval for non-safe tools</label>
@@ -529,6 +586,19 @@
                                         <span id="daemon-panel-status" style="font-size:12px; font-weight:600; color:var(--text-secondary);">Checking...</span>
                                     </div>
                                     <button class="btn btn-secondary" id="daemon-panel-btn" onclick="toggleDaemonFromPanel()" style="padding: 6px 14px; font-size:11px; border-radius: 8px; display: none;">Start</button>
+                                </div>
+                            </div>
+                            <!-- Danger Zone -->
+                            <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 20px 0;">
+                            <div class="daemon-section" style="background: rgba(255, 0, 85, 0.05); border: 1px solid rgba(255, 0, 85, 0.2); border-radius: 12px; padding: 16px;">
+                                <h4 style="margin-bottom:8px; font-size:14px; color:var(--color-red); display:flex; align-items:center; gap:8px;">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> Danger Zone
+                                </h4>
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <p style="font-size:12px; color:var(--text-secondary); margin:0;">Clear all conversation history. This action cannot be undone.</p>
+                                    <button class="btn btn-primary" style="background:var(--color-red); color:white; border:none; padding:8px 14px; border-radius:8px; font-size:12px;" onclick="clearAllHistory()">
+                                        <i class="fa-solid fa-trash"></i> Clear All History
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -652,6 +722,120 @@
                     </div>
                 </div>
             </section>
+
+            <!-- TAB: INSTRUCTIONS -->
+            <section id="tab-instructions" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="nav-instructions">Instructions</h2>
+                        <p data-localize="instructions-subtitle">Define user rules and view observations Koza has recorded about you.</p>
+                    </div>
+                </header>
+                
+                <div class="tab-panel-container">
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-plus"></i> <span data-localize="add-instruction-rule">Add Custom Rule / Instruction</span>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="new-instruction-rule" placeholder="e.g. Always write Python docstrings in English..." style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary);">
+                            <button class="btn btn-primary" onclick="addUserRule()"><i class="fa-solid fa-plus"></i> <span data-localize="btn-save">Save</span></button>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-file-signature"></i> <span data-localize="user-instructions-rules">Custom User Rules</span>
+                        </div>
+                        <div class="custom-list" id="instructions-rules-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-brain"></i> <span data-localize="agent-observations">Koza's Observations</span>
+                        </div>
+                        <div class="custom-list" id="instructions-notes-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: HOOKS -->
+            <section id="tab-hooks" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="nav-hooks">Hooks & Webhooks</h2>
+                        <p data-localize="hooks-subtitle">Monitor webhook integrations and background services status.</p>
+                    </div>
+                </header>
+                
+                <div class="tab-panel-container">
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-server"></i> <span data-localize="daemon-title">Background Services Daemon</span>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="pulse" id="hooks-daemon-light" style="background-color: var(--text-muted); width: 8px; height: 8px; border-radius: 50%;"></span>
+                                <span style="font-size: 13px; font-weight: 600;" id="hooks-daemon-text">Daemon: Checking...</span>
+                            </div>
+                            <button class="btn btn-secondary" id="hooks-daemon-btn" onclick="toggleDaemonFromSidebar()">Start</button>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-link"></i> <span data-localize="proactive-webhooks">Active Integration Channels</span>
+                        </div>
+                        <div class="custom-list" id="active-hooks-list">
+                            <p style="color:var(--text-muted); font-size:12px; padding:10px;" data-localize="no-hooks">No active integration channels.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: MCP SERVERS -->
+            <section id="tab-mcp" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="nav-mcp">MCP Servers</h2>
+                        <p data-localize="mcp-subtitle">Extend Koza capabilities by connecting external Model Context Protocol (MCP) servers.</p>
+                    </div>
+                </header>
+                
+                <div class="tab-panel-container">
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-plus"></i> <span data-localize="add-mcp-server">Add MCP Server</span>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="new-mcp-server-url" placeholder="e.g. http://localhost:3000" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary);">
+                            <button class="btn btn-primary" onclick="addMcpServer()"><i class="fa-solid fa-plus"></i> <span data-localize="btn-save">Save</span></button>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-network-wired"></i> <span data-localize="registered-mcp-servers">Registered MCP Servers</span>
+                        </div>
+                        <div class="custom-list" id="mcp-servers-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card" id="mcp-tools-explorer" style="display: none;">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-terminal"></i> <span id="mcp-tools-explorer-title">MCP Tools Explorer</span>
+                        </div>
+                        <div class="mcp-tools-console" id="mcp-tools-console">
+                            <!-- Console output -->
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -716,8 +900,9 @@
             <div class="modal-body">
                 <p data-localize="perm-prompt">Koza Agent wants to execute the following tool:</p>
                 <div class="tool-info">
-                    <div id="perm-tool-name" class="tool-name">run_command</div>
-                    <pre id="perm-tool-args" class="tool-args">{"command": "git push origin main"}</pre>
+                    <div id="perm-tool-name" class="tool-name" style="font-weight: 700; margin-bottom: 8px; color: var(--text-highlight, #7f5af0);">run_command</div>
+                    <label style="font-size: 11px; color: var(--text-secondary, #94a1b2); margin-bottom: 6px; display: block;" data-localize="perm-args-label">Arguments (Editable JSON):</label>
+                    <textarea id="perm-tool-args" class="tool-args-edit" style="width: 100%; height: 160px; font-family: monospace; font-size: 13px; background: #16161a; color: #fffffe; border: 1px solid #475569; padding: 10px; border-radius: 6px; resize: vertical; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#7f5af0'" onblur="this.style.borderColor='#475569'"></textarea>
                 </div>
             </div>
             <footer class="modal-footer">
