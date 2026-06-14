@@ -169,6 +169,24 @@
  
                     <!-- Input Bar -->
                     <div class="attachment-preview-area" id="attachment-preview-area" style="display: none;"></div>
+                    
+                    <!-- Inline Permission Box -->
+                    <div class="inline-permission-box" id="inline-permission-box" style="display: none;">
+                        <div class="inline-perm-header">
+                            <i class="fa-solid fa-shield-halved warning-icon" style="color: #f59e0b;"></i>
+                            <span style="font-weight: 600; font-size: 13px;" data-localize="perm-prompt">Permission needed:</span>
+                            <span id="perm-tool-name" style="font-weight: 700; color: var(--text-highlight, #7f5af0); margin-left: 6px;">run_command</span>
+                            <button class="btn-toggle-args" onclick="togglePermArgs()" title="Show/Hide Arguments" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; margin-left:auto;"><i class="fa-solid fa-chevron-down" id="perm-args-icon"></i></button>
+                        </div>
+                        <div class="inline-perm-args" id="inline-perm-args" style="display: none;">
+                            <textarea id="perm-tool-args" class="tool-args-edit"></textarea>
+                        </div>
+                        <div class="inline-perm-actions">
+                            <button class="btn btn-danger btn-sm" onclick="resolvePermission(false)"><i class="fa-solid fa-xmark"></i> <span data-localize="btn-deny">Deny</span></button>
+                            <button class="btn btn-success btn-sm" onclick="resolvePermission(true)"><i class="fa-solid fa-check"></i> <span data-localize="btn-allow">Allow</span></button>
+                        </div>
+                    </div>
+
                     <div class="chat-input-area">
                         <button class="attach-btn" id="attach-btn" onclick="handleAttachClick()" title="Attach File">
                             <i class="fa-solid fa-paperclip"></i>
@@ -571,6 +589,10 @@
                                 <input type="checkbox" id="setting-tool-approval" onchange="updateGeneralConfig('root', 'tool_approval', this.checked)">
                                 <label for="setting-tool-approval" data-localize="tool-approval">Require approval for non-safe tools</label>
                             </div>
+                            <div class="form-group checkbox-group" style="background: rgba(127, 90, 240, 0.1); padding: 10px; border-radius: 8px; border: 1px solid rgba(127, 90, 240, 0.3);">
+                                <input type="checkbox" id="setting-turbo-mode" onchange="toggleTurboMode(this.checked)">
+                                <label for="setting-turbo-mode" style="color: #7f5af0; font-weight: bold;"><i class="fa-solid fa-bolt" style="margin-right: 5px;"></i> Turbo Mode (Auto-allow all tools for this session)</label>
+                            </div>
                             <div class="form-group checkbox-group">
                                 <input type="checkbox" id="setting-coding-autotest" onchange="updateGeneralConfig('coding_mode', 'auto_test', this.checked)">
                                 <label for="setting-coding-autotest" data-localize="auto-test">Run automatic tests in Coding Mode</label>
@@ -898,26 +920,6 @@
         </div>
     </div>
 
-    <!-- Interactive Tool Permission Modal -->
-    <div class="modal" id="permission-modal">
-        <div class="modal-content permission-box">
-            <header class="modal-header">
-                <h3><i class="fa-solid fa-triangle-exclamation warning-icon"></i> <span data-localize="perm-title">Tool Execution Permission</span></h3>
-            </header>
-            <div class="modal-body">
-                <p data-localize="perm-prompt">Koza Agent wants to execute the following tool:</p>
-                <div class="tool-info">
-                    <div id="perm-tool-name" class="tool-name" style="font-weight: 700; margin-bottom: 8px; color: var(--text-highlight, #7f5af0);">run_command</div>
-                    <label style="font-size: 11px; color: var(--text-secondary, #94a1b2); margin-bottom: 6px; display: block;" data-localize="perm-args-label">Arguments (Editable JSON):</label>
-                    <textarea id="perm-tool-args" class="tool-args-edit" style="width: 100%; height: 160px; font-family: monospace; font-size: 13px; background: #16161a; color: #fffffe; border: 1px solid #475569; padding: 10px; border-radius: 6px; resize: vertical; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#7f5af0'" onblur="this.style.borderColor='#475569'"></textarea>
-                </div>
-            </div>
-            <footer class="modal-footer">
-                <button class="btn btn-danger" onclick="resolvePermission(false)"><i class="fa-solid fa-xmark"></i> <span data-localize="btn-deny">Deny</span></button>
-                <button class="btn btn-success" onclick="resolvePermission(true)"><i class="fa-solid fa-check"></i> <span data-localize="btn-allow">Allow</span></button>
-            </footer>
-        </div>
-    </div>
 
     <!-- Kanban Run Task Capabilities Modal -->
     <div class="modal" id="kanban-run-modal">

@@ -1179,3 +1179,16 @@ function applyGeneralSettings() {
         btn.style.background = '';
     }, 2000);
 }
+
+function toggleTurboMode(enabled) {
+    if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.set_turbo_mode(enabled).then(res => {
+            if (res.status === 'success') {
+                console.log("Turbo Mode is now:", enabled);
+            } else {
+                alert("Failed to toggle turbo mode: " + res.message);
+                document.getElementById('setting-turbo-mode').checked = !enabled;
+            }
+        });
+    }
+}

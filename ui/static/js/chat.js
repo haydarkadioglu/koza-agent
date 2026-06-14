@@ -208,7 +208,10 @@ function receiveChatEvent(event) {
         finishProcessing();
     }
     else if (event.type === 'text') {
-        document.getElementById('stream-status').style.display = 'none';
+        // Only hide stream-status if we don't have an active tool running
+        if (!currentToolCard) {
+            document.getElementById('stream-status').style.display = 'none';
+        }
         if (!currentBubble) {
             appendMessageBubble('agent', '');
         }
@@ -217,6 +220,9 @@ function receiveChatEvent(event) {
         chatMsgs.scrollTop = chatMsgs.scrollHeight;
     } 
     else if (event.type === 'tool_start') {
+        document.getElementById('stream-status').style.display = 'flex';
+        document.getElementById('status-text').innerText = `Executing ${event.name}...`;
+
         currentToolCard = document.createElement('div');
         currentToolCard.classList.add('tool-run-card');
         
@@ -319,13 +325,32 @@ function resetChat() {
 /* Tool Permission Dialog handling */
 function requestToolPermission(payload) {
     document.getElementById('perm-tool-name').innerText = payload.name;
-    document.getElementById('perm-tool-args').innerText = JSON.stringify(payload.args, null, 2);
-    document.getElementById('permission-modal').classList.add('active');
+    document.getElementById('perm-tool-args').value = JSON.stringify(payload.args, null, 2);
+    document.getElementById('inline-permission-box').style.display = 'flex';
+    document.getElementById('inline-perm-args').style.display = 'none';
+    document.getElementById('perm-args-icon').className = 'fa-solid fa-chevron-down';
+    
+    // Scroll to the permission box so it's visible
+    const msgs = document.getElementById('chat-messages');
+    msgs.scrollTop = msgs.scrollHeight;
 }
 
 function resolvePermission(allowed) {
-    document.getElementById('permission-modal').classList.remove('active');
-    window.pywebview.api.resolve_permission(allowed);
+    document.getElementById('inline-permission-box').style.display = 'none';
+    const editedArgs = document.getElementById('perm-tool-args').value;
+    window.pywebview.api.resolve_permission(allowed, editedArgs);
+}
+
+function togglePermArgs() {
+    const argsBox = document.getElementById('inline-perm-args');
+    const icon = document.getElementById('perm-args-icon');
+    if (argsBox.style.display === 'none') {
+        argsBox.style.display = 'block';
+        icon.className = 'fa-solid fa-chevron-up';
+    } else {
+        argsBox.style.display = 'none';
+        icon.className = 'fa-solid fa-chevron-down';
+    }
 }
 
 function handleSendClick() {

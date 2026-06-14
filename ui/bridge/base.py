@@ -27,10 +27,14 @@ class BridgeBase:
         # Permission state tracking
         self._perm_event = threading.Event()
         self._perm_allowed = False
+        self._turbo_mode = False
         self.webview_window = None  # To be set after creating the webview window
 
     def _gui_permission_callback(self, name: str, args: dict) -> bool:
         """Called by the agent thread when a tool requires permission."""
+        if getattr(self, "_turbo_mode", False):
+            return True
+            
         if not self.cfg.get("tool_approval", False):
             return True
             
@@ -69,3 +73,7 @@ class BridgeBase:
             self._perm_args = None
         self._perm_event.set()
 
+    def set_turbo_mode(self, enabled: bool):
+        """Called by JS to toggle auto-allow for all tools."""
+        self._turbo_mode = enabled
+        return {"status": "success", "enabled": enabled}
