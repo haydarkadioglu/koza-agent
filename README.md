@@ -40,7 +40,7 @@ Both scripts will:
 - Re-running updates an existing installation
 
 > **Requirements:** Python 3.11+ (git optional — falls back to ZIP download)  
-> Windows: [python.org](https://python.org/downloads)  
+> Windows: Installer can automatically download and install Python if missing.  
 > macOS: `brew install python@3.12` · Debian/Ubuntu: `sudo apt install python3.12`
 
 ### Docker Installation (Optional)

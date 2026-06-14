@@ -11,13 +11,23 @@
 
 $ErrorActionPreference = "Stop"
 
+function Wait-KeyPress {
+    if ($Host.Name -eq "ConsoleHost") {
+        try {
+            Write-Host "  Press Enter to close ..." -ForegroundColor DarkGray
+            $null = Read-Host
+        } catch { Start-Sleep -Seconds 5 }
+    } else {
+        Start-Sleep -Seconds 5
+    }
+}
+
 # Prevent window from closing on error when run via irm | iex
 trap {
     Write-Host ""
     Write-Host "  ✗  Installation failed: $_" -ForegroundColor Red
     Write-Host ""
-    Write-Host "  Press any key to close ..." -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    Wait-KeyPress
     exit 1
 }
 
@@ -45,7 +55,7 @@ function Write-Banner {
 function Write-Info($msg)    { Write-Host "  ▸  $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)      { Write-Host "  ✓  $msg" -ForegroundColor Green }
 function Write-Warn($msg)    { Write-Host "  ⚠  $msg" -ForegroundColor Yellow }
-function Write-Err($msg)     { Write-Host "  ✗  $msg" -ForegroundColor Red; exit 1 }
+function Write-Err($msg)     { Write-Host "  ✗  $msg" -ForegroundColor Red; Wait-KeyPress; exit 1 }
 
 Write-Banner
 
@@ -61,12 +71,21 @@ if ($currentPolicy -eq "Restricted") {
 # ── 2. Python check ─────────────────────────────────────────────────────────
 
 $PythonCmd = $null
+$BestFoundCmd = $null
+$BestFoundVer = ""
+
 foreach ($cmd in @("python", "python3", "py -3")) {
     try {
         $ver = & ($cmd.Split(" ")[0]) ($cmd.Split(" ") | Select-Object -Skip 1) --version 2>&1
         if ($ver -match "Python (\d+)\.(\d+)") {
             $major = [int]$Matches[1]
             $minor = [int]$Matches[2]
+            
+            if ($null -eq $BestFoundCmd) {
+                $BestFoundCmd = $cmd
+                $BestFoundVer = $ver
+            }
+
             if ($major -ge 3 -and $minor -ge 11) {
                 $PythonCmd = $cmd
                 break
@@ -76,15 +95,71 @@ foreach ($cmd in @("python", "python3", "py -3")) {
 }
 
 if (-not $PythonCmd) {
-    Write-Err "Python 3.11+ not found. Install from https://python.org/downloads"
+    if ($BestFoundCmd) {
+        Write-Warn "Python 3.11+ not found. Found older version: $BestFoundVer"
+    } else {
+        Write-Warn "Python is not installed or not found in PATH."
+    }
+    
+    $installNow = ""
+    if ($Host.Name -eq "ConsoleHost") {
+        try {
+            $installNow = Read-Host "  ▸  Do you want to automatically download and install Python 3.12? (Y/n)"
+        } catch {}
+    }
+
+    if ($installNow -match "^[Yy]?$") {
+        Write-Info "Downloading Python 3.12 installer..."
+        $pyUrl = "https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe"
+        $pyInstaller = "$env:TEMP\python-3.12.4-amd64.exe"
+        Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing
+        
+        Write-Info "Installing Python 3.12 silently (this may take a minute)..."
+        $installArgs = "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0"
+        $process = Start-Process -FilePath $pyInstaller -ArgumentList $installArgs -Wait -PassThru
+        
+        if ($process.ExitCode -eq 0) {
+            Write-Ok "Python 3.12 installed successfully."
+            
+            $localPythonPath = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+            if (Test-Path -LiteralPath $localPythonPath) {
+                $PythonCmd = $localPythonPath
+            } else {
+                $PythonCmd = "python"
+            }
+        } else {
+            Write-Warn "Python installation failed with exit code $($process.ExitCode)."
+        }
+    }
+
+    if (-not $PythonCmd) {
+        if ($BestFoundCmd) {
+            Write-Info "Proceeding with older version: $BestFoundVer as requested."
+            $PythonCmd = $BestFoundCmd
+        } else {
+            Write-Err "Python is required to install Koza Agent. Cannot proceed."
+        }
+    }
 }
 
 # Resolve to actual executable
-$PythonExe = if ($PythonCmd -eq "py -3") { "py" } else { $PythonCmd.Split(" ")[0] }
-$PythonArgs = if ($PythonCmd -eq "py -3") { @("-3") } else { @() }
+if ($PythonCmd -eq "py -3") {
+    $PythonExe = "py"
+    $PythonArgs = @("-3")
+} elseif (Test-Path -LiteralPath $PythonCmd -ErrorAction SilentlyContinue) {
+    $PythonExe = $PythonCmd
+    $PythonArgs = @()
+} else {
+    $PythonExe = $PythonCmd.Split(" ")[0]
+    $PythonArgs = @()
+}
 
-$pyVer = & $PythonExe @PythonArgs --version 2>&1
-Write-Ok "Python found: $pyVer"
+try {
+    $pyVer = & $PythonExe @PythonArgs --version 2>&1
+    Write-Ok "Using Python: $pyVer"
+} catch {
+    Write-Err "Failed to execute Python ($PythonExe)."
+}
 
 # ── 3. Git check (optional) ──────────────────────────────────────────────────
 
@@ -208,7 +283,4 @@ Write-Host "  Setup wizard will run on first launch." -ForegroundColor DarkGray
 Write-Host ""
 
 # Keep window open when run via irm | iex so user can see the result
-if ($Host.Name -eq "ConsoleHost") {
-    Write-Host "  Press any key to close ..." -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-}
+Wait-KeyPress
