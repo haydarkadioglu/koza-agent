@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 function Wait-KeyPress {
     if ($Host.Name -eq "ConsoleHost") {
         try {
-            Write-Host "  Press Enter to close ..." -ForegroundColor DarkGray
+            Write-Host "  Press Enter to abort installation ..." -ForegroundColor DarkGray
             $null = Read-Host
         } catch { Start-Sleep -Seconds 5 }
     } else {
@@ -24,11 +24,13 @@ function Wait-KeyPress {
 
 # Prevent window from closing on error when run via irm | iex
 trap {
-    Write-Host ""
-    Write-Host "  ✗  Installation failed: $_" -ForegroundColor Red
-    Write-Host ""
-    Wait-KeyPress
-    exit 1
+    if ($_.Exception.Message -ne "KozaAgentInstallError") {
+        Write-Host ""
+        Write-Host "  ✗  Installation failed: $_" -ForegroundColor Red
+        Write-Host ""
+        Wait-KeyPress
+    }
+    break
 }
 
 $RepoUrl    = "https://github.com/haydarkadioglu/koza-agent.git"
@@ -55,7 +57,7 @@ function Write-Banner {
 function Write-Info($msg)    { Write-Host "  ▸  $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)      { Write-Host "  ✓  $msg" -ForegroundColor Green }
 function Write-Warn($msg)    { Write-Host "  ⚠  $msg" -ForegroundColor Yellow }
-function Write-Err($msg)     { Write-Host "  ✗  $msg" -ForegroundColor Red; Wait-KeyPress; exit 1 }
+function Write-Err($msg)     { Write-Host "  ✗  $msg" -ForegroundColor Red; Wait-KeyPress; throw "KozaAgentInstallError" }
 
 Write-Banner
 
