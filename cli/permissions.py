@@ -109,7 +109,7 @@ def make_permission_callback(cfg: dict):
             return True
         if choice == "Allow all tools (this session)":
             _session_allow_all[0] = True
-            print(_C("  ✓  Bu oturumda tüm tool'lar otomatik izinli.\n", "green"))
+            print(_C("  ✓  All tools are automatically allowed for this session.\n", "green"))
             return True
         if choice == "Allow permanently":
             _permanent_allowed.add(name)

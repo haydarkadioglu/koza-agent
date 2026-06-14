@@ -53,3 +53,6 @@ where = ["."]
 
 [tool.setuptools.package-dir]
 "" = "."
+
+[tool.setuptools]
+py-modules = ["koza_run", "core", "router", "config", "prompt_loader", "koza_daemon", "prompt", "core_context"]

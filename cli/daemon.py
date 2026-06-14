@@ -167,11 +167,11 @@ def cmd_start(args: list) -> None:
             from prompt_toolkit import prompt
             from prompt_toolkit.styles import Style
             style = Style.from_dict({'prompt': 'ansicyan bold', 'input': 'ansiwhite'})
-            print(_C("  ✨ Yeni Oturum Başlatılıyor\n", "cyan"))
-            initial_msg = prompt("  Ne inşa ediyorsunuz? › ", style=style).strip()
+            print(_C("  ✨ Starting New Session\n", "cyan"))
+            initial_msg = prompt("  What are you building? › ", style=style).strip()
         except Exception:
             try:
-                initial_msg = input(_C("  Ne inşa ediyorsunuz? › ", "cyan")).strip()
+                initial_msg = input(_C("  What are you building? › ", "cyan")).strip()
             except (KeyboardInterrupt, EOFError):
                 sys.exit(0)
 
