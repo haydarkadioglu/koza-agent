@@ -658,8 +658,17 @@ class Agent:
 
                 # ── Execute each tool call ────────────────────────────────────────
                 permanent_failure = False
-                for call in calls:
+                for i, call in enumerate(calls):
                     if self._cancel.is_set():
+                        # To satisfy strict API validation (e.g. OpenAI/Deepseek), we must
+                        # append tool messages for all remaining tool calls before returning.
+                        for remaining_call in calls[i:]:
+                            self.messages.append({
+                                "role": "tool",
+                                "tool_call_id": remaining_call["id"],
+                                "name": remaining_call["name"],
+                                "content": "Process interrupted by user.",
+                            })
                         yield {"type": "interrupted"}
                         return
                     name, args = call["name"], call["arguments"]
@@ -674,7 +683,11 @@ class Agent:
                         continue
                     yield {"type": "tool_start", "name": name, "args": args}
                     t0 = time.time()
-                    result = self._execute_tool(name, args)
+                    try:
+                        result = self._execute_tool(name, args)
+                    except Exception as e:
+                        import traceback
+                        result = f"Error executing tool: {e}\n{traceback.format_exc()}"
                     yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
                     result_str = str(result)
                     self.messages.append({

@@ -85,7 +85,9 @@ TOOL_DEFINITIONS = [
                 "Run a shell command and return stdout+stderr. "
                 "Supports Windows (PowerShell/cmd) and Linux/macOS (bash). "
                 "Use 'cwd' to run in a specific directory, or omit to use the current working directory. "
-                "Use 'cd <path>' as the command to change the working directory for future commands."
+                "Use 'cd <path>' as the command to change the working directory for future commands. "
+                "If a command requires Administrator privileges on Windows, you must use: "
+                "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command \"<your command>\"'"
             ),
             "parameters": {
                 "type": "object",

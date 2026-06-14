@@ -59,8 +59,9 @@ def _render_session_history(layout, messages: list[dict], max_lines: int = 500) 
         layout.append_output(_C("  ── End of history ──\n\n", "grey"))
 
 
-def _plain_cli(agent, cfg: dict, initial_msg: str = None) -> None:
-    _print_banner(cfg)
+def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = False) -> None:
+    if not skip_banner:
+        _print_banner(cfg)
 
     import atexit
 
