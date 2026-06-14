@@ -6,14 +6,6 @@ Usage:
     from cli.permissions import make_permission_callback
     agent.permission_callback = make_permission_callback(cfg)
 """
-"""
-Tool permission system for the CLI chat interface.
-
-Extracted from cli/chat.py to keep it maintainable as a standalone module.
-Usage:
-    from cli.permissions import make_permission_callback
-    agent.permission_callback = make_permission_callback(cfg)
-"""
 from __future__ import annotations
 
 # ── Tools that are always auto-approved (no prompt needed) ────────────────────
