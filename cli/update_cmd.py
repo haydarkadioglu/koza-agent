@@ -121,62 +121,65 @@ def cmd_update(args: list) -> None:
 
     import os, sys
 
-    # Always use the same python's pip (handles venv on Linux, avoids system pip)
     pip_cmd = [sys.executable, "-m", "pip"]
-    try:
-        result = subprocess.run(
-            pip_cmd + ["install", "-e", ".", "--quiet"],
-            cwd=repo_root, capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            print(_C("  ✓  Package reinstalled.\n", "green"))
-        else:
-            stderr = result.stderr.strip()
-            if "WinError 32" in stderr or "being used by another process" in stderr:
-                print(_C("  ⚠  Skipped package reinstall (koza.exe in use — will apply on next start).\n", "yellow"))
-            elif "externally-managed-environment" in stderr:
-                # Try with --break-system-packages as last resort
-                r2 = subprocess.run(
-                    pip_cmd + ["install", "-e", ".", "--quiet", "--break-system-packages"],
-                    cwd=repo_root, capture_output=True, text=True
-                )
-                if r2.returncode == 0:
-                    print(_C("  ✓  Package reinstalled.\n", "green"))
-                else:
-                    print(_C("  ⚠  pip install skipped (git pull already updated the code).\n", "yellow"))
-            else:
-                print(_C(f"  ⚠  pip install warning:\n    {stderr[:200]}\n", "yellow"))
-    except Exception as e:
-        print(_C(f"  ⚠  pip reinstall skipped: {e}\n", "yellow"))
-
     new_ver = _get_version()
-    print(_C(f"  ✅  Koza is now v{new_ver}. Restarting…\n", "green"))
-    _hr()
 
-    # Windows: os.execv doesn't work reliably (locked exe, no shebang support).
-    # Spawn a fresh process and exit current one instead.
     if sys.platform == "win32":
-        import time
+        print(_C(f"  ✅  Koza code is updated. Applying package changes and restarting to v{new_ver}…\n", "green"))
+        _hr()
+        import tempfile, time
         try:
             koza_exe = Path(sys.executable).parent / "koza.exe"
             if not koza_exe.exists():
                 koza_exe = Path(sys.executable).parent / "Scripts" / "koza.exe"
 
-            if koza_exe.exists():
-                # Restart koza without 'update' arg to avoid re-triggering update
-                subprocess.Popen([str(koza_exe)],
-                                 creationflags=subprocess.CREATE_NO_WINDOW)
-            else:
-                subprocess.Popen([sys.executable, "-m", "koza_run"],
-                                 creationflags=subprocess.CREATE_NO_WINDOW)
-        except Exception:
-            print(_C("  ℹ  Please restart koza manually.\n", "grey"))
+            restart_cmd = f'"{koza_exe}"' if koza_exe.exists() else f'"{sys.executable}" -m koza_run'
+
+            bat_path = os.path.join(tempfile.gettempdir(), "koza_update.bat")
+            with open(bat_path, "w", encoding="utf-8") as f:
+                f.write(f"""@echo off
+timeout /t 2 /nobreak > nul
+"{sys.executable}" -m pip install -e "{repo_root}" --quiet > "%TEMP%\\koza_update.log" 2>&1
+{restart_cmd}
+""")
+            # Run bat detached
+            subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=subprocess.CREATE_NO_WINDOW)
+        except Exception as e:
+            print(_C(f"  ⚠  Failed to schedule background update: {e}\nPlease restart manually.\n", "yellow"))
+
         time.sleep(0.5)
         os._exit(0)
-
-    # Unix: exec-replace, but restart as plain 'koza' without 'update' arg
-    koza_bin = shutil.which("koza")
-    if koza_bin:
-        os.execv(koza_bin, [koza_bin])
     else:
-        os.execv(sys.executable, [sys.executable, str(repo_root / "koza_run.py")])
+        # Unix pip install
+        try:
+            result = subprocess.run(
+                pip_cmd + ["install", "-e", ".", "--quiet"],
+                cwd=repo_root, capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                print(_C("  ✓  Package reinstalled.\n", "green"))
+            else:
+                stderr = result.stderr.strip()
+                if "externally-managed-environment" in stderr:
+                    # Try with --break-system-packages
+                    r2 = subprocess.run(
+                        pip_cmd + ["install", "-e", ".", "--quiet", "--break-system-packages"],
+                        cwd=repo_root, capture_output=True, text=True
+                    )
+                    if r2.returncode == 0:
+                        print(_C("  ✓  Package reinstalled.\n", "green"))
+                    else:
+                        print(_C("  ⚠  pip install skipped (git pull already updated the code).\n", "yellow"))
+                else:
+                    print(_C(f"  ⚠  pip install warning:\n    {stderr[:200]}\n", "yellow"))
+        except Exception as e:
+            print(_C(f"  ⚠  pip reinstall skipped: {e}\n", "yellow"))
+
+        print(_C(f"  ✅  Koza is now v{new_ver}. Restarting…\n", "green"))
+        _hr()
+        # Unix: exec-replace
+        koza_bin = shutil.which("koza")
+        if koza_bin:
+            os.execv(koza_bin, [koza_bin])
+        else:
+            os.execv(sys.executable, [sys.executable, str(repo_root / "koza_run.py")])
