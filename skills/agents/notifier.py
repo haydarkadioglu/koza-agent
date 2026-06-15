@@ -48,6 +48,13 @@ class SubAgentNotifier:
             if cls._started:
                 return
             cls._started = True
+            
+            # Pre-populate notified list with all currently finished subagents
+            # so we don't spam the user with historical completions on startup.
+            for agent_id, ag in _subagents.items():
+                if ag.get("status") in ("done", "error"):
+                    cls._notified.add(agent_id)
+                    
         t = threading.Thread(target=cls._watch, daemon=True, name="subagent-notifier")
         t.start()
 
