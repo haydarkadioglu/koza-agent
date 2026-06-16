@@ -180,6 +180,9 @@ if ($HasGit) {
     if (Test-Path "$InstallDir\.git") {
         Write-Info "Updating existing install at $InstallDir ..."
         git -C $InstallDir pull --ff-only --quiet
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "Git pull failed. You may need to delete $InstallDir and reinstall."
+        }
         Write-Ok "Repository updated."
     } else {
         if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
@@ -205,18 +208,22 @@ if ($HasGit) {
 
 # ── 5. Virtual environment ───────────────────────────────────────────────────
 
-if (-not (Test-Path $VenvDir)) {
-    Write-Info "Creating virtual environment ..."
-    & $PythonExe @PythonArgs -m venv $VenvDir
-    Write-Ok "Virtualenv created at $VenvDir"
-} else {
-    Write-Host "      Virtualenv already exists, skipping." -ForegroundColor DarkGray
-}
-
 $VenvPython  = "$VenvDir\Scripts\python.exe"
 $VenvPip     = "$VenvDir\Scripts\pip.exe"
 $VenvKoza    = "$VenvDir\Scripts\koza.exe"
 $ScriptsDir  = "$VenvDir\Scripts"
+
+if (-not (Test-Path $VenvPip)) {
+    Write-Info "Creating virtual environment ..."
+    if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue }
+    & $PythonExe @PythonArgs -m venv $VenvDir
+    if (-not (Test-Path $VenvPip)) {
+        Write-Err "Failed to create virtual environment. pip.exe not found."
+    }
+    Write-Ok "Virtualenv created at $VenvDir"
+} else {
+    Write-Host "      Virtualenv already exists, skipping." -ForegroundColor DarkGray
+}
 
 # ── 6. Install package ───────────────────────────────────────────────────────
 
