@@ -7,16 +7,27 @@ from cli.ui import _C, _print_error
 def build_agent_from_config(cfg: dict, session_id: int | None = None):
     from providers.factory import get_provider
     from core import Agent
+    from skills.session_memory import load_session, load_last_session, get_session_rows
 
     agent = Agent(get_provider(cfg), db_path=cfg["db_path"], cfg=cfg)
+    msgs = None
+    
     if session_id is not None:
-        from skills.session_memory import load_session
         msgs = load_session(session_id)
         if not msgs:
             raise ValueError(f"Session #{session_id} not found or empty.")
+    else:
+        msgs = load_last_session()
+        if msgs:
+            rows = get_session_rows(limit=1)
+            if rows:
+                session_id = rows[0]["id"]
+                
+    if msgs:
         sys_msg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
         agent.messages = ([sys_msg] if sys_msg else []) + msgs
         agent._active_session_id = session_id
+        
     return agent
 
 

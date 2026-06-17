@@ -40,9 +40,30 @@ def _configure_logging() -> None:
         pass
 
 
+def _set_console_icon() -> None:
+    import os
+    if os.name == "nt":
+        try:
+            import ctypes
+            from pathlib import Path
+            icon_path = Path(__file__).resolve().parent / "icon.ico"
+            if icon_path.exists():
+                hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+                if hwnd:
+                    # LR_LOADFROMFILE = 0x0010, IMAGE_ICON = 1
+                    hicon = ctypes.windll.user32.LoadImageW(0, str(icon_path), 1, 0, 0, 0x0010)
+                    if hicon:
+                        # ICON_SMALL = 0, ICON_BIG = 1
+                        ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
+                        ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon)
+        except Exception:
+            pass
+
+
 def main() -> None:
     _configure_console_encoding()
     _configure_logging()
+    _set_console_icon()
     try:
         from cli.typer_app import app
         app(prog_name="koza")

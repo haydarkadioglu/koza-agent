@@ -21,6 +21,17 @@ class BridgeBase:
         provider = get_provider(self.cfg)
         self.agent = Agent(provider, db_path=self.db_path, cfg=self.cfg, channel="gui")
         
+        # Auto-load the most recent session history
+        last_session = session_memory.load_last_session()
+        if last_session:
+            sys_msg = self.agent.messages[0] if self.agent.messages and self.agent.messages[0].get("role") == "system" else None
+            self.agent.messages = ([sys_msg] if sys_msg else []) + last_session
+            
+            # Set the active session ID so auto-save updates the same session
+            rows = session_memory.get_session_rows(limit=1)
+            if rows:
+                self.agent._active_session_id = rows[0]["id"]
+        
         # UI Permission callbacks
         self.agent.permission_callback = self._gui_permission_callback
         

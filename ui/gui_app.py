@@ -33,6 +33,8 @@ def start_gui():
         
     api_bridge = KozaBridge()
     
+    icon_path = Path(__file__).resolve().parent / "static" / "icon.png"
+    
     webview_window = webview.create_window(
         title="Koza Agent Cockpit",
         url=str(html_path),
@@ -43,14 +45,25 @@ def start_gui():
         background_color="#0A0915"
     )
     
+    # Optional: in PyWebView, we often pass icon via start() if supported, or wait...
+    # pywebview create_window DOES support icon if they are using pywebview>=5.0, but usually it's in webview.start(icon=...) 
+    # Actually, pywebview's webview.start() might take `icon` or `webview.start(icon=str(icon_path))`.
+    # No, let's just leave create_window as is and add icon to start.
+    
     # Defer setting the webview window reference until loaded to avoid early accessibility queries
     def on_loaded():
         api_bridge.webview_window = webview_window
 
     webview_window.events.loaded += on_loaded
     
+    icon_ico_path = Path(__file__).resolve().parent / "static" / "icon.ico"
+    
     # Run the native webview application
-    webview.start(debug=False)
+    try:
+        webview.start(debug=False, icon=str(icon_ico_path))
+    except TypeError:
+        # Fallback if older pywebview doesn't accept icon argument
+        webview.start(debug=False)
 
 if __name__ == "__main__":
     start_gui()
