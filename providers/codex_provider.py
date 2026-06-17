@@ -64,28 +64,28 @@ def cmd_codex_login() -> str:
     """Run Codex login — paste session key or use OAuth."""
     tokens = _load_tokens()
     if tokens and tokens.get("api_key"):
-        return "ℹ️  Zaten giris yapilmis."
+        return "ℹ️  Already logged in."
 
-    print("\n  🅾️  OpenAI Codex — Baglanti")
+    print("\n  🅾️  OpenAI Codex — Connection")
     print("  ─────────────────────────────\n")
 
-    choice = input("  [1] API Key gir\n  [2] GitHub OAuth ile baglan\n  Secim: ").strip()
+    choice = input("  [1] Enter API Key\n  [2] Connect with GitHub OAuth\n  Choice: ").strip()
 
     if choice == "1":
         api_key = input("  OpenAI API Key: ").strip()
         if api_key:
             _save_tokens({"api_key": api_key, "method": "api_key"})
-            print("  ✅ API Key kaydedildi.")
-            return "✅ Codex provider hazir."
+            print("  ✅ API Key saved.")
+            return "✅ Codex provider ready."
         else:
-            return "❌ API Key girilmedi."
+            return "❌ API Key not entered."
 
     elif choice == "2":
-        print("\n  🌐 GitHub OAuth baslatiliyor...")
-        print("  (Henuz dogrudan OAuth destegi yok, API Key kullanin)\n")
-        return "ℹ️  API Key ile kullanin: koza setup → codex"
+        print("\n  🌐 Starting GitHub OAuth...")
+        print("  (No direct OAuth support yet, use API Key)\n")
+        return "ℹ️  Use with API Key: koza setup → codex"
 
-    return "❌ Gecersiz secim."
+    return "❌ Invalid choice."
 
 
 # ─── Provider Implementation ─────────────────────────────────────────────────
