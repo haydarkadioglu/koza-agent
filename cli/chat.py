@@ -13,6 +13,7 @@ from cli.ui import (
     _spinner_stop,
     _select_menu,
 )
+from cli.i18n import _T
 
 # ── prompt_toolkit availability ───────────────────────────────────────────────
 try:
@@ -144,10 +145,10 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
         """Called by SubAgentNotifier when a background sub-agent finishes."""
         icon = "✅" if status == "done" else "❌"
         msg = (
-            f"\n{icon} Alt-agent tamamlandı [{agent_id}] ({status})\n"
-            f"   Görev: {goal}\n"
-            f"   Özet:  {result[:200]}\n"
-            f"   Detay için: get_subagent_status('{agent_id}')\n"
+            f"\n{icon} Sub-agent completed [{agent_id}] ({status})\n"
+            f"   Task: {goal}\n"
+            f"   Summary:  {result[:200]}\n"
+            f"   For details: get_subagent_status('{agent_id}')\n"
         )
         layout = _ui_layout[0]
         if layout is not None:
@@ -234,14 +235,36 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
         Implements the same interface as ChatLayout (append_output, set_status,
         clear_output) so StreamRenderer can be used in the fallback CLI path.
         """
+        def __init__(self) -> None:
+            self._current_status = ""
+            self._lock = threading.Lock()
 
         def append_output(self, text: str) -> None:
-            sys.stdout.write(text)
-            sys.stdout.flush()
+            with self._lock:
+                if self._current_status:
+                    # Clear current status line before printing output
+                    sys.stdout.write("\r\033[K")
+                sys.stdout.write(text)
+                sys.stdout.flush()
+                if self._current_status:
+                    # Redraw status line at the bottom
+                    sys.stdout.write(self._current_status)
+                    sys.stdout.flush()
 
         def set_status(self, text: str) -> None:
-            # In plain mode, status bar is printed on finalize via _status_bar()
-            pass
+            # Clean up formatting for single-line display
+            cleaned = text.replace("\n", " ").replace("\r", "")
+            with self._lock:
+                self._current_status = f"\r{cleaned}\033[K"
+                sys.stdout.write(self._current_status)
+                sys.stdout.flush()
+
+        def clear_status(self) -> None:
+            with self._lock:
+                if self._current_status:
+                    sys.stdout.write("\r\033[K")
+                    sys.stdout.flush()
+                    self._current_status = ""
 
         def clear_output(self) -> None:
             pass
@@ -418,28 +441,28 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             layout = _ui_layout[0]
             if layout is not None:
                 lines = []
-                lines.append(_C("\n  Commands", "bold"))
+                lines.append(_C(_T("  Commands"), "bold"))
                 cmds = [
-                    ("/help",     "Show this help"),
-                    ("/sessions", "Browse / load / delete saved sessions"),
-                    ("/save [title]", "Save current session"),
-                    ("/title [name]", "Rename current session"),
-                    ("/clear",    "Refresh screen from recent history"),
-                    ("/retry",    "Resend last message"),
-                    ("/undo",     "Remove last exchange"),
-                    ("/history",  "Show recent conversation"),
-                    ("/provider", "Switch LLM provider"),
-                    ("/model [name]", "Show or change model"),
-                    ("/kanban",   "Show Kanban board & cron jobs"),
-                    ("/memory",   "Show working memory"),
-                    ("/tools",    "List available tool groups"),
-                    ("/plugins",  "List installed plugins"),
-                    ("/plugin create <name> [desc]", "Create a new plugin template"),
-                    ("/skills",   "List saved skills"),
-                    ("/compress", "Compress conversation context"),
-                    ("/reset",    "Clear conversation history"),
-                    ("/mode coding", "Activate coding mode"),
-                    ("exit",      "Quit Koza"),
+                    ("/help",     _T("Show this help")),
+                    ("/sessions", _T("Browse / load / delete saved sessions")),
+                    ("/save [title]", _T("Save current session")),
+                    ("/title [name]", _T("Rename current session")),
+                    ("/clear",    _T("Refresh screen from recent history")),
+                    ("/retry",    _T("Resend last message")),
+                    ("/undo",     _T("Remove last exchange")),
+                    ("/history",  _T("Show recent conversation")),
+                    ("/provider", _T("Switch LLM provider")),
+                    ("/model [name]", _T("Show or change model")),
+                    ("/kanban",   _T("Show Kanban board & cron jobs")),
+                    ("/memory",   _T("Show working memory")),
+                    ("/tools",    _T("List available tool groups")),
+                    ("/plugins",  _T("List installed plugins")),
+                    ("/plugin create <name> [desc]", _T("Create a new plugin template")),
+                    ("/skills",   _T("List saved skills")),
+                    ("/compress", _T("Compress conversation context")),
+                    ("/reset",    _T("Clear conversation history")),
+                    ("/mode coding", _T("Activate coding mode")),
+                    ("exit",      _T("Quit Koza")),
                 ]
                 for cmd, desc in cmds:
                     lines.append(f"  {_C(cmd, 'cyan'):<28}  {desc}")
@@ -617,14 +640,15 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             parts = user_input.split(None, 1)
             new_title = parts[1].strip() if len(parts) > 1 else ""
             if new_title:
-                session_id = getattr(agent, "_session_id", None)
+                session_id = getattr(agent, "_active_session_id", None)
                 if session_id:
                     from skills.session_memory import _conn
                     with _conn() as conn:
                         conn.execute("UPDATE sessions SET title = ? WHERE id = ?", (new_title, session_id))
                     _out(_C(f"  ✓  Session renamed to: {new_title}\n", "green"))
                 else:
-                    _out(_C("  ℹ  No active session to rename.\n", "grey"))
+                    agent.auto_save(title=new_title)
+                    _out(_C(f"  ✓  Session saved and named: {new_title}\n", "green"))
             else:
                 _out(_C("  Usage: /title <session name>\n", "grey"))
             return True
@@ -779,50 +803,50 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
 
         # ── google-login / /google-login ── OAuth login ──────────────────────
         if user_input in ("google-login", "/google-login"):
-            _out(_C("\n  🔑 Google OAuth login baslatiliyor...\n", "cyan"))
+            _out(_C("\n  🔑 Starting Google OAuth login...\n", "cyan"))
             try:
                 from providers.google_oauth_provider import run_oauth_login
                 if run_oauth_login():
-                    _out(_C("  ✅ Google hesabina baglandi. Provider'i kullanmak icin /model gemini-2.5-pro\n", "green"))
+                    _out(_C("  ✅ Connected to Google account. To use the provider, run: /model gemini-2.5-pro\n", "green"))
                 else:
-                    _out(_C("  ❌ Baglanti basarisiz.\n", "red"))
+                    _out(_C("  ❌ Connection failed.\n", "red"))
             except Exception as e:
-                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+                _out(_C(f"  ❌ Error: {e}\n", "red"))
             return True
 
         # ── anthropic-login / /anthropic-login ── OAuth login ──────────────────
         if user_input in ("anthropic-login", "/anthropic-login", "claude-login", "/claude-login"):
-            _out(_C("\n  🔑 Anthropic OAuth login baslatiliyor...\n", "cyan"))
+            _out(_C("\n  🔑 Starting Anthropic OAuth login...\n", "cyan"))
             try:
                 from providers.anthropic_oauth_provider import run_oauth_login
                 if run_oauth_login():
-                    _out(_C("  ✅ Anthropic hesabina baglandi. Provider'i kullanmak icin /model claude-3-5-sonnet-20241022\n", "green"))
+                    _out(_C("  ✅ Connected to Anthropic account. To use the provider, run: /model claude-3-5-sonnet-20241022\n", "green"))
                 else:
-                    _out(_C("  ❌ Baglanti basarisiz.\n", "red"))
+                    _out(_C("  ❌ Connection failed.\n", "red"))
             except Exception as e:
-                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+                _out(_C(f"  ❌ Error: {e}\n", "red"))
             return True
 
         # ── codex-login / /codex-login ── Codex login ────────────────────────
         if user_input in ("codex-login", "/codex-login"):
-            _out(_C("\n  🅾️  OpenAI Codex login baslatiliyor...\n", "cyan"))
+            _out(_C("\n  🅾️  Starting OpenAI Codex login...\n", "cyan"))
             try:
                 from providers.codex_provider import cmd_codex_login
                 result = cmd_codex_login()
                 _out(_C(f"  {result}\n", "green") if "✅" in result or "ℹ️" in result else _C(f"  {result}\n", "yellow"))
             except Exception as e:
-                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+                _out(_C(f"  ❌ Error: {e}\n", "red"))
             return True
 
         # ── email-setup / /email-setup ── Email configuration ────────────────
         if user_input in ("email-setup", "/email-setup"):
-            _out(_C("\n  📧 Email setup baslatiliyor...\n", "cyan"))
+            _out(_C("\n  📧 Starting email setup...\n", "cyan"))
             try:
                 from skills.email_skill import email_setup
                 result = email_setup()
                 _out(_C(f"  {result}\n", "green"))
             except Exception as e:
-                _out(_C(f"  ❌ Hata: {e}\n", "red"))
+                _out(_C(f"  ❌ Error: {e}\n", "red"))
             return True
 
         # ── email-log / /email-log ── Show sent email log ────────────────────
@@ -1099,16 +1123,16 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                         agent._busy = False
                 continue
             _hr()
-            print(_C("\n  ✨ Görüşürüz! 👋\n", "cyan"))
-            print(_C("  🦎 Koza kapandı.\n", "grey"))
+            print(_C("\n  ✨ " + _T("Goodbye! 👋") + "\n", "cyan"))
+            print(_C("  🦎 " + _T("Koza stopped.") + "\n", "grey"))
             _hr()
             # Spawn background services before exiting
             if _active_services:
                 try:
                     from koza_daemon import start_services_background
                     start_services_background(cfg)
-                    print(_C(f"  Background services running: {', '.join(_active_services)}", "grey"))
-                    print(_C("  Stop with: koza quit\n", "grey"))
+                    print(_C(_T(f"  Background services running: {', '.join(_active_services)}"), "grey"))
+                    print(_C(_T("  Stop with: koza quit\n"), "grey"))
                 except Exception:
                     pass
             break

@@ -59,24 +59,26 @@ def _print_banner(cfg: dict) -> None:
         + _C("  │  ", "grey")
         + _C(f"🧠 {model_short}", "teal")
     )
+    from cli.i18n import _T
     print(
-        _C("  💡 /help for commands  │  /model to switch", "grey")
+        _C(_T("  💡 /help for commands  │  /model to switch"), "grey")
     )
     print(_C("┄" * w, "grey"))
     print()
 
 
 def _print_inline_help() -> None:
-    print(_C("\n  Commands", "bold"))
+    from cli.i18n import _T
+    print(_C(_T("  Commands"), "bold"))
     cmds = [
-        ("/help",         "Show this help"),
-        ("/sessions",     "Browse / load / delete saved sessions"),
-        ("/save [title]", "Save current session"),
-        ("/kanban",       "Show Kanban board & cron jobs"),
-        ("/memory",       "Show working memory"),
-        ("/reset",        "Clear conversation history"),
-        ("/provider",     "Switch LLM provider"),
-        ("exit",          "Quit Koza"),
+        ("/help",         _T("Show this help")),
+        ("/sessions",     _T("Browse / load / delete saved sessions")),
+        ("/save [title]", _T("Save current session")),
+        ("/kanban",       _T("Show Kanban board & cron jobs")),
+        ("/memory",       _T("Show working memory")),
+        ("/reset",        _T("Clear conversation history")),
+        ("/provider",     _T("Switch LLM provider")),
+        ("exit",          _T("Quit Koza")),
     ]
     for cmd, desc in cmds:
         print(f"  {_C(cmd, 'cyan'):<28}  {desc}")

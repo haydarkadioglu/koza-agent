@@ -93,7 +93,7 @@ def root(
 
 @app.command()
 def google_login() -> None:
-    """Google hesabina baglan (OAuth) — API anahtari olmadan Gemini kullan."""
+    """Connect to Google account (OAuth) — use Gemini without API key."""
     from providers.google_oauth_provider import cmd_google_login
     result = cmd_google_login()
     if result:
@@ -102,7 +102,7 @@ def google_login() -> None:
 
 @app.command()
 def codex_login() -> None:
-    """OpenAI Codex baglantisi — API Key veya OAuth ile."""
+    """OpenAI Codex connection — via API Key or OAuth."""
     from providers.codex_provider import cmd_codex_login
     result = cmd_codex_login()
     if result:

@@ -196,19 +196,19 @@ def _setup_primary_provider(cfg: dict) -> None:
     if provider == "ollama":
         ollama_url = _prompt("Ollama base URL", default="http://localhost:11434")
     if provider == "google-oauth":
-        print(_C("\n  🔑 Google OAuth login baslatiliyor...\n", "cyan"))
+        print(_C("\n  🔑 Starting Google OAuth login...\n", "cyan"))
         from providers.google_oauth_provider import run_oauth_login
         if run_oauth_login():
-            print(_C("  ✅ Google hesabina baglandi.\n", "green"))
+            print(_C("  ✅ Connected to Google account.\n", "green"))
         else:
-            print(_C("  ⚠  Baglanti basarisiz. Setup'a devam ediliyor.\n", "yellow"))
+            print(_C("  ⚠  Connection failed. Continuing setup.\n", "yellow"))
     if provider == "anthropic-oauth":
-        print(_C("\n  🔑 Anthropic OAuth login baslatiliyor...\n", "cyan"))
+        print(_C("\n  🔑 Starting Anthropic OAuth login...\n", "cyan"))
         from providers.anthropic_oauth_provider import run_oauth_login
         if run_oauth_login():
-            print(_C("  ✅ Anthropic hesabina baglandi.\n", "green"))
+            print(_C("  ✅ Connected to Anthropic account.\n", "green"))
         else:
-            print(_C("  ⚠  Baglanti basarisiz. Setup'a devam ediliyor.\n", "yellow"))
+            print(_C("  ⚠  Connection failed. Continuing setup.\n", "yellow"))
     openrouter_url = ""
     if provider == "openrouter":
         existing_url = cfg.get("providers", {}).get("openrouter", {}).get("base_url", "")

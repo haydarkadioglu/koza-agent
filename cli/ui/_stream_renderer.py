@@ -38,7 +38,13 @@ class StreamRenderer:
         "run_node": "Running Node.js", "read_file": "Reading file",
         "write_file": "Writing file", "list_dir": "Listing directory",
         "send_message": "Sending message", "telegram_send": "Sending Telegram",
-        "discord_send": "Sending Discord",
+        "discord_send": "Sending Discord", "whatsapp_send": "Sending WhatsApp",
+        "twilio_send_sms": "Sending SMS via Twilio", "twilio_send_whatsapp": "Sending WhatsApp via Twilio",
+        "twilio_make_call": "Making call via Twilio",
+        "send_email": "Sending email", "read_emails": "Reading emails",
+        "search_emails": "Searching emails", "reply_email": "Replying to email",
+        "send_batch_emails": "Sending batch emails", "email_log": "Viewing email log",
+        "email_setup": "Setting up email",
         "memory_store": "Saving to memory", "memory_recall": "Recalling memory",
         "github_search_code": "Searching GitHub",
         "crypto_price": "Fetching crypto price", "stock_price": "Fetching stock",
@@ -141,10 +147,7 @@ class StreamRenderer:
         etype = event.get("type")
 
         if etype == "thinking":
-            self.layout.set_status(self._format_status(
-                _C("◐ Reasoning…", "cyan")
-            ))
-            self._spinner.start("Thinking…")
+            self._spinner.start("Reasoning…", target_pct=25.0)
 
         elif etype == "tool_start":
             name = event["name"]
@@ -157,11 +160,7 @@ class StreamRenderer:
                     visible_parts.append(f"{k}={repr(v)[:40]}")
             arg_str = ", ".join(visible_parts)
             label = self._TOOL_LABELS.get(name, f"Running {name}")
-            self._spinner.stop()
-            self.layout.set_status(self._format_status(
-                _C(f"⚙ {label}…", "cyan")
-            ))
-            self._spinner.start(f"{label}…")
+            self._spinner.start(f"{label}…", target_pct=55.0)
             self._close_response_if_open()
             self._close_persona_box()
             self._open_tool_box(name, label, arg_str)
@@ -172,7 +171,6 @@ class StreamRenderer:
         elif etype == "tool_done":
             name = event["name"]
             elapsed = event.get("elapsed", 0)
-            self._spinner.stop()
             result_preview = self._summarize_tool_result(event.get("result"))
             if not self._tool_box_open:
                 label = self._TOOL_LABELS.get(name, f"Running {name}")
@@ -186,11 +184,7 @@ class StreamRenderer:
             self._close_tool_box(f"{elapsed:.2f}s")
             self._pending_tool = None
             self._pending_tool_arg = ""
-            self._spinner.stop()
-            self.layout.set_status(self._format_status(
-                _C("◐ Reasoning…", "cyan")
-            ))
-            self._spinner.start("Thinking…")
+            self._spinner.start("Reasoning…", target_pct=75.0)
 
         elif etype == "text":
             token = event.get("token", "")
@@ -360,6 +354,7 @@ class StreamRenderer:
             )
 
         elif etype == "done":
+            self._spinner.stop()
             self._close_persona_box()
             summary = event.get("summary", "")
             if summary:
@@ -542,6 +537,8 @@ class StreamRenderer:
         """Close the response box with timing info."""
         # Stop spinner to ensure it's cleaned up
         self._spinner.stop()
+        if hasattr(self.layout, "clear_status"):
+            self.layout.clear_status()
         self._close_tool_box()
         # Close any open persona box first
         self._close_persona_box()
