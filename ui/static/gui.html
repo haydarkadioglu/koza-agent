@@ -184,7 +184,8 @@
                         <div class="inline-perm-args" id="inline-perm-args" style="display: none;">
                             <textarea id="perm-tool-args" class="tool-args-edit"></textarea>
                         </div>
-                        <div class="inline-perm-actions">
+                        <div class="inline-perm-actions" style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+                            <button class="btn btn-secondary btn-sm" onclick="allowAllSession()" style="background: rgba(127, 90, 240, 0.2); color: #7f5af0; border: 1px solid rgba(127, 90, 240, 0.5);"><i class="fa-solid fa-bolt"></i> <span data-localize="btn-allow-all">Allow all on this session</span></button>
                             <button class="btn btn-danger btn-sm" onclick="resolvePermission(false)"><i class="fa-solid fa-xmark"></i> <span data-localize="btn-deny">Deny</span></button>
                             <button class="btn btn-success btn-sm" onclick="resolvePermission(true)"><i class="fa-solid fa-check"></i> <span data-localize="btn-allow">Allow</span></button>
                         </div>

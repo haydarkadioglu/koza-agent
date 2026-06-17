@@ -341,6 +341,16 @@ function resolvePermission(allowed) {
     window.pywebview.api.resolve_permission(allowed, editedArgs);
 }
 
+function allowAllSession() {
+    // 1. Turn on Turbo Mode
+    document.getElementById('setting-turbo-mode').checked = true;
+    if (typeof toggleTurboMode === 'function') {
+        toggleTurboMode(true);
+    }
+    // 2. Resolve current permission dialog
+    resolvePermission(true);
+}
+
 function togglePermArgs() {
     const argsBox = document.getElementById('inline-perm-args');
     const icon = document.getElementById('perm-args-icon');

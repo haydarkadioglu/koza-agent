@@ -177,10 +177,70 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "skill_enable",
+            "description": "Enable a core Koza skill (e.g. email_skill, media, etc.) by removing it from disabled_skills list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name of the skill to enable (e.g. email_skill)"},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "skill_disable",
+            "description": "Disable a core Koza skill by adding it to disabled_skills list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name of the skill to disable"},
+                },
+                "required": ["name"],
+            },
+        },
+    },
 ]
+
+def handle_skill_enable(name: str) -> str:
+    from config import load_config, save_config
+    cfg = load_config()
+    disabled = cfg.get("disabled_skills", [])
+    if not isinstance(disabled, list):
+        disabled = []
+    if name in disabled:
+        disabled.remove(name)
+        cfg["disabled_skills"] = disabled
+        save_config(cfg)
+        from tools.registry import rebuild_registry
+        rebuild_registry()
+        return f"✅ Skill '{name}' enabled successfully and registry rebuilt."
+    return f"ℹ️ Skill '{name}' is already enabled."
+
+def handle_skill_disable(name: str) -> str:
+    from config import load_config, save_config
+    cfg = load_config()
+    disabled = cfg.get("disabled_skills", [])
+    if not isinstance(disabled, list):
+        disabled = []
+    if name not in disabled:
+        disabled.append(name)
+        cfg["disabled_skills"] = disabled
+        save_config(cfg)
+        from tools.registry import rebuild_registry
+        rebuild_registry()
+        return f"⏹️ Skill '{name}' disabled successfully."
+    return f"ℹ️ Skill '{name}' is already disabled."
 
 HANDLERS = {
     "get_config":    lambda **kw: handle_get_config(kw.get("path", "")),
     "set_config":    lambda **kw: handle_set_config(kw["path"], kw["value"]),
     "delete_config": lambda **kw: handle_delete_config(kw["path"]),
+    "skill_enable":  lambda **kw: handle_skill_enable(kw["name"]),
+    "skill_disable": lambda **kw: handle_skill_disable(kw["name"]),
 }
