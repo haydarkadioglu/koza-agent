@@ -78,7 +78,7 @@ class SkillsMixin:
             
             # Rebuild registry and reload agent to apply changes immediately
             from tools.registry import rebuild_registry
-            rebuild_registry()
+            rebuild_registry(force=True)
             self.reload_agent()
             
             return {"status": "success"}
@@ -105,7 +105,7 @@ class SkillsMixin:
             
             # Rebuild registry and reload agent to apply changes immediately
             from tools.registry import rebuild_registry
-            rebuild_registry()
+            rebuild_registry(force=True)
             self.reload_agent()
             
             return {"status": "success"}

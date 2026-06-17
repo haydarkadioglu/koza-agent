@@ -153,8 +153,8 @@ class ConfigMixin:
             target[parts[-1]] = value
             save_config(self.cfg)
             
-            # Reinit agent if modifying a provider setting (like api_key or base_url)
-            if parts[0] == "providers":
+            # Reinit agent if modifying a setting that affects agent execution
+            if parts[0] in ("providers", "email", "voice", "tool_approval", "coding_mode"):
                 self._reinit_agent_keeping_history()
                 
             return {"status": "success", "message": f"Config {dot_path} updated"}

@@ -482,6 +482,27 @@
                                 <label for="setting-twilio-wa-to">Twilio WhatsApp To Number (Recipient)</label>
                                 <input type="text" id="setting-twilio-wa-to" placeholder="whatsapp:+90xxxxxxxxxx..." onchange="updateNestedConfig('messaging.twilio.wa_to', this.value)">
                             </div>
+                            <h4 style="margin: 15px 0 10px 0; font-size:12px; color:var(--text-secondary);">Email (SMTP & IMAP)</h4>
+                            <div class="form-group">
+                                <label for="setting-email-username">Email Username / Address</label>
+                                <input type="text" id="setting-email-username" placeholder="yourname@gmail.com..." onchange="updateNestedConfig('email.username', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-email-password">Email / App Password</label>
+                                <input type="password" id="setting-email-password" placeholder="Email password or App password..." onchange="updateNestedConfig('email.password', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-email-smtp-host">SMTP Host (Optional)</label>
+                                <input type="text" id="setting-email-smtp-host" placeholder="smtp.gmail.com (auto-detected if blank)..." onchange="updateNestedConfig('email.smtp_host', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-email-smtp-port">SMTP Port (Optional)</label>
+                                <input type="number" id="setting-email-smtp-port" placeholder="587..." onchange="updateNestedConfig('email.smtp_port', this.value ? parseInt(this.value) : 0)">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-email-imap-host">IMAP Host (Optional)</label>
+                                <input type="text" id="setting-email-imap-host" placeholder="imap.gmail.com (auto-detected if blank)..." onchange="updateNestedConfig('email.imap_host', this.value)">
+                            </div>
                         </div>
 
                         <!-- Panel: Voice & Hardware -->

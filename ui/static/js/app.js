@@ -49,6 +49,9 @@ function changeLanguage(lang) {
     currentLanguage = lang;
     localStorage.setItem('koza_gui_lang', lang);
     applyLocalization();
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.update_nested_config) {
+        window.pywebview.api.update_nested_config('language', lang);
+    }
 }
 
 function loadInitialData() {

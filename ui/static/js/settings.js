@@ -64,6 +64,13 @@ function loadSettings() {
         }
         
         window.pywebview.api.get_config().then(cfg => {
+            if (cfg.language && cfg.language !== currentLanguage) {
+                currentLanguage = cfg.language;
+                localStorage.setItem('koza_gui_lang', currentLanguage);
+                if (typeof applyLocalization === 'function') {
+                    applyLocalization();
+                }
+            }
             // Set languages dropdown
             document.getElementById('setting-lang').value = currentLanguage;
             
@@ -119,6 +126,13 @@ function loadSettings() {
             document.getElementById('setting-twilio-from').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.from_number) || '';
             document.getElementById('setting-twilio-wa-from').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.wa_from) || '';
             document.getElementById('setting-twilio-wa-to').value = (cfg.messaging && cfg.messaging.twilio && cfg.messaging.twilio.wa_to) || '';
+            
+            // Email settings
+            document.getElementById('setting-email-username').value = (cfg.email && cfg.email.username) || '';
+            document.getElementById('setting-email-password').value = (cfg.email && cfg.email.password) || '';
+            document.getElementById('setting-email-smtp-host').value = (cfg.email && cfg.email.smtp_host) || '';
+            document.getElementById('setting-email-smtp-port').value = (cfg.email && cfg.email.smtp_port) || '';
+            document.getElementById('setting-email-imap-host').value = (cfg.email && cfg.email.imap_host) || '';
             
             // General settings
             document.getElementById('setting-tool-approval').checked = !!cfg.tool_approval;
