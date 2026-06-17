@@ -91,6 +91,20 @@ class StdioMCPClient:
         except Exception as e:
             return {"error": f"Stdio communication error: {e}"}
 
+    def send_notification(self, method: str, params: dict = None):
+        if not self.process or self.process.poll() is not None:
+            return
+        payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params or {}
+        }
+        try:
+            self.process.stdin.write(json.dumps(payload) + "\n")
+            self.process.stdin.flush()
+        except Exception:
+            pass
+
     def close(self):
         if self.process:
             try:
@@ -143,9 +157,47 @@ class HttpMCPClient:
         except Exception as e:
             return {"error": f"HTTP request failed: {e}"}
 
+    def send_notification(self, method: str, params: dict = None):
+        payload = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params or {}
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "KozaAgent/1.0",
+            **self.headers
+        }
+        try:
+            req = urllib.request.Request(
+                self.url.rstrip("/") + "/",
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=10):
+                pass
+        except Exception:
+            pass
+
     def close(self):
         pass
 
+def _mcp_initialize_handshake(client: Any) -> bool:
+    """Perform the mandatory MCP protocol initialize handshake."""
+    resp = client.send_request("initialize", {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {
+            "name": "KozaAgent",
+            "version": "1.0"
+        }
+    })
+    if "error" in resp:
+        return False
+    # Send initialized notification
+    client.send_notification("notifications/initialized")
+    return True
 
 def mcp_to_openai_tool(server_name: str, mcp_tool: dict) -> dict:
     # Namespace tool name to prevent collision
@@ -216,6 +268,13 @@ def load_dynamic_mcp_tools() -> tuple[list[dict], dict[str, Callable]]:
         if not client:
             continue
 
+        # Close existing cached connection if we are reloading
+        if name in _ACTIVE_CLIENTS:
+            try:
+                _ACTIVE_CLIENTS[name].close()
+            except Exception:
+                pass
+
         # Cache connection
         _ACTIVE_CLIENTS[name] = client
 
@@ -223,6 +282,11 @@ def load_dynamic_mcp_tools() -> tuple[list[dict], dict[str, Callable]]:
         if isinstance(client, StdioMCPClient):
             if not client.connect():
                 continue
+
+        # Perform the mandatory MCP handshake
+        if not _mcp_initialize_handshake(client):
+            logger.warning(f"MCP server '{name}' failed initialization handshake.")
+            continue
 
         # Discover tools
         resp = client.send_request("tools/list")
