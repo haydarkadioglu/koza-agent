@@ -196,45 +196,69 @@ class SkillsMixin:
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def get_mcp_servers(self):
+    def mcp_list(self):
         """Fetch list of saved MCP servers from config."""
         try:
-            servers = self.cfg.get("mcp_servers", ["http://localhost:3000"])
-            return {"status": "success", "data": servers}
+            servers = self.cfg.get("mcp_servers", {})
+            return {"status": "success", "servers": servers}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def add_mcp_server(self, url):
-        """Add an MCP server URL to config."""
+    def mcp_add(self, name, payload):
+        """Add an MCP server to config."""
         try:
-            servers = self.cfg.get("mcp_servers", ["http://localhost:3000"])
-            if url not in servers:
-                servers.append(url)
+            servers = self.cfg.get("mcp_servers", {})
+            servers[name] = payload
             self.cfg["mcp_servers"] = servers
+            from ui.bridge.config import save_config
             save_config(self.cfg)
-            return {"status": "success", "data": servers}
+            
+            # Reload MCP servers
+            from skills.mcp_skill import load_dynamic_mcp_tools
+            load_dynamic_mcp_tools()
+            
+            return {"status": "success", "servers": servers}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def delete_mcp_server(self, url):
-        """Remove an MCP server URL from config."""
+    def mcp_remove(self, name):
+        """Remove an MCP server from config."""
         try:
-            servers = self.cfg.get("mcp_servers", ["http://localhost:3000"])
-            if url in servers:
-                servers.remove(url)
+            servers = self.cfg.get("mcp_servers", {})
+            if name in servers:
+                del servers[name]
             self.cfg["mcp_servers"] = servers
+            from ui.bridge.config import save_config
             save_config(self.cfg)
-            return {"status": "success", "data": servers}
+            
+            # Disconnect
+            import skills.mcp_skill as mcp
+            if name in mcp._ACTIVE_CLIENTS:
+                mcp._ACTIVE_CLIENTS[name].close()
+                del mcp._ACTIVE_CLIENTS[name]
+                
+            return {"status": "success", "servers": servers}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def test_mcp_connection(self, url):
-        """Call mcp_list_tools to verify connection."""
+    def mcp_get_tools(self, name):
+        """Call tools/list to verify connection and get tools."""
         try:
-            from skills.mcp_skill import mcp_list_tools
-            res = mcp_list_tools(url)
-            if "ERROR" in res:
-                return {"status": "error", "message": res}
-            return {"status": "success", "message": res}
+            import skills.mcp_skill as mcp
+            # Ensure it's connected
+            if name not in mcp._ACTIVE_CLIENTS:
+                mcp.load_dynamic_mcp_tools()
+                
+            if name not in mcp._ACTIVE_CLIENTS:
+                return {"status": "error", "message": f"Server {name} not connected or failed to start."}
+                
+            client = mcp._ACTIVE_CLIENTS[name]
+            resp = client.send_request("tools/list")
+            if "error" in resp:
+                return {"status": "error", "message": str(resp["error"])}
+                
+            result = resp.get("result", {})
+            tools = result.get("tools", [])
+            return {"status": "success", "tools": tools}
         except Exception as e:
             return {"status": "error", "message": str(e)}
