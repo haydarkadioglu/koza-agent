@@ -197,8 +197,9 @@
 }
 
 .message.user .message-bubble {
-    background: var(--primary-gradient);
-    color: #FFF;
+    background: var(--bg-input);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
     border-bottom-right-radius: 4px;
 }
 
