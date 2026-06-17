@@ -183,13 +183,16 @@ STATIC_SKILL_MODULES = {
     "code_tools": code_tools,
 }
 
+_REGISTRY_INITIALIZED = True
 ALL_TOOLS = _build_all_tools()
 ALL_HANDLERS = _build_all_handlers()
 
 
-def rebuild_registry() -> None:
+def rebuild_registry(force: bool = False) -> None:
     """Rebuild the tool registry based on config and plugin state."""
-    global ALL_TOOLS, ALL_HANDLERS, _STATIC_TOOLS, _STATIC_HANDLERS, _PLUGIN_TOOLS, _PLUGIN_HANDLERS
+    global ALL_TOOLS, ALL_HANDLERS, _STATIC_TOOLS, _STATIC_HANDLERS, _PLUGIN_TOOLS, _PLUGIN_HANDLERS, _REGISTRY_INITIALIZED
+    if _REGISTRY_INITIALIZED and not force:
+        return
     import sys
     
     # 1. Load config and determine disabled core skills
@@ -198,7 +201,17 @@ def rebuild_registry() -> None:
         cfg = load_config()
     except Exception:
         cfg = {}
-    disabled = cfg.get("disabled_skills", [])
+    
+    provider = cfg.get("provider", "ollama")
+    is_local = provider in ("ollama", "lm_studio")
+    if is_local:
+        disabled = cfg.get("disabled_skills", [])
+        # If the user has the legacy default list of all 20 disabled skills,
+        # ignore it so they run smoothly out-of-the-box with dynamic tool selection.
+        if len(disabled) >= 18:
+            disabled = []
+    else:
+        disabled = []
     
     # 2. Rebuild static tools and handlers
     static_tools_list = []
@@ -229,6 +242,14 @@ def rebuild_registry() -> None:
         plugin_loader.load_all_plugins(registry_module=sys.modules[__name__])
     except Exception:
         pass
+
+    try:
+        from skills.mcp_skill import load_dynamic_mcp_tools
+        mcp_tools, mcp_handlers = load_dynamic_mcp_tools()
+        _PLUGIN_TOOLS.extend(_normalize(mcp_tools))
+        _PLUGIN_HANDLERS.update(mcp_handlers)
+    except Exception:
+        pass
     
     # 4. Update ALL_TOOLS and ALL_HANDLERS in-place
     new_tools = _normalize(_STATIC_TOOLS + _PLUGIN_TOOLS)
@@ -238,6 +259,7 @@ def rebuild_registry() -> None:
     ALL_HANDLERS.clear()
     ALL_HANDLERS.update(_STATIC_HANDLERS)
     ALL_HANDLERS.update(_PLUGIN_HANDLERS)
+    _REGISTRY_INITIALIZED = True
     
     # 5. Update core._TOOL_BY_NAME if core is imported
     if "core" in sys.modules:

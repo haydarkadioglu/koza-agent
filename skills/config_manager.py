@@ -218,7 +218,7 @@ def handle_skill_enable(name: str) -> str:
         cfg["disabled_skills"] = disabled
         save_config(cfg)
         from tools.registry import rebuild_registry
-        rebuild_registry()
+        rebuild_registry(force=True)
         return f"✅ Skill '{name}' enabled successfully and registry rebuilt."
     return f"ℹ️ Skill '{name}' is already enabled."
 
@@ -233,7 +233,7 @@ def handle_skill_disable(name: str) -> str:
         cfg["disabled_skills"] = disabled
         save_config(cfg)
         from tools.registry import rebuild_registry
-        rebuild_registry()
+        rebuild_registry(force=True)
         return f"⏹️ Skill '{name}' disabled successfully."
     return f"ℹ️ Skill '{name}' is already disabled."
 

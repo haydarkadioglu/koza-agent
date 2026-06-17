@@ -179,6 +179,46 @@ def discover_plugins() -> list[dict]:
     return results
 
 
+def _check_and_install_dependencies(requires: list[str]) -> None:
+    if not requires:
+        return
+    import subprocess
+    import sys
+    import shutil
+    import importlib.util
+
+    missing = []
+    for req in requires:
+        clean_req = req.split("==")[0].split(">=")[0].split("<=")[0].strip()
+        import_name = clean_req.lower().replace("-", "_")
+        try:
+            importlib.import_module(import_name)
+        except ImportError:
+            try:
+                import importlib.metadata
+                importlib.metadata.version(clean_req)
+            except Exception:
+                missing.append(req)
+
+    if not missing:
+        return
+
+    logger.info(f"Installing missing dependencies for plugin: {missing}")
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        cmd = [uv_bin, "pip", "install"] + missing
+        if not (sys.prefix != sys.base_prefix or os.environ.get("VIRTUAL_ENV")):
+            cmd.append("--system")
+    else:
+        cmd = [sys.executable, "-m", "pip", "install"] + missing
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        logger.info(f"Successfully installed dependencies: {missing}")
+    except Exception as e:
+        logger.error(f"Failed to install dependencies {missing}: {e}")
+
+
 def load_plugin(plugin_name: str, registry_module=None) -> bool:
     """Load a single plugin by name and register its tools.
     
@@ -201,6 +241,9 @@ def load_plugin(plugin_name: str, registry_module=None) -> bool:
 
     # Check against actual manifest name
     actual_name = manifest.get("name", plugin_dir.name)
+
+    # Ensure dependencies are satisfied before importing
+    _check_and_install_dependencies(manifest.get("requires", []))
 
     module = _import_plugin_module(plugin_dir)
     if module is None:
