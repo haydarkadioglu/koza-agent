@@ -122,3 +122,12 @@ class ChatMixin:
         self.agent.reset()
         self.agent._active_session_id = None
         return {"status": "reset"}
+
+    def get_chat_history(self):
+        """Returns the current conversation messages for the UI to display on load."""
+        messages = []
+        for msg in self.agent.messages:
+            if msg.get("role") == "system":
+                continue
+            messages.append(msg)
+        return {"status": "success", "messages": messages}

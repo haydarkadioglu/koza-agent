@@ -175,9 +175,14 @@ def list_subagents() -> str:
 def list_capabilities() -> str:
     """List all available capability groups and the tools they include."""
     from tools.capabilities import CAPABILITY_GROUPS
-    lines = ["Available capability groups:\n"]
+    from tools.registry import ALL_HANDLERS
+    lines = ["Available capability groups (showing currently enabled tools only):\n"]
     for name, tool_list in sorted(CAPABILITY_GROUPS.items()):
-        lines.append(f"  {name:12s} → {', '.join(tool_list)}")
+        active_tools = [t for t in tool_list if t in ALL_HANDLERS]
+        if active_tools:
+            lines.append(f"  {name:12s} → {', '.join(active_tools)}")
+    if len(lines) == 1:
+        return "No capabilities currently enabled."
     return "\n".join(lines)
 
 

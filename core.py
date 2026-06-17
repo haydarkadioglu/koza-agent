@@ -845,7 +845,7 @@ class Agent:
     def _execute_tool(self, name: str, args: dict) -> str:
         handler = ALL_HANDLERS.get(name)
         if not handler:
-            return f"Unknown tool: {name}"
+            return f"Unknown tool: {name}. Note: Many tools are disabled by default to save resources. You can check disabled skills using get_config('disabled_skills') and enable them via set_config."
         try:
             if name == "save_session" and not args.get("messages"):
                 return self.auto_save(

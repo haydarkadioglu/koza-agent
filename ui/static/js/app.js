@@ -57,6 +57,22 @@ function loadInitialData() {
     loadSettings();
     checkApiKeyStatus();
     fetchAppVersion();
+    loadInitialChatHistory();
+}
+
+function loadInitialChatHistory() {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.get_chat_history) {
+        window.pywebview.api.get_chat_history().then(res => {
+            if (res.status === 'success' && res.messages) {
+                const chatMsgs = document.getElementById('chat-messages');
+                if (chatMsgs) {
+                    res.messages.forEach(msg => {
+                        appendMessageBubble(msg.role === 'user' ? 'user' : 'agent', msg.content);
+                    });
+                }
+            }
+        }).catch(err => console.error('Failed to load initial chat history:', err));
+    }
 }
 
 function fetchAppVersion() {
