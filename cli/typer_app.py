@@ -231,15 +231,15 @@ def gui() -> None:
             except Exception:
                 ans = "n"
             if ans in ("y", "yes"):
-                print("Installing PySide6... (this may take a moment)")
+                print("Installing PySide6 and qtpy... (this may take a moment)")
                 try:
                     import sys
                     import subprocess
                     subprocess.run(
-                        [sys.executable, "-m", "pip", "install", "PySide6"],
+                        [sys.executable, "-m", "pip", "install", "PySide6", "qtpy"],
                         check=True
                     )
-                    print("PySide6 installed successfully! Starting GUI...")
+                    print("PySide6 and qtpy installed successfully! Starting GUI...")
                     from ui.gui_app import start_gui
                     start_gui()
                     return
@@ -247,8 +247,8 @@ def gui() -> None:
                     print(f"Failed to install PySide6 automatically: {pip_err}")
             
             print("\nTo resolve this manually on Linux (e.g. Kali, Debian, Ubuntu):")
-            print("  Option A (Recommended): Install PySide6 into your virtual environment:")
-            print("      pip install PySide6")
+            print("  Option A (Recommended): Install PySide6 and qtpy into your virtual environment:")
+            print("      pip install PySide6 qtpy")
             print("  Option B: Install system GTK and WebKit packages:")
             print("      sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1")
         else:

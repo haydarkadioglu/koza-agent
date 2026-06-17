@@ -179,8 +179,8 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     if [[ "${LOW_MEMORY_INSTALL}" == "1" ]]; then
         warn "Skipping optional PySide6 GUI dependency in low-memory mode."
     else
-        info "Installing PySide6 for GUI support on Linux …"
-        "${VENV_PIP}" install "${PIP_FLAGS[@]}" "PySide6>=6.0.0" || warn "PySide6 install failed (optional, GUI mode won't work without it or system GTK)"
+        info "Installing PySide6 and qtpy for GUI support on Linux …"
+        "${VENV_PIP}" install "${PIP_FLAGS[@]}" "PySide6>=6.0.0" "qtpy>=2.4.0" || warn "PySide6 install failed (optional, GUI mode won't work without it or system GTK)"
     fi
 fi
 
