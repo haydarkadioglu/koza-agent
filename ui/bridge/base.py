@@ -88,3 +88,11 @@ class BridgeBase:
         """Called by JS to toggle auto-allow for all tools."""
         self._turbo_mode = enabled
         return {"status": "success", "enabled": enabled}
+
+    def get_app_version(self):
+        """Returns the current Koza version."""
+        try:
+            from cli.ui import _get_version
+            return {"status": "success", "version": _get_version()}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

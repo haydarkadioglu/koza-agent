@@ -56,6 +56,18 @@ function loadInitialData() {
     loadSessions();
     loadSettings();
     checkApiKeyStatus();
+    fetchAppVersion();
+}
+
+function fetchAppVersion() {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.get_app_version) {
+        window.pywebview.api.get_app_version().then(res => {
+            if (res.status === 'success') {
+                const el = document.getElementById('app-version-display');
+                if (el) el.innerText = 'v' + res.version;
+            }
+        }).catch(err => console.error('Failed to get app version:', err));
+    }
 }
 
 function checkApiKeyStatus() {

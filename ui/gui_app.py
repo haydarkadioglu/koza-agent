@@ -56,11 +56,30 @@ def start_gui():
 
     webview_window.events.loaded += on_loaded
     
-    icon_ico_path = Path(__file__).resolve().parent / "static" / "icon.ico"
+    icon_png_path = Path(__file__).resolve().parent / "static" / "icon.png"
     
+    # Set Windows AppUserModelID so taskbar icon ungroups from python.exe
+    if os.name == 'nt':
+        try:
+            import ctypes
+            myappid = 'koza.agent.gui'
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            
+            # Also set console icon if any
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                icon_ico_path = Path(__file__).resolve().parent / "static" / "icon.ico"
+                if icon_ico_path.exists():
+                    hicon = ctypes.windll.user32.LoadImageW(0, str(icon_ico_path), 1, 0, 0, 0x0010)
+                    if hicon:
+                        ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
+                        ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon)
+        except Exception:
+            pass
+
     # Run the native webview application
     try:
-        webview.start(debug=False, icon=str(icon_ico_path))
+        webview.start(debug=False, icon=str(icon_png_path))
     except TypeError:
         # Fallback if older pywebview doesn't accept icon argument
         webview.start(debug=False)

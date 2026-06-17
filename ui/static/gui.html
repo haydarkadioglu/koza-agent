@@ -120,9 +120,12 @@
             <!-- Sidebar footer status -->
             <div class="sidebar-footer">
                 <div class="status-indicator" style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start; width: 100%;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span class="pulse green" style="width: 8px; height: 8px; border-radius: 50%;"></span>
-                        <span class="status-text" data-localize="status-ready">Connected</span>
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span class="pulse green" style="width: 8px; height: 8px; border-radius: 50%;"></span>
+                            <span class="status-text" data-localize="status-ready">Connected</span>
+                        </div>
+                        <span id="app-version-display" style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 600;">v--</span>
                     </div>
                     <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
