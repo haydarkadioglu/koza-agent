@@ -163,7 +163,7 @@ def enable_core_skill(skill_id: str) -> str:
         disabled.remove(skill_id)
         cfg["disabled_skills"] = disabled
         save_config(cfg)
-        rebuild_registry()
+        rebuild_registry(force=True)
         return f"✅ Skill '{skill_id}' has been successfully enabled. Its tools are now available for your next calls."
     else:
         return f"ℹ️ Skill '{skill_id}' was already enabled."
@@ -183,7 +183,7 @@ def disable_core_skill(skill_id: str) -> str:
         disabled.append(skill_id)
         cfg["disabled_skills"] = disabled
         save_config(cfg)
-        rebuild_registry()
+        rebuild_registry(force=True)
         return f"⏹️ Skill '{skill_id}' has been disabled."
     else:
         return f"ℹ️ Skill '{skill_id}' was already disabled."

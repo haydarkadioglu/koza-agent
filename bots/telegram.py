@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, Callable
 
 from skills.agents.background import BackgroundTaskManager, _background_tasks
+from cli.i18n import _T
 
 logger = logging.getLogger(__name__)
 
@@ -356,10 +357,10 @@ async def _process_message(update, context, agent_factory: Callable,
         dest = _unique_path(dl_dir, f"photo_{photo.file_id[:8]}.jpg")
         await tg_file.download_to_drive(str(dest))
         image_path = str(dest)
-        file_info = f"[Dosya indirildi: {dest}, type=photo, size={photo.file_size}]"
+        file_info = _T(f"[File downloaded: {dest}, type=photo, size={photo.file_size}]")
         _recent_attachments_by_chat.setdefault(chat_id, []).append(dest.name)
         if not user_text:
-            user_text = f"{file_info}\nBu fotoğrafı analiz et."
+            user_text = f"{file_info}\n" + _T("Analyze this photo.")
         else:
             user_text = f"{file_info}\n{user_text}"
 
@@ -375,8 +376,8 @@ async def _process_message(update, context, agent_factory: Callable,
         dest = _unique_path(dl_dir, safe_name)
         await tg_file.download_to_drive(str(dest))
         mime = doc.mime_type or ""
-        file_info = (
-            f"[Dosya indirildi: {dest}, type=document, "
+        file_info = _T(
+            f"[File downloaded: {dest}, type=document, "
             f"mime={mime}, size={doc.file_size}, original_name={original_name}]"
         )
         # Determine if image for vision
@@ -386,7 +387,7 @@ async def _process_message(update, context, agent_factory: Callable,
 
         caption = (msg.caption or "").strip()
         if caption:
-            user_text = f"{file_info}\nKullanıcı komutu:\n{caption}"
+            user_text = f"{file_info}\n" + _T("User command:") + f"\n{caption}"
         else:
             # Default: read text-based files, just acknowledge binary ones
             if any(mime.startswith(p) for p in ("text/", "application/json", "application/xml")) or str(dest).endswith((".py", ".txt", ".md", ".csv", ".yaml", ".yml", ".toml", ".log")):
@@ -394,17 +395,17 @@ async def _process_message(update, context, agent_factory: Callable,
                     preview = dest.read_text(encoding="utf-8", errors="replace")[:500]
                 except Exception:
                     preview = ""
-                preview_section = f"\n[Dosya önizleme başlangıcı]\n{preview}\n[Dosya önizleme sonu]" if preview else ""
-                user_text = f"{file_info}{preview_section}\nBu dosyayı oku ve içeriğini kısa özetle."
+                preview_section = f"\n" + _T("[File preview start]") + f"\n{preview}\n" + _T("[File preview end]") if preview else ""
+                user_text = f"{file_info}{preview_section}\n" + _T("Read this file and summarize its content briefly.")
             elif str(dest).lower().endswith(".pdf") or mime == "application/pdf":
-                user_text = f"{file_info}\nBu PDF dosyasını oku ve içeriğini özetle."
+                user_text = f"{file_info}\n" + _T("Read this PDF file and summarize its content.")
             else:
-                user_text = f"{file_info}\nDosya kaydedildi. Kullanıcı ne yapmamı istediğini söyleyecek."
+                user_text = f"{file_info}\n" + _T("File saved. The user will specify what action to take.")
 
     recent = _recent_attachments_by_chat.get(chat_id)
     if recent and not (msg and (msg.photo or msg.document)):
         files_list = "\n".join(f"- {f}" for f in recent)
-        user_text = f"[Son Telegram dosyaları]\n{files_list}\n\nKullanıcı komutu:\n{user_text}"
+        user_text = _T("[Recent Telegram files]") + f"\n{files_list}\n\n" + _T("User command:") + f"\n{user_text}"
 
     if not user_text:
         return
@@ -433,7 +434,7 @@ async def _process_message(update, context, agent_factory: Callable,
             import re as _re_bg
             match = _re_bg.search(r"Sub-agent ([a-f0-9]{8})", result)
             agent_id = match.group(1) if match else "unknown"
-            confirmation = f"🚀 Arka planda çalışıyorum: `{agent_id}`\nGörev: {user_text[:100]}"
+            confirmation = f"🚀 Running in the background: `{agent_id}`\nTask: {user_text[:100]}"
             reply_markup = None
             if kb_manager:
                 reply_markup = kb_manager.build_task_control_kb(agent_id)
@@ -445,7 +446,7 @@ async def _process_message(update, context, agent_factory: Callable,
             agent.messages.append({"role": "user", "content": user_text})
             agent.messages.append({
                 "role": "assistant",
-                "content": f"Arka plan görevi başlatıldı (agent {agent_id}). Görev: {user_text[:100]}"
+                "content": f"Background task started (agent {agent_id}). Task: {user_text[:100]}"
             })
             return
     except Exception:
@@ -743,9 +744,9 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                     return
                 icon = "✅" if status == "done" else "❌"
                 text = (
-                    f"{icon} *Alt-agent tamamlandı* `{agent_id}`\n"
-                    f"📋 Görev: {goal}\n"
-                    f"💬 Özet: {result[:300] or '(sonuç yok)'}"
+                    f"{icon} *Sub-agent completed* `{agent_id}`\n"
+                    f"📋 Task: {goal}\n"
+                    f"💬 Summary: {result[:300] or '(no result)'}"
                 )
                 asyncio.run_coroutine_threadsafe(
                     _tg_bot.send_message(chat_id=_tg_chat, text=text, parse_mode="Markdown"),
@@ -870,7 +871,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 logger.error(f"Telegram handler error: {e}", exc_info=True)
                 try:
                     chat_id = (update.message or update.edited_message).chat_id
-                    await context.bot.send_message(chat_id=chat_id, text=f"❌ Hata: {e}")
+                    await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
                 except Exception:
                     pass
 
@@ -986,7 +987,7 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             except Exception:
                 is_owner = False
                 saved = "(unknown)"
-            status_line = "✅ Sen sahibisin." if is_owner else f"⛔ Kayıtlı sahip: `{saved}`"
+            status_line = "✅ You are the owner." if is_owner else f"⛔ Registered owner: `{saved}`"
             await update.message.reply_text(
                 f"👤 *{uname}*\n"
                 f"Chat ID: `{cid}`\n"

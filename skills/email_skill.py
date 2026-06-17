@@ -757,6 +757,13 @@ def send_batch_emails(
 
 def email_setup() -> str:
     """Interactive email setup — configures SMTP/IMAP credentials."""
+    import sys
+    if not (sys.stdin and sys.stdin.isatty()):
+        return (
+            "❌ Non-interactive environment detected.\n"
+            "   Please configure your email credentials directly in the Settings panel (under 'Messaging & Sync' -> 'Email') of the GUI interface."
+        )
+
     from cli.ui import _C, _prompt, _prompt_secret
 
     print(_C("\n  📧 Email Setup\n", "bold", "cyan"))
@@ -773,7 +780,7 @@ def email_setup() -> str:
     imap_host = _prompt("IMAP server", default=preset.get("imap_host", "imap.gmail.com")).strip()
 
     print(_C("\n  🔑 Password/App Password:\n", "grey"))
-    print(_C("  Gmail kullaniyorsaniz App Password almaniz gerekir:", "yellow"))
+    print(_C("  If you are using Gmail, you must obtain an App Password:", "yellow"))
     print(_C("  https://myaccount.google.com/apppasswords\n", "cyan"))
     password = _prompt_secret("Password/App Password")
 
