@@ -6,6 +6,13 @@ window.addEventListener('pywebviewready', () => {
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
         chatInput.addEventListener('keydown', handleInputKey);
+        chatInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+            if (this.value === '') {
+                this.style.height = '50px';
+            }
+        });
     }
     
     // Restore language preference
@@ -69,9 +76,30 @@ function loadInitialChatHistory() {
             if (res.status === 'success' && res.messages) {
                 const chatMsgs = document.getElementById('chat-messages');
                 if (chatMsgs) {
+                    // Prepend history so it doesn't overwrite new user messages sent while loading
+                    const fragment = document.createDocumentFragment();
                     res.messages.forEach(msg => {
-                        appendMessageBubble(msg.role === 'user' ? 'user' : 'agent', msg.content);
+                        const tempDiv = document.createElement('div');
+                        // appendMessageBubble logic expects to append to chatMsgs directly, 
+                        // so let's temporarily mock the container or just use a flag?
+                        // Actually, it's easier to just check if it's empty. If the user already typed, 
+                        // we can insert before the first child!
                     });
+                    
+                    if (chatMsgs.children.length === 0) {
+                        res.messages.forEach(msg => {
+                            appendMessageBubble(msg.role === 'user' ? 'user' : 'agent', msg.content);
+                        });
+                    } else {
+                        // User typed a message before history loaded!
+                        // We must reconstruct the bubbles and insert BEFORE the user's new message.
+                        const oldChildren = Array.from(chatMsgs.children);
+                        chatMsgs.innerHTML = '';
+                        res.messages.forEach(msg => {
+                            appendMessageBubble(msg.role === 'user' ? 'user' : 'agent', msg.content);
+                        });
+                        oldChildren.forEach(child => chatMsgs.appendChild(child));
+                    }
                 }
             }
         }).catch(err => console.error('Failed to load initial chat history:', err));
