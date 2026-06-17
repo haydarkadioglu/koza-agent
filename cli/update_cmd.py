@@ -125,18 +125,18 @@ def cmd_update(args: list) -> None:
     new_ver = _get_version()
 
     if sys.platform == "win32":
-        print(_C(f"  ✅  Starting Koza installer to apply updates…\n", "green"))
+        print(_C(f"  ✅  Applying updates in the background…\n", "green"))
         _hr()
         import time
         try:
-            # Launch the powershell installer script in a new detached window
-            ps_cmd = "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/haydarkadioglu/koza-agent/main/install.ps1 | iex"
+            # Launch pip install in a detached powershell window, waiting for koza to exit
+            ps_cmd = f"Start-Sleep -Seconds 2; & '{sys.executable}' -m pip install -e '{repo_root}' --quiet"
             subprocess.Popen(
-                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                ["powershell", "-WindowStyle", "Hidden", "-Command", ps_cmd],
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
         except Exception as e:
-            print(_C(f"  ⚠  Failed to launch updater: {e}\nPlease run the installer manually.\n", "yellow"))
+            print(_C(f"  ⚠  Failed to launch updater: {e}\nPlease run 'pip install -e .' manually.\n", "yellow"))
 
         time.sleep(0.5)
         os._exit(0)
