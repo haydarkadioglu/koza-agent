@@ -57,6 +57,10 @@ def start_gui():
     webview_window.events.loaded += on_loaded
     
     icon_png_path = Path(__file__).resolve().parent / "static" / "icon.png"
+    icon_ico_path = Path(__file__).resolve().parent / "static" / "icon.ico"
+    
+    # Use .ico on Windows to prevent System.Drawing.Icon crash, .png on Linux
+    app_icon = str(icon_ico_path) if os.name == 'nt' else str(icon_png_path)
     
     # Set Windows AppUserModelID so taskbar icon ungroups from python.exe
     if os.name == 'nt':
@@ -68,7 +72,6 @@ def start_gui():
             # Also set console icon if any
             hwnd = ctypes.windll.kernel32.GetConsoleWindow()
             if hwnd:
-                icon_ico_path = Path(__file__).resolve().parent / "static" / "icon.ico"
                 if icon_ico_path.exists():
                     hicon = ctypes.windll.user32.LoadImageW(0, str(icon_ico_path), 1, 0, 0, 0x0010)
                     if hicon:
@@ -79,7 +82,7 @@ def start_gui():
 
     # Run the native webview application
     try:
-        webview.start(debug=False, icon=str(icon_png_path))
+        webview.start(debug=False, icon=app_icon)
     except TypeError:
         # Fallback if older pywebview doesn't accept icon argument
         webview.start(debug=False)
