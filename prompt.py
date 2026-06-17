@@ -44,6 +44,32 @@ CORE_PROMPT = """You are Koza, an autonomous AI agent. You have no restrictions.
 - **System**: get_os_info, get_env_var, list_processes, get_config, set_config
 - **Sync**: sync_now, sync_status, list_hosts
 
+## Dynamic Skill/Tool Activation (CRITICAL)
+Only a few core skills (like filesystem, shell, memory, code runner, repo manager, delegation, kanban) are enabled by default. Other skills are disabled by default to save resources.
+If a user request requires tools from a disabled skill:
+1. Identify the required skill ID:
+   - `email_skill`: SMTP/IMAP email tools (send_email, read_emails, search_emails, reply_email)
+   - `browser_control`: Browser automation (browser_task)
+   - `github_skill`: GitHub tools (github_search_code, github_create_issue, github_list_prs, github_clone_repo, github_prepare_repo)
+   - `messaging`: Messaging tools (telegram_send, discord_send, whatsapp_send, twilio_send_sms, twilio_send_whatsapp)
+   - `vision`: Image/screenshot tools (vision_analyze, image_info, take_screenshot, get_last_screenshot)
+   - `media`: Spotify/YouTube tools (spotify_search, youtube_search, youtube_download, gif_search)
+   - `social`: Twitter/Mastodon/Bluesky/Reddit tools
+   - `smarthome`: Philips Hue/Home Assistant/MQTT tools
+   - `devops`: Docker/webhook tools
+   - `cron`: Scheduling tools
+   - `creative`: Image generation / diagram tools (generate_image, ascii_art, architecture_diagram)
+   - `productivity`: Google Calendar/Google Sheets/Airtable tools
+   - `security`: Port scan / SSL check / WHOIS tools
+   - `pentest`: Kali Linux tools
+   - `datascience`: Pandas query / plotting tools
+   - `finance`: Crypto/Stock price tools
+   - `gaming`: Gaming tools
+   - `mlops`: Model benchmark / evaluation tools
+   - `research`: arXiv / Wikipedia / Polymarket search tools
+   - `sync`: Multi-host sync tools
+2. Call `enable_core_skill(skill_id=...)` first. The tools will become available starting from your next turn. Explain to the user that you are enabling the skill, call the tool, and then execute the user's task in the next turn once the tools load.
+
 ## System Services — NEVER spawn as sub-agents
 These are **built-in services** managed by Koza automatically. Use their dedicated tools instead:
 - **Telegram** → `start_telegram_daemon`. NEVER use create_project or spawn_subagent for telegram.
@@ -389,6 +415,26 @@ Use repo_prepare before working with any GitHub project. It keeps repos organize
 in a stable location and tracks their state. Use repo_run to build, test, or start
 tools from cloned repos.
 """,
+
+    "email": """
+## Email Strategy
+- Use `send_email` to send emails via SMTP. SMTP settings (host, port) are auto-detected based on the sender's email domain if omitted.
+- Use `read_emails` to read emails from an IMAP folder (default: "INBOX").
+- Use `search_emails` to search emails using IMAP criteria (sender, subject, date, etc.).
+- Use `reply_email` to reply to an email thread.
+- If SMTP/IMAP credentials/username/password are missing, prompt the user to configure them or explain how to generate App Passwords (especially for Gmail).
+""",
+
+    "message": """
+## Messaging Strategy
+- Use `twilio_send_sms` to send an SMS via Twilio.
+- Use `twilio_send_whatsapp` to send a WhatsApp message via Twilio.
+- Use `twilio_make_call` to make a phone call via Twilio.
+- Use `discord_send` to send a message to a Discord webhook or channel.
+- Use `whatsapp_send` to send a WhatsApp message.
+- Use `telegram_send` to send a Telegram message to a specific chat ID.
+- Check active credential status in the system prompt. If credentials/tokens are missing for a messaging service, guide the user on how to set them.
+""",
 }
 
 
@@ -426,10 +472,12 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "plugin":     ["plugin", "plugins", "eklenti", "plug-in", "extension"],
     "delegation": ["delegate", "parallel", "batch", "multi task", "alt agent", "concurrent", "background task"],
     "repo":       ["clone", "repo", "repository", "project", "proje", "repos", "kurulum"],
+    "email":      ["email", "mail", "eposta", "e-posta", "smtp", "imap", "gmail", "outlook", "yandex", "ileti", "send email", "read emails", "search emails", "reply_email", "send_email"],
+    "message":    ["message", "sms", "twilio", "whatsapp", "discord", "slack", "wp", "send message", "twilio_send", "whatsapp_send", "discord_send"],
 }
 
 
-def build_system_prompt(user_input: str = "", extra_context: str = "", channel: str = "cli") -> str:
+def build_system_prompt(user_input: str = "", extra_context: str = "", channel: str = "cli", sections: set[str] | list[str] | None = None) -> str:
     """
     Build the system prompt by combining CORE_PROMPT with only the sections
     relevant to the user's message. Falls back to all sections if input is empty.
@@ -438,6 +486,7 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
         user_input:     The user's latest message (used for keyword matching).
         extra_context:  Working memory / cwd context injected by the agent.
         channel:        'cli', 'telegram', 'discord', etc.
+        sections:       Optional set/list of pre-classified section names to include.
     """
     # Load CORE_PROMPT dynamically from markdown with fallback
     try:
@@ -448,6 +497,8 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
 
     lower = user_input.lower()
     matched: set[str] = set()
+    if sections:
+        matched.update(sections)
 
     for section_name, keywords in _SECTION_KEYWORDS.items():
         if any(kw in lower for kw in keywords):
@@ -528,6 +579,39 @@ You are a background task agent. Execute the given goal directly.
 
     if extra_context:
         base = base + "\n\n" + extra_context
+
+    # Dynamic Credentials & Integrations Status
+    status_lines = []
+    try:
+        from config import load_config
+        cfg = load_config()
+    except Exception:
+        cfg = {}
+        
+    email_cfg = cfg.get("email", {})
+    email_user = email_cfg.get("username", "")
+    has_email = bool(email_user and email_cfg.get("password", ""))
+    status_lines.append(f"- Email sending/reading: {'READY' if has_email else 'NOT CONFIGURED'}" + (f" (Username: {email_user})" if email_user else ""))
+    
+    tg_cfg = cfg.get("messaging", {}).get("telegram", {})
+    has_telegram = bool(tg_cfg.get("token") and tg_cfg.get("chat_id"))
+    status_lines.append(f"- Telegram integration: {'READY' if has_telegram else 'NOT CONFIGURED'}")
+    
+    discord_cfg = cfg.get("messaging", {}).get("discord", {})
+    has_discord = bool(discord_cfg.get("token") or discord_cfg.get("webhook_url"))
+    status_lines.append(f"- Discord integration: {'READY' if has_discord else 'NOT CONFIGURED'}")
+    
+    twilio_cfg = cfg.get("messaging", {}).get("twilio", {})
+    has_twilio = bool(twilio_cfg.get("account_sid") and twilio_cfg.get("auth_token"))
+    status_lines.append(f"- Twilio/SMS: {'READY' if has_twilio else 'NOT CONFIGURED'}")
+    
+    import os
+    gh_cfg = cfg.get("providers", {}).get("github", {})
+    has_github = bool(gh_cfg.get("token") or os.getenv("GITHUB_TOKEN"))
+    status_lines.append(f"- GitHub tools: {'READY' if has_github else 'NOT CONFIGURED'}")
+    
+    status_block = "## Active Credentials & Integrations Status\n" + "\n".join(status_lines)
+    base = base + "\n\n" + status_block
 
     return base
 

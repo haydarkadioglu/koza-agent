@@ -444,6 +444,9 @@ class ContextWindow:
                 continue
             clean.append(m)
 
+        # Pass 2.5: repair message sequence (stray tools & consecutive users)
+        clean = self._repair_message_sequence(clean)
+
         # Pass 3: normalize to provider API format
         normalized = []
         for m in clean:
@@ -481,3 +484,61 @@ class ContextWindow:
             normalized = _LLMProvider._flatten_messages_for_text(normalized)
 
         return normalized
+
+    def _repair_message_sequence(self, messages: list[dict]) -> list[dict]:
+        """Collapse malformed role-alternation left in the window.
+
+        Repairs:
+        1. Stray tool messages without preceding assistant tool_calls -> dropped.
+        2. Consecutive user messages -> merged.
+        """
+        if not messages:
+            return messages
+
+        # Pass 1: drop stray tool messages that don't follow a known assistant tool_call_id
+        known_tool_ids = set()
+        filtered = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                filtered.append(msg)
+                continue
+            role = msg.get("role")
+            if role == "assistant":
+                known_tool_ids = set()
+                for tc in (msg.get("tool_calls") or []):
+                    tc_id = tc.get("id") if isinstance(tc, dict) else None
+                    if tc_id:
+                        known_tool_ids.add(tc_id)
+                filtered.append(msg)
+            elif role == "tool":
+                tc_id = msg.get("tool_call_id")
+                if tc_id and tc_id in known_tool_ids:
+                    filtered.append(msg)
+            else:
+                if role == "user":
+                    known_tool_ids = set()
+                filtered.append(msg)
+
+        # Pass 2: merge consecutive user messages
+        merged = []
+        for msg in filtered:
+            if (
+                merged
+                and isinstance(msg, dict)
+                and msg.get("role") == "user"
+                and isinstance(merged[-1], dict)
+                and merged[-1].get("role") == "user"
+            ):
+                prev = merged[-1]
+                prev_content = prev.get("content", "")
+                new_content = msg.get("content", "")
+                if isinstance(prev_content, str) and isinstance(new_content, str):
+                    prev["content"] = (
+                        (prev_content + "\n\n" + new_content)
+                        if prev_content and new_content
+                        else (prev_content or new_content)
+                    )
+                    continue
+            merged.append(msg)
+
+        return merged

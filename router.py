@@ -95,16 +95,54 @@ def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision |
     text = message.strip()
     if not text:
         return None
+    
+    lower = text.lower()
+    groups: set[str] = set()
+    sections: set[str] = set()
+    delegate_to_background = False
+    activate_coding_mode = False
+    matched_any = False
+
+    # 1. Email detection (matches address, 'mail', 'email', 'eposta', etc.)
+    if re.search(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", lower) or any(w in lower for w in ("mail", "email", "eposta", "e-posta", "smtp", "imap", "gmail", "outlook")):
+        groups.update(["email", "memory", "config"])
+        sections.update(["workspace", "email"])
+        matched_any = True
+
+    # 2. Messaging detection (telegram, discord, twilio, whatsapp, sms, etc.)
+    if any(w in lower for w in ("telegram", "discord", "whatsapp", "twilio", "sms", "wp")) or ("mesaj" in lower and "mail" not in lower and "eposta" not in lower):
+        groups.update(["message", "memory", "config"])
+        sections.update(["workspace", "telegram", "message"])
+        matched_any = True
+
+    # 3. GitHub & Repo detection
+    if any(w in lower for w in ("github", "git ", "repo", "clone", "pr ", "pull request")):
+        groups.update(["github", "repo", "file", "shell"])
+        sections.update(["workspace", "repo"])
+        matched_any = True
+
+    # 4. Scheduling detection (cron, schedule, saat, timer, zamanla, etc.)
+    if any(w in lower for w in ("schedule", "cron", "saat ", "her gün", "her gun", "dakika", "saniye", "haftada", "ayda", "yılda", "yilda", "timer", "zamanla", "planla")):
+        groups.update(["cron", "kanban"])
+        sections.update(["workspace"])
+        matched_any = True
+
+    # 5. Code & Build detection
     if _CODE_ACTION_RE.search(text) and _CODE_ARTIFACT_RE.search(text):
-        groups = ["file", "shell", "code", "agent", "web"]
-        sections = ["workspace", "code", "shell"]
+        groups.update(["file", "shell", "code", "agent", "web"])
+        sections.update(["workspace", "code", "shell"])
         if re.search(r"\b(site|website|web\s*site|landing|portfolio|portfolyo|react|vue|svelte|next|vite|frontend|sayfa)\b", text, re.IGNORECASE):
-            sections.append("web")
+            sections.add("web")
+        activate_coding_mode = coding_enabled
+        delegate_to_background = bool(_BACKGROUND_HINT_RE.search(text))
+        matched_any = True
+
+    if matched_any:
         return RoutingDecision(
-            delegate_to_background=bool(_BACKGROUND_HINT_RE.search(text)),
-            activate_coding_mode=coding_enabled,
-            tool_groups=groups,
-            prompt_sections=sections,
+            delegate_to_background=delegate_to_background,
+            activate_coding_mode=activate_coding_mode,
+            tool_groups=list(groups),
+            prompt_sections=list(sections)
         )
     return None
 

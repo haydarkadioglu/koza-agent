@@ -108,7 +108,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "mcp":        ["mcp_list_tools", "mcp_call_tool"],
     "productivity": ["google_calendar_list", "google_calendar_create", "google_sheets_read", "airtable_query"],
     "vision":     ["vision_analyze", "image_info", "take_screenshot", "get_last_screenshot"],
-    "skill":      ["skill_save", "skill_load", "skill_list", "skill_delete"],
+    "skill":      ["skill_save", "skill_load", "skill_list", "skill_delete", "enable_core_skill", "disable_core_skill", "list_core_skills"],
     "plugin":     ["plugin_list", "plugin_info", "plugin_enable", "plugin_disable"],
     "delegation": ["delegate_task", "delegate_tasks"],
     "repo":       ["repo_prepare", "repo_list", "repo_status", "repo_run", "project_init", "project_install_deps"],
@@ -141,10 +141,13 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "kod yaz": ["file", "shell", "code", "agent"], "tasarla": ["file", "shell", "code", "agent"],
     "oluştur": ["file", "shell", "code", "agent"], "olustur": ["file", "shell", "code", "agent"],
     "coding": ["code", "agent", "kanban", "cron"], "kodlama": ["code", "agent", "kanban", "cron"],
+    "yazılım": ["code", "agent"], "yazilim": ["code", "agent"], "program": ["code", "agent"],
     "donuyor": ["agent", "kanban", "cron"], "dondu": ["agent", "kanban", "cron"],
     # kanban / tasks
     "task": ["kanban"], "kanban": ["kanban"], "todo": ["kanban"], "doing": ["kanban"],
     "checklist": ["kanban"], "plan": ["kanban"],
+    "görev": ["kanban"], "gorev": ["kanban"], "yapılacak": ["kanban"], "yapilacak": ["kanban"],
+    "yapılacaklar": ["kanban"],
     # cron / schedule
     "schedule": ["cron"], "cron": ["cron"], "every day": ["cron"], "recurring": ["cron"],
     "tek sefer": ["cron"], "one-shot": ["cron"], "follow-up": ["cron"], "takip": ["cron", "kanban"],
@@ -166,6 +169,7 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "twilio_send": ["message"], "send sms": ["message"], "make call": ["message"],
     "telefon ara": ["message"], "numaraya mesaj": ["message"],
     "send message": ["message"], "message": ["message"],
+    "wp": ["message"], "whatsapp": ["message"], "mesaj": ["message"], "bot": ["message"],
     # github
     "github": ["github"], "git": ["github", "devops"], "repo": ["github"],
     "clone": ["github"], "repo çek": ["github"], "pull request": ["github"], "issue": ["github"],
@@ -183,6 +187,8 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "port": ["security"], "ssl": ["security"], "whois": ["security"], "scan": ["security"],
     "security": ["security"], "kali": ["security"], "pentest": ["security"],
     "nmap": ["security"], "nikto": ["security"], "whatweb": ["security"], "nuclei": ["security"],
+    "tarama": ["security"], "tara": ["security"], "açık": ["security"], "acik": ["security"],
+    "zafiyet": ["security"], "sızma": ["security"], "sizma": ["security"],
     # smarthome
     "hue": ["smarthome"], "light": ["smarthome"], "mqtt": ["smarthome"],
     "home assistant": ["smarthome"],
@@ -195,6 +201,8 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "note": ["note"], "obsidian": ["note"], "vault": ["note"], "markdown": ["note"],
     # email
     "email": ["email"], "mail": ["email"], "smtp": ["email"],
+    "eposta": ["email"], "e-posta": ["email"], "ileti": ["email"],
+    "gönder": ["email", "message"], "gonder": ["email", "message"], "yolla": ["email", "message"],
     # devops
     "docker": ["devops"], "container": ["devops"], "webhook": ["devops"],
     # creative
@@ -246,6 +254,10 @@ _CORE_TOOL_NAMES: set[str] = {
     "memory_recall", "memory_store",
     "run_command", "run_python",
     "read_file", "write_file",
+    "list_dir", "create_dir",
+    "get_config", "set_config",
+    "wm_list", "wm_get", "wm_add",
+    "enable_core_skill", "disable_core_skill", "list_core_skills",
 }
 
 def _tool_name(t: dict) -> str:
@@ -297,19 +309,99 @@ _CRED_PATTERNS = _re.compile(
 _TG_TOKEN_RE = _re.compile(r'\b(\d{8,12}:[A-Za-z0-9_\-]{30,50})\b')
 
 
-def _select_tools(user_input: str) -> list[dict]:
+def _select_tools(user_input: str, messages: list[dict] = None, router_groups: set[str] | None = None) -> list[dict]:
     """
-    Return a targeted subset of tools based on keywords in the user message.
-    - If keywords match → return only those tool groups (+ always-on core tools)
+    Return a targeted subset of tools based on keywords in the user message,
+    recent history, and recently executed tools, optionally augmented by LLM routing decision.
+    - If keywords/router match or tools were recently called → return those tool groups (+ always-on core tools)
     - If no match → return only the minimal _CORE_TOOL_NAMES set
     Never returns ALL_TOOLS upfront; groups are expanded dynamically during the
     agentic loop via _expand_tools_for_call() when the model requests them.
     """
     lower = user_input.lower()
     groups: set[str] = set()
+
+    # 1. Scan current user input
     for keyword, grp_list in _KEYWORD_MAP.items():
         if keyword in lower:
             groups.update(grp_list)
+
+    # 2. Integrate router classified groups
+    if router_groups:
+        groups.update(router_groups)
+
+    # 2. Scan recent messages in history if provided
+    if messages:
+        # Scan last 4 messages in history for keywords (user messages only, to avoid assistant hallucinations)
+        recent_user_texts = []
+        for msg in messages[-6:]:
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    recent_user_texts.append(content.lower())
+                elif isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            recent_user_texts.append(item.get("text", "").lower())
+        
+        for r_text in recent_user_texts:
+            for keyword, grp_list in _KEYWORD_MAP.items():
+                if keyword in r_text:
+                    groups.update(grp_list)
+
+        # Scan recent assistant messages for tools that were actually called.
+        # If the assistant called a tool, keep its group active.
+        for msg in messages[-6:]:
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    tc_name = tc.get("name")
+                    if tc_name:
+                        for g, group_tools in _TOOL_GROUPS.items():
+                            if tc_name in group_tools:
+                                groups.add(g)
+
+    # Auto-enable disabled skills if their group is requested
+    if groups:
+        from config import load_config, save_config
+        from tools.registry import rebuild_registry
+        try:
+            cfg = load_config()
+            disabled = cfg.get("disabled_skills", [])
+            if disabled:
+                # Map of tool groups to skill names
+                _GROUP_TO_SKILL_MAP = {
+                    "email": "email_skill",
+                    "message": "messaging",
+                    "github": "github_skill",
+                    "cron": "cron",
+                    "creative": "creative",
+                    "productivity": "productivity",
+                    "security": "security",
+                    "mlops": "mlops",
+                    "finance": "finance",
+                    "gaming": "gaming",
+                    "research": "research",
+                    "media": "media",
+                    "social": "social",
+                    "smarthome": "smarthome",
+                    "devops": "devops",
+                    "vision": "vision",
+                    "code": "code_tools",
+                    "kanban": "kanban",
+                }
+                needed_skills = []
+                for g in groups:
+                    skill_id = _GROUP_TO_SKILL_MAP.get(g)
+                    if skill_id and skill_id in disabled:
+                        needed_skills.append(skill_id)
+                if needed_skills:
+                    for skill_id in needed_skills:
+                        disabled.remove(skill_id)
+                    cfg["disabled_skills"] = disabled
+                    save_config(cfg)
+                    rebuild_registry(force=True)
+        except Exception:
+            pass
 
     # Always include core tools
     core = [t for t in ALL_TOOLS if _tool_name(t) in _CORE_TOOL_NAMES]
@@ -345,6 +437,8 @@ class Agent:
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
         self._stream_lock: threading.Lock = threading.Lock()
+        self.db_path = db_path
+        self.cfg = cfg or {}
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)
@@ -352,9 +446,15 @@ class Agent:
         working_memory.init_db(db_path)
         from skills import agents
         agents.init_db(db_path)
+        
+        # Initialize IntentRouter
+        from router import IntentRouter
+        coding_enabled = self.cfg.get("coding_mode", {}).get("enabled", False)
+        self._router = IntentRouter(provider, coding_enabled=coding_enabled)
+        
         # Load tools and plugins dynamically based on active config state
         from tools.registry import rebuild_registry
-        rebuild_registry()
+        rebuild_registry(force=True)
         # Detect and cache system capabilities once per agent init
         global _SYSTEM_CAPS
         if not _SYSTEM_CAPS:
@@ -471,6 +571,7 @@ class Agent:
             "model": getattr(self.provider, "model", ""),
             "user_input": user_input,
             "response": res,
+            "messages": self.messages,
         })
         return res
 
@@ -498,6 +599,7 @@ class Agent:
             "model": getattr(self.provider, "model", ""),
             "user_input": user_input,
             "response": res,
+            "messages": self.messages,
         })
 
 
@@ -515,7 +617,28 @@ class Agent:
         """
         import time, json as _json
 
-        self._refresh_memory_context(user_input)
+        self._pre_fetched_context = ""
+        try:
+            for event in self._pre_fetch_links(user_input):
+                yield event
+        except Exception:
+            pass
+
+        processed_input = user_input
+        if getattr(self, "_pre_fetched_context", ""):
+            processed_input += self._pre_fetched_context
+
+        # Run the IntentRouter classification to dynamically select tools and prompt sections
+        routing_decision = None
+        if hasattr(self, "_router") and self._router:
+            try:
+                routing_decision = self._router.classify(processed_input)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Router classification failed in core: {e}")
+
+        prompt_sections = set(routing_decision.prompt_sections) if routing_decision else None
+        self._refresh_memory_context(processed_input, prompt_sections=prompt_sections)
 
         # Build user message — use vision format when image provided and supported
         if image_path and self.provider.supports_vision:
@@ -527,19 +650,35 @@ class Agent:
                 user_msg: dict = {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": user_input},
+                        {"type": "text", "text": processed_input},
                         {"type": "image_url", "image_url": {
                             "url": f"data:{mime_type};base64,{b64_data}"
                         }},
                     ],
                 }
             except Exception:
-                user_msg = {"role": "user", "content": user_input}
+                user_msg = {"role": "user", "content": processed_input}
         else:
-            user_msg = {"role": "user", "content": user_input}
+            user_msg = {"role": "user", "content": processed_input}
 
         self.messages.append(user_msg)
-        tools = _select_tools(user_input)
+        is_local = getattr(self.provider, "name", "ollama") in ("ollama", "lm_studio")
+        tool_groups = set(routing_decision.tool_groups) if routing_decision else None
+        tools = _select_tools(processed_input, self.messages, router_groups=tool_groups)
+        if not is_local:
+            # For remote providers, maximize capabilities (up to 128 tools),
+            # but MUST prioritize selected tools so they are never truncated.
+            selected_names = {_tool_name(t) for t in tools}
+            merged_tools = list(tools)
+            for t in ALL_TOOLS:
+                if _tool_name(t) not in selected_names:
+                    merged_tools.append(t)
+            
+            if not getattr(self, "cfg", {}).get("dynamic_tool_selection_cloud", False):
+                tools = merged_tools[:128]
+            else:
+                if selected_names.issubset(_CORE_TOOL_NAMES):
+                    tools = merged_tools[:128]
 
         self._cancel.clear()
         self._busy = True
@@ -620,13 +759,44 @@ class Agent:
                         logging.getLogger(__name__).warning(
                             f"Empty response from model — retry {empty_retries}/3"
                         )
-                        # We trigger a status/thinking event and continue the loop to retry
+                        
+                        # Apply the nudge to recover from empty responses
+                        _prior_was_tool = any(m.get("role") == "tool" for m in self.messages[-5:])
+                        if _prior_was_tool:
+                            self.messages.append({
+                                "role": "assistant",
+                                "content": "(empty)",
+                                "_empty_recovery_synthetic": True
+                            })
+                            self.messages.append({
+                                "role": "user",
+                                "content": (
+                                    "You just executed tool calls but returned an empty response. "
+                                    "Please process the tool results above and continue with the task."
+                                ),
+                                "_empty_recovery_synthetic": True
+                            })
+                        else:
+                            self.messages.append({
+                                "role": "assistant",
+                                "content": "(empty)",
+                                "_empty_recovery_synthetic": True
+                            })
+                            self.messages.append({
+                                "role": "user",
+                                "content": "Please continue with the request.",
+                                "_empty_recovery_synthetic": True
+                            })
+
                         if self.provider.supports_thinking:
                             yield {"type": "thinking"}
                         continue
                     else:
                         # Retries exhausted
-                        self.messages.append({"role": "assistant", "content": ""})
+                        self.messages.append({
+                            "role": "assistant",
+                            "content": "I apologize, but I encountered an empty response from the model and was unable to proceed."
+                        })
                         return
 
                 # Reset empty retries counter if we got some content or tool calls
@@ -722,8 +892,10 @@ class Agent:
                     self._stream_lock.release()
                 except RuntimeError:
                     pass  # already released
+            # Clean up empty recovery synthetic messages from self.messages
+            self.messages = [m for m in self.messages if not m.get("_empty_recovery_synthetic")]
 
-    def _refresh_memory_context(self, user_input: str) -> None:
+    def _refresh_memory_context(self, user_input: str, prompt_sections: set[str] | None = None) -> None:
         """
         System prompt update every turn:
         - Working memory  → compact recent activity
@@ -739,7 +911,7 @@ class Agent:
             from pathlib import Path as _Path
             import os as _os
             wm_ctx = working_memory.wm_get_context()
-            new_system = build_system_prompt(user_input, wm_ctx or "", channel=self.channel)
+            new_system = build_system_prompt(user_input, wm_ctx or "", channel=self.channel, sections=prompt_sections)
             home_dir = str(_Path.home())
             cwd = _get_cwd()
             new_system += (
@@ -891,3 +1063,62 @@ class Agent:
         new_id = session_memory.save_session(title, msgs, summary, session_id=active_id)
         self._active_session_id = new_id
         return f"Session #{new_id} saved: '{title}'"
+
+    def _pre_fetch_links(self, user_input: str):
+        """Extract, fetch, and append safe link contents (Link-Understanding).
+        Yields status events during execution.
+        """
+        import re
+        import urllib.parse
+        
+        # 1. Extract safe URLs
+        text_no_markdown = re.sub(r"\[[^\]]*\]\((https?://[^\s)]+)\)", " ", user_input)
+        urls = re.findall(r"(https?://[^\s<>\"'\(\)]+)", text_no_markdown)
+        
+        seen = set()
+        safe_urls = []
+        for u in urls:
+            u = u.rstrip(".,;:!?()[]{}'")
+            if u in seen:
+                continue
+            seen.add(u)
+            try:
+                parsed = urllib.parse.urlparse(u)
+                if parsed.scheme not in ("http", "https"):
+                    continue
+                host = parsed.hostname
+                if not host:
+                    continue
+                if host.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+                    continue
+                if host.startswith(("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")):
+                    continue
+                if host.startswith("169.254."):
+                    continue
+                safe_urls.append(u)
+            except Exception:
+                continue
+                
+        if not safe_urls:
+            return
+
+        # 2. Fetch the URLs
+        from skills.web import fetch_url
+        fetched_blocks = []
+        for url in safe_urls[:2]:
+            yield {"type": "status", "persona": "System", "message": f"Pre-fetching content from {url}..."}
+            try:
+                # Limit to 2000 characters to prevent context bloat
+                content = fetch_url(url, max_chars=2000)
+                if content and not content.startswith("ERROR:"):
+                    block = f"\n\n=== PRE-FETCHED CONTENT FOR LINK: {url} ===\n{content}\n=========================================="
+                    fetched_blocks.append(block)
+                    yield {"type": "status", "persona": "System", "message": f"Successfully pre-fetched {url}"}
+                else:
+                    yield {"type": "status", "persona": "System", "message": f"Failed to pre-fetch {url}"}
+            except Exception as e:
+                yield {"type": "status", "persona": "System", "message": f"Error pre-fetching {url}: {e}"}
+                continue
+                
+        if fetched_blocks:
+            self._pre_fetched_context = "".join(fetched_blocks)

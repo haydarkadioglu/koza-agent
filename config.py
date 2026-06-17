@@ -5,6 +5,8 @@ import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
+# Also load from central Koza configuration directory (.env holds credentials)
+load_dotenv(Path.home() / ".Koza" / ".env")
 
 CONFIG_PATH = Path.home() / ".Koza" / "config.yaml"
 
@@ -97,12 +99,8 @@ def default_config() -> dict:
         "self_improvement": {
             "enabled": True,
         },
-        "disabled_skills": [
-            "browser_control", "cron", "creative", "datascience", "devops", 
-            "email_skill", "finance", "gaming", "github_skill", "mcp_skill", 
-            "media", "mlops", "productivity", "research", "security", 
-            "smarthome", "social", "messaging", "sync", "vision"
-        ],
+        "language": "en",
+        "disabled_skills": [],
     }
 
 
@@ -156,11 +154,24 @@ def load_config() -> dict:
         "TWILIO_WA_TO":        ("messaging", "twilio", "wa_to"),
         "WHATSAPP_FROM":       ("messaging", "whatsapp", "from"),
         "WHATSAPP_TO":         ("messaging", "whatsapp", "to"),
+        # Email settings from env/credentials
+        "EMAIL_USERNAME":      ("email", "username"),
+        "EMAIL_PASSWORD":      ("email", "password"),
+        "SMTP_HOST":           ("email", "smtp_host"),
+        "SMTP_PORT":           ("email", "smtp_port"),
+        "IMAP_HOST":           ("email", "imap_host"),
     }
     for env_key, path in env_map.items():
         val = os.getenv(env_key)
         if val:
-            cfg.setdefault(path[0], {}).setdefault(path[1], {})[path[2]] = val
+            curr = cfg
+            for part in path[:-1]:
+                curr = curr.setdefault(part, {})
+            # Special case for integer cast
+            if path[-1] == "smtp_port" and val.isdigit():
+                curr[path[-1]] = int(val)
+            else:
+                curr[path[-1]] = val
     return cfg
 
 
