@@ -18,15 +18,61 @@ def init(cfg_twilio: dict) -> None:
     _wa_to       = cfg_twilio.get("wa_to",       os.getenv("TWILIO_WA_TO",       ""))
 
 
+def _resolve_twilio_credentials() -> tuple[str, str, str, str, str]:
+    sid = _account_sid or os.getenv("TWILIO_ACCOUNT_SID", "")
+    tok = _auth_token or os.getenv("TWILIO_AUTH_TOKEN", "")
+    frm = _from_number or os.getenv("TWILIO_FROM_NUMBER", "")
+    waf = _wa_from or os.getenv("TWILIO_WA_FROM", "")
+    wat = _wa_to or os.getenv("TWILIO_WA_TO", "")
+
+    if not sid or not tok or not frm or not waf or not wat:
+        try:
+            from config import load_config
+            cfg = load_config()
+            twilio_cfg = cfg.get("messaging", {}).get("twilio", {}) or cfg.get("twilio", {})
+            if not sid:
+                sid = twilio_cfg.get("account_sid", "").strip()
+            if not tok:
+                tok = twilio_cfg.get("auth_token", "").strip()
+            if not frm:
+                frm = twilio_cfg.get("from_number", "").strip()
+            if not waf:
+                waf = twilio_cfg.get("wa_from", "").strip()
+            if not wat:
+                wat = twilio_cfg.get("wa_to", "").strip()
+        except Exception:
+            pass
+
+    if not sid or not tok or not frm or not waf or not wat:
+        try:
+            from skills import shared_memory
+            env_data = shared_memory._read_env()
+            if not sid and "TWILIO_ACCOUNT_SID" in env_data:
+                sid = env_data["TWILIO_ACCOUNT_SID"][0]
+            if not tok and "TWILIO_AUTH_TOKEN" in env_data:
+                tok = env_data["TWILIO_AUTH_TOKEN"][0]
+            if not frm and "TWILIO_FROM_NUMBER" in env_data:
+                frm = env_data["TWILIO_FROM_NUMBER"][0]
+            if not waf and "TWILIO_WA_FROM" in env_data:
+                waf = env_data["TWILIO_WA_FROM"][0]
+            if not wat and "TWILIO_WA_TO" in env_data:
+                wat = env_data["TWILIO_WA_TO"][0]
+        except Exception:
+            pass
+
+    return sid, tok, frm, waf, wat
+
+
 def _client():
-    if not _account_sid or not _auth_token:
+    sid, tok, _, _, _ = _resolve_twilio_credentials()
+    if not sid or not tok:
         raise RuntimeError(
             "Twilio not configured. Set twilio.account_sid and twilio.auth_token in config "
             "or TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN env vars."
         )
     try:
         from twilio.rest import Client
-        return Client(_account_sid, _auth_token)
+        return Client(sid, tok)
     except ImportError:
         raise RuntimeError("twilio package not installed. Run: pip install twilio")
 
@@ -35,7 +81,8 @@ def _client():
 
 def send_sms(to: str, body: str, from_number: str = "") -> str:
     """Send an SMS message."""
-    src = from_number or _from_number
+    _, _, frm, _, _ = _resolve_twilio_credentials()
+    src = from_number or frm
     if not src:
         return "ERROR: No Twilio from_number configured. Set twilio.from_number in config."
     if not to.startswith("+"):
@@ -79,8 +126,9 @@ def list_sms(limit: int = 10, to_filter: str = "", from_filter: str = "") -> str
 
 def send_whatsapp(to: str = "", body: str = "", from_wa: str = "") -> str:
     """Send a WhatsApp message via Twilio."""
-    src = from_wa or _wa_from or (_from_number and f"whatsapp:{_from_number}")
-    dest = to or _wa_to
+    _, _, frm, waf, wat = _resolve_twilio_credentials()
+    src = from_wa or waf or (frm and f"whatsapp:{frm}")
+    dest = to or wat
     if not src:
         return "ERROR: No Twilio WhatsApp from number configured (twilio.wa_from)."
     if not dest:
@@ -103,7 +151,8 @@ def send_whatsapp(to: str = "", body: str = "", from_wa: str = "") -> str:
 
 def make_call(to: str, message: str = "", twiml: str = "", from_number: str = "") -> str:
     """Make an outbound voice call. Reads a TTS message or executes custom TwiML."""
-    src = from_number or _from_number
+    _, _, frm, _, _ = _resolve_twilio_credentials()
+    src = from_number or frm
     if not src:
         return "ERROR: No Twilio from_number configured."
     if not to.startswith("+"):
@@ -172,12 +221,13 @@ def lookup_phone(phone_number: str) -> str:
 def get_account_info() -> str:
     """Return Twilio account balance and status."""
     try:
+        sid, _, _, _, _ = _resolve_twilio_credentials()
         client = _client()
-        acc = client.api.accounts(_account_sid).fetch()
-        balance = client.api.accounts(_account_sid).balance.fetch()
+        acc = client.api.accounts(sid).fetch()
+        balance = client.api.accounts(sid).balance.fetch()
         return (
             f"Twilio Account: {acc.friendly_name}\n"
-            f"  SID: {_account_sid}\n"
+            f"  SID: {sid}\n"
             f"  Status: {acc.status}\n"
             f"  Balance: {balance.balance} {balance.currency}"
         )

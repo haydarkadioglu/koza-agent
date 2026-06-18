@@ -12,18 +12,49 @@ def init(cfg_telegram: dict) -> None:
     _chat_id = cfg_telegram.get("chat_id", os.getenv("TELEGRAM_CHAT_ID", ""))
 
 
+def _resolve_telegram_credentials() -> tuple[str, str]:
+    tok = _token or os.getenv("TELEGRAM_TOKEN", "")
+    cid = _chat_id or os.getenv("TELEGRAM_CHAT_ID", "")
+
+    if not tok or not cid:
+        try:
+            from config import load_config
+            cfg = load_config()
+            # Try main keys or under messaging section
+            if not tok:
+                tok = cfg.get("telegram_token", "").strip() or cfg.get("messaging", {}).get("telegram", {}).get("token", "").strip()
+            if not cid:
+                cid = cfg.get("messaging", {}).get("telegram", {}).get("chat_id", "").strip()
+        except Exception:
+            pass
+
+    if not tok or not cid:
+        try:
+            from skills import shared_memory
+            env_data = shared_memory._read_env()
+            if not tok and "TELEGRAM_TOKEN" in env_data:
+                tok = env_data["TELEGRAM_TOKEN"][0]
+            if not cid and "TELEGRAM_CHAT_ID" in env_data:
+                cid = env_data["TELEGRAM_CHAT_ID"][0]
+        except Exception:
+            pass
+
+    return tok, cid
+
+
 def send(text: str, chat_id: str = "", parse_mode: str = "Markdown") -> str:
     try:
         import requests
     except ImportError:
         return "requests not installed."
-    cid = chat_id or _chat_id
-    if not _token:
+    tok, cid = _resolve_telegram_credentials()
+    cid = chat_id or cid
+    if not tok:
         return "Telegram token not configured. Set TELEGRAM_TOKEN."
     if not cid:
         return "Telegram chat_id not configured. Set TELEGRAM_CHAT_ID."
     r = requests.post(
-        f"https://api.telegram.org/bot{_token}/sendMessage",
+        f"https://api.telegram.org/bot{tok}/sendMessage",
         json={"chat_id": cid, "text": text, "parse_mode": parse_mode},
         timeout=10,
     )
@@ -35,10 +66,11 @@ def get_updates(limit: int = 10, offset: int = 0) -> str:
         import requests
     except ImportError:
         return "requests not installed."
-    if not _token:
+    tok, _ = _resolve_telegram_credentials()
+    if not tok:
         return "Telegram token not configured."
     r = requests.get(
-        f"https://api.telegram.org/bot{_token}/getUpdates",
+        f"https://api.telegram.org/bot{tok}/getUpdates",
         params={"limit": limit, "offset": offset},
         timeout=10,
     )
@@ -63,13 +95,14 @@ def send_photo(image: str, caption: str = "", chat_id: str = "") -> str:
         import requests
     except ImportError:
         return "requests not installed."
-    cid = chat_id or _chat_id
-    if not _token:
+    tok, cid = _resolve_telegram_credentials()
+    cid = chat_id or cid
+    if not tok:
         return "Telegram token not configured. Set TELEGRAM_TOKEN."
     if not cid:
         return "Telegram chat_id not configured. Set TELEGRAM_CHAT_ID."
 
-    url = f"https://api.telegram.org/bot{_token}/sendPhoto"
+    url = f"https://api.telegram.org/bot{tok}/sendPhoto"
 
     if image.startswith("http://") or image.startswith("https://"):
         r = requests.post(
@@ -98,13 +131,14 @@ def send_video(video: str, caption: str = "", chat_id: str = "") -> str:
         import requests
     except ImportError:
         return "requests not installed."
-    cid = chat_id or _chat_id
-    if not _token:
+    tok, cid = _resolve_telegram_credentials()
+    cid = chat_id or cid
+    if not tok:
         return "Telegram token not configured. Set TELEGRAM_TOKEN."
     if not cid:
         return "Telegram chat_id not configured. Set TELEGRAM_CHAT_ID."
 
-    url = f"https://api.telegram.org/bot{_token}/sendVideo"
+    url = f"https://api.telegram.org/bot{tok}/sendVideo"
 
     if video.startswith("http://") or video.startswith("https://"):
         r = requests.post(
@@ -131,10 +165,11 @@ def set_webhook(webhook_url: str) -> str:
         import requests
     except ImportError:
         return "requests not installed."
-    if not _token:
+    tok, _ = _resolve_telegram_credentials()
+    if not tok:
         return "Telegram token not configured."
     r = requests.post(
-        f"https://api.telegram.org/bot{_token}/setWebhook",
+        f"https://api.telegram.org/bot{tok}/setWebhook",
         json={"url": webhook_url},
         timeout=10,
     )

@@ -16,16 +16,21 @@ def init(cfg_whatsapp: dict) -> None:
 
 
 def send(text: str, to: str = "") -> str:
-    if not _account_sid or not _auth_token:
+    from .twilio_skill import _resolve_twilio_credentials
+    sid, tok, _, waf, wat = _resolve_twilio_credentials()
+    if not sid or not tok:
         return "WhatsApp not configured. Set TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN."
-    dest = to or _to_number
+    dest = to or wat
     if not dest:
         return "No destination number. Set TWILIO_TO_WA."
+    frm = waf
+    if not frm:
+        return "No sender WhatsApp number configured. Set TWILIO_WA_FROM."
     try:
         from twilio.rest import Client
-        client = Client(_account_sid, _auth_token)
+        client = Client(sid, tok)
         msg = client.messages.create(
-            from_=f"whatsapp:{_from_number}",
+            from_=f"whatsapp:{frm}",
             to=f"whatsapp:{dest}",
             body=text,
         )
