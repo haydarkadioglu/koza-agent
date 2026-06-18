@@ -668,8 +668,21 @@ class Agent:
         if not is_local:
             # For remote providers, maximize capabilities (up to 128 tools),
             # but MUST prioritize selected tools so they are never truncated.
-            selected_names = {_tool_name(t) for t in tools}
+            original_selected_names = {_tool_name(t) for t in tools}
+            selected_names = set(original_selected_names)
+            
+            from tools.registry import _PLUGIN_TOOLS
+            plugin_names = {_tool_name(t) for t in _PLUGIN_TOOLS}
+            
             merged_tools = list(tools)
+            
+            # Prioritize plugin (e.g. MCP) tools so they don't get truncated
+            for t in ALL_TOOLS:
+                name = _tool_name(t)
+                if name not in selected_names and name in plugin_names:
+                    merged_tools.append(t)
+                    selected_names.add(name)
+            
             for t in ALL_TOOLS:
                 if _tool_name(t) not in selected_names:
                     merged_tools.append(t)
@@ -677,7 +690,7 @@ class Agent:
             if not getattr(self, "cfg", {}).get("dynamic_tool_selection_cloud", False):
                 tools = merged_tools[:128]
             else:
-                if selected_names.issubset(_CORE_TOOL_NAMES):
+                if original_selected_names.issubset(_CORE_TOOL_NAMES):
                     tools = merged_tools[:128]
 
         self._cancel.clear()
