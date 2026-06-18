@@ -87,14 +87,15 @@ TOOL_DEFINITIONS = [
                 "Use 'cwd' to run in a specific directory, or omit to use the current working directory. "
                 "Use 'cd <path>' as the command to change the working directory for future commands. "
                 "If a command requires Administrator privileges on Windows, you must use: "
-                "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command \"<your command>\"'"
+                "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command \"<your command>\"'. "
+                "IMPORTANT: The default timeout is 30 seconds to prevent hanging on prompts. If you are running a package manager (apt, pip, npm) or a long build/scan, YOU MUST explicitly set 'timeout' to a higher value like 300 or 600 seconds."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {"type": "string", "description": "The command to run"},
                     "cwd": {"type": "string", "description": "Working directory (absolute or relative). Defaults to current directory."},
-                    "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds. Increase this to 300+ for apt/pip/npm installs or long scans.", "default": 30},
                 },
                 "required": ["command"],
             },
