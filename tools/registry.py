@@ -66,17 +66,26 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + web.TOOL_DEFINITIONS
     + browser_control.TOOL_DEFINITIONS
     + code_runner.TOOL_DEFINITIONS
-    + system_info.TOOL_DEFINITIONS
-    + kanban.TOOL_DEFINITIONS
+    + code_tools.TOOL_DEFINITIONS
+    + email_skill.TOOL_DEFINITIONS
+    + messaging.TOOL_DEFINITIONS
+    + github_skill.TOOL_DEFINITIONS
+    + repo_manager.TOOL_DEFINITIONS
     + cron.TOOL_DEFINITIONS
     + agents.TOOL_DEFINITIONS
+    + delegation.TOOL_DEFINITIONS
+    + shared_memory.TOOL_DEFINITIONS
+    + working_memory.TOOL_DEFINITIONS
+    + session_memory.TOOL_DEFINITIONS
+    + config_manager.TOOL_DEFINITIONS
+    + skill_ecosystem.TOOL_DEFINITIONS
+    + system_info.TOOL_DEFINITIONS
+    + kanban.TOOL_DEFINITIONS
     + creative.TOOL_DEFINITIONS
     + datascience.TOOL_DEFINITIONS
     + devops.TOOL_DEFINITIONS
-    + email_skill.TOOL_DEFINITIONS
     + finance.TOOL_DEFINITIONS
     + gaming.TOOL_DEFINITIONS
-    + github_skill.TOOL_DEFINITIONS
     + mcp_skill.TOOL_DEFINITIONS
     + media.TOOL_DEFINITIONS
     + mlops.TOOL_DEFINITIONS
@@ -86,19 +95,10 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + security.TOOL_DEFINITIONS
     + smarthome.TOOL_DEFINITIONS
     + social.TOOL_DEFINITIONS
-    + session_memory.TOOL_DEFINITIONS
-    + messaging.TOOL_DEFINITIONS
-    + shared_memory.TOOL_DEFINITIONS
-    + working_memory.TOOL_DEFINITIONS
-    + config_manager.TOOL_DEFINITIONS
     + image_gen.TOOL_DEFINITIONS
     + sync.TOOL_DEFINITIONS
-    + skill_ecosystem.TOOL_DEFINITIONS
     + vision.TOOL_DEFINITIONS
     + plugin_loader.TOOL_DEFINITIONS
-    + delegation.TOOL_DEFINITIONS
-    + repo_manager.TOOL_DEFINITIONS
-    + code_tools.TOOL_DEFINITIONS
 )
 
 _STATIC_HANDLERS: dict[str, Callable] = {
@@ -107,17 +107,26 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **web.HANDLERS,
     **browser_control.HANDLERS,
     **code_runner.HANDLERS,
-    **system_info.HANDLERS,
-    **kanban.HANDLERS,
+    **code_tools.HANDLERS,
+    **email_skill.HANDLERS,
+    **messaging.HANDLERS,
+    **github_skill.HANDLERS,
+    **repo_manager.HANDLERS,
     **cron.HANDLERS,
     **agents.HANDLERS,
+    **delegation.HANDLERS,
+    **shared_memory.HANDLERS,
+    **working_memory.HANDLERS,
+    **session_memory.HANDLERS,
+    **config_manager.HANDLERS,
+    **skill_ecosystem.HANDLERS,
+    **system_info.HANDLERS,
+    **kanban.HANDLERS,
     **creative.HANDLERS,
     **datascience.HANDLERS,
     **devops.HANDLERS,
-    **email_skill.HANDLERS,
     **finance.HANDLERS,
     **gaming.HANDLERS,
-    **github_skill.HANDLERS,
     **mcp_skill.HANDLERS,
     **media.HANDLERS,
     **mlops.HANDLERS,
@@ -127,19 +136,10 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **security.HANDLERS,
     **smarthome.HANDLERS,
     **social.HANDLERS,
-    **session_memory.HANDLERS,
-    **messaging.HANDLERS,
-    **shared_memory.HANDLERS,
-    **working_memory.HANDLERS,
-    **config_manager.HANDLERS,
     **image_gen.HANDLERS,
     **sync.HANDLERS,
-    **skill_ecosystem.HANDLERS,
     **vision.HANDLERS,
     **plugin_loader.HANDLERS,
-    **delegation.HANDLERS,
-    **repo_manager.HANDLERS,
-    **code_tools.HANDLERS,
 }
 
 STATIC_SKILL_MODULES = {
@@ -267,3 +267,145 @@ def rebuild_registry(force: bool = False) -> None:
         if hasattr(core_mod, "_TOOL_BY_NAME") and hasattr(core_mod, "_tool_name"):
             core_mod._TOOL_BY_NAME.clear()
             core_mod._TOOL_BY_NAME.update({core_mod._tool_name(t): t for t in ALL_TOOLS})
+
+
+def coerce_tool_args(tool_name: str, args: dict) -> dict:
+    """Coerce tool call arguments to match their JSON Schema types.
+    LLMs frequently return numbers as strings ("42" instead of 42)
+    and booleans as strings ("true" instead of True).
+    """
+    if not args or not isinstance(args, dict):
+        return args
+
+    schema = get_schema(tool_name)
+    if not schema:
+        return args
+
+    properties = schema.get("parameters", {}).get("properties")
+    if not properties:
+        return args
+
+    for key, value in list(args.items()):
+        prop_schema = properties.get(key)
+        if not prop_schema:
+            continue
+        expected = prop_schema.get("type")
+
+        # Wrap bare non-list values when the schema declares array
+        if expected == "array" and value is not None and not isinstance(value, (list, tuple)):
+            if isinstance(value, str):
+                coerced = _coerce_value(value, expected, schema=prop_schema)
+                if coerced is not value:
+                    args[key] = coerced
+                    continue
+                if value.strip().startswith("["):
+                    try:
+                        import json as _json
+                        args[key] = _json.loads(value)
+                        continue
+                    except Exception:
+                        pass
+                args[key] = [value]
+                continue
+            args[key] = [value]
+            continue
+
+        if not isinstance(value, str):
+            continue
+        if not expected and not _schema_allows_null(prop_schema):
+            continue
+        coerced = _coerce_value(value, expected, schema=prop_schema)
+        if coerced is not value:
+            args[key] = coerced
+
+    return args
+
+
+def get_schema(tool_name: str) -> dict | None:
+    """Find a tool schema by name in ALL_TOOLS."""
+    for t in ALL_TOOLS:
+        if t.get("type") == "function":
+            fn = t.get("function") or {}
+            if fn.get("name") == tool_name:
+                return fn
+        elif t.get("name") == tool_name:
+            return t
+    return None
+
+
+def _schema_allows_null(schema: dict | None) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    schema_type = schema.get("type")
+    if schema_type == "null":
+        return True
+    if isinstance(schema_type, list) and "null" in schema_type:
+        return True
+    if schema.get("nullable") is True:
+        return True
+    for union_key in ("anyOf", "oneOf"):
+        variants = schema.get(union_key)
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if isinstance(variant, dict) and variant.get("type") == "null":
+                return True
+    return False
+
+
+def _coerce_value(value: str, expected_type, schema: dict | None = None):
+    if _schema_allows_null(schema) and value.strip().lower() == "null":
+        return None
+
+    if isinstance(expected_type, list):
+        for t in expected_type:
+            result = _coerce_value(value, t, schema=schema)
+            if result is not value:
+                return result
+        return value
+
+    if expected_type in {"integer", "number"}:
+        return _coerce_number(value, integer_only=(expected_type == "integer"))
+    if expected_type == "boolean":
+        return _coerce_boolean(value)
+    if expected_type == "array":
+        return _coerce_json(value, list)
+    if expected_type == "object":
+        return _coerce_json(value, dict)
+    if expected_type == "null" and value.strip().lower() == "null":
+        return None
+    return value
+
+
+def _coerce_number(value: str, integer_only: bool = False):
+    try:
+        f = float(value)
+    except (ValueError, OverflowError):
+        return value
+    if f != f or f == float("inf") or f == float("-inf"):
+        return value
+    if f == int(f):
+        return int(f)
+    if integer_only:
+        return value
+    return f
+
+
+def _coerce_boolean(value: str):
+    low = value.strip().lower()
+    if low == "true":
+        return True
+    if low == "false":
+        return False
+    return value
+
+
+def _coerce_json(value: str, expected_python_type: type):
+    import json as _json
+    try:
+        parsed = _json.loads(value)
+    except (ValueError, TypeError):
+        return value
+    if isinstance(parsed, expected_python_type):
+        return parsed
+    return value
