@@ -207,6 +207,8 @@ class SkillsMixin:
     def mcp_add(self, name, payload):
         """Add an MCP server to config."""
         try:
+            from config import load_config
+            self.cfg = load_config()
             servers = self.cfg.get("mcp_servers", {})
             servers[name] = payload
             self.cfg["mcp_servers"] = servers
@@ -224,6 +226,8 @@ class SkillsMixin:
     def mcp_remove(self, name):
         """Remove an MCP server from config."""
         try:
+            from config import load_config
+            self.cfg = load_config()
             servers = self.cfg.get("mcp_servers", {})
             if name in servers:
                 del servers[name]
