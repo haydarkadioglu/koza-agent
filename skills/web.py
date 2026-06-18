@@ -6,6 +6,34 @@ import re
 import threading
 import time
 import requests
+import ipaddress
+import socket
+
+def is_safe_url(url: str) -> bool:
+    """SSRF Guard: Resolve and validate target host IP to prevent private/loopback connections."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = parsed.hostname
+        if not host:
+            return False
+        if host.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return False
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+        for info in infos:
+            ip_str = info[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if (ip.is_private or 
+                ip.is_loopback or 
+                ip.is_link_local or 
+                ip.is_reserved or 
+                ip.is_multicast or 
+                ip.is_unspecified):
+                return False
+        return True
+    except Exception:
+        return False
 
 TOOL_DEFINITIONS = [
     {
@@ -247,6 +275,9 @@ def _parse_google_results(raw: str, max_results: int) -> list[str]:
 
 def fetch_url(url: str, max_chars: int = 4000, js_render: bool = False) -> str:
     """Fetch URL content. Falls back to headless browser for JS-rendered pages."""
+    if not is_safe_url(url):
+        return "ERROR: URL is blocked by security policy (SSRF Guard)."
+
     # JS framework markers in raw HTML
     _JS_MARKERS = (
         "__NEXT_DATA__", "__next", "_nuxt", "react-root", "app-root",
