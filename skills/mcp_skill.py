@@ -454,7 +454,6 @@ HANDLERS = {
     "mcp_list_tools": mcp_list_tools,
     "mcp_call_tool": mcp_call_tool,
     "mcp_add_server": mcp_add_server,
-    "mcp_import_config": mcp_import_config,
 }
 
 
@@ -542,6 +541,10 @@ def mcp_import_config(path_or_url: str) -> str:
         lines.append(f"⚠️  Skipped {len(skipped)}: {', '.join(skipped)}")
     lines.append("Their tools are now available in Koza.")
     return "\n".join(lines)
+
+
+# Register mcp_import_config now that it is defined
+HANDLERS["mcp_import_config"] = mcp_import_config
 
 
 # ─── Cleanup on exit ─────────────────────────────────────────────────────────
