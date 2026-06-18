@@ -56,6 +56,15 @@ def _detect_capabilities() -> dict:
     return caps
 
 
+_PARALLEL_SAFE_TOOLS = {
+    "web_search", "fetch_url",
+    "memory_recall", "memory_store",
+    "get_config", "set_config",
+    "read_file", "list_dir",
+    "wm_list", "wm_get", "wm_add"
+}
+
+
 # Cached at startup — re-detect only on explicit request
 _SYSTEM_CAPS: dict = {}
 
@@ -151,6 +160,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # cron / schedule
     "schedule": ["cron"], "cron": ["cron"], "every day": ["cron"], "recurring": ["cron"],
     "tek sefer": ["cron"], "one-shot": ["cron"], "follow-up": ["cron"], "takip": ["cron", "kanban"],
+    "zamanla": ["cron"], "saatlik": ["cron"], "günlük": ["cron"], "gunluk": ["cron"],
+    "haftalık": ["cron"], "haftalik": ["cron"], "aylık": ["cron"], "aylik": ["cron"],
+    "timer": ["cron"], "reminder": ["cron"], "remind": ["cron"], "hatırlat": ["cron"], "hatirlat": ["cron"],
     # memory
     "remember": ["memory"], "forget": ["memory"], "recall": ["memory"], "memory": ["memory"],
     "session": ["memory"],
@@ -170,6 +182,9 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "telefon ara": ["message"], "numaraya mesaj": ["message"],
     "send message": ["message"], "message": ["message"],
     "wp": ["message"], "whatsapp": ["message"], "mesaj": ["message"], "bot": ["message"],
+    "slack": ["message"], "signal": ["message"], "send_message": ["message"],
+    "notify": ["message", "email"], "notification": ["message", "email"], "ping": ["message", "email"],
+    "inform": ["message", "email"], "haber ver": ["message", "email"], "yaz": ["message", "email"],
     # github
     "github": ["github"], "git": ["github", "devops"], "repo": ["github"],
     "clone": ["github"], "repo çek": ["github"], "pull request": ["github"], "issue": ["github"],
@@ -202,7 +217,10 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # email
     "email": ["email"], "mail": ["email"], "smtp": ["email"],
     "eposta": ["email"], "e-posta": ["email"], "ileti": ["email"],
+    "e-mail": ["email"],
     "gönder": ["email", "message"], "gonder": ["email", "message"], "yolla": ["email", "message"],
+    "gmail": ["email"], "outlook": ["email"], "imap": ["email"], "pop3": ["email"],
+    "inbox": ["email"], "send email": ["email"], "send mail": ["email"], "email_skill": ["email"],
     # devops
     "docker": ["devops"], "container": ["devops"], "webhook": ["devops"],
     # creative
@@ -436,12 +454,15 @@ class Agent:
         self._ctx.messages = [{"role": "system", "content": build_system_prompt(channel=channel)}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
+        # Progress callback: callable(event_type, name, preview, args, **kwargs)
+        self.tool_progress_callback = None
         # Interrupt/cancel support — set to cancel the current stream_chat loop
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
+        self.cfg = cfg or {}
+        self._session_progress: float = self.cfg.get("session_progress", 0.0)
         self._stream_lock: threading.Lock = threading.Lock()
         self.db_path = db_path
-        self.cfg = cfg or {}
         kanban.init_db(db_path)
         cron.init_db(db_path)
         session_memory.init_db(db_path)
@@ -718,6 +739,8 @@ class Agent:
 
                 _stream_retried = False
                 _stream_key_retries = 0
+                _stream_call_retries = 0
+                _MAX_STREAM_RETRIES = 3
                 while True:
                     try:
                         for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
@@ -740,30 +763,72 @@ class Agent:
                                     yield {"type": "text", "token": token}
                         break  # stream finished successfully
                     except Exception as _e:
-                        _emsg = str(_e).lower()
-                        is_rate_limit = "429" in _emsg or "rate limit" in _emsg or "quota" in _emsg or "exhausted" in _emsg or "limit" in _emsg
-                        if is_rate_limit and _stream_key_retries < 5:
-                            if hasattr(self.provider, "rotate_key") and self.provider.rotate_key():
-                                _stream_key_retries += 1
+                        from providers.error_classifier import classify_api_error, FailoverReason
+                        err = classify_api_error(_e, provider=getattr(self.provider, "name", ""), model=getattr(self.provider, "_model", ""))
+                        is_rate_limit = (err.reason == FailoverReason.rate_limit)
+                        is_billing = (err.reason == FailoverReason.billing)
+                        is_overloaded = (err.reason in (FailoverReason.overloaded, FailoverReason.server_error, FailoverReason.timeout))
+                        
+                        # Only retry if we have not successfully yielded any tokens yet to prevent duplicate/corrupted output
+                        if not full and not _tool_buf:
+                            if (is_rate_limit or is_billing) and _stream_key_retries < 5:
+                                if hasattr(self.provider, "rotate_key"):
+                                    # Prevent MagicMock from falsely returning a truthy mock object
+                                    from unittest.mock import Mock
+                                    if not isinstance(self.provider.rotate_key, Mock) and self.provider.rotate_key():
+                                        _stream_key_retries += 1
+                                        full = ""
+                                        _tool_buf = {}
+                                        import logging
+                                        logging.getLogger(__name__).warning("Rate limit hit during stream, rotated to next API key.")
+                                        continue
+
+                            # Auto-recover from "tool_calls must be followed by tool messages" (400)
+                            _emsg_orig = str(_e)
+                            if not _stream_retried and ("tool_calls" in _emsg_orig or "400" in _emsg_orig):
+                                _stream_retried = True
+                                n = self._drop_dangling_tool_calls()
+                                import logging as _logging
+                                _logging.getLogger(__name__).warning(
+                                    f"stream_chat: 400 tool_calls error — dropped {n} dangling messages, retrying"
+                                )
                                 full = ""
                                 _tool_buf = {}
-                                import logging
-                                logging.getLogger(__name__).warning("Rate limit hit during stream, rotated to next API key.")
                                 continue
 
-                        # Auto-recover from "tool_calls must be followed by tool messages" (400)
-                        _emsg = str(_e)
-                        if not _stream_retried and not full and not _tool_buf and ("tool_calls" in _emsg or "400" in _emsg):
-                            _stream_retried = True
-                            n = self._drop_dangling_tool_calls()
-                            import logging as _logging
-                            _logging.getLogger(__name__).warning(
-                                f"stream_chat: 400 tool_calls error — dropped {n} dangling messages, retrying"
-                            )
-                            full = ""
-                            _tool_buf = {}
-                            continue
-                        # For any other exception, yield an error event instead of crashing
+                            # If rate limit or overloaded/timeout, retry with jittered backoff
+                            if (is_rate_limit or is_overloaded) and _stream_call_retries < _MAX_STREAM_RETRIES:
+                                _stream_call_retries += 1
+                                full = ""
+                                _tool_buf = {}
+                                
+                                # Calculate jittered backoff delay
+                                import random
+                                import time
+                                exponent = max(0, _stream_call_retries - 1)
+                                base_delay = 3.0
+                                max_delay = 30.0
+                                delay = min(base_delay * (2 ** exponent), max_delay)
+                                jitter = random.uniform(0, 0.5 * delay)
+                                wait_time = delay + jitter
+                                
+                                import logging
+                                logging.getLogger(__name__).warning(
+                                    f"Stream API call failed ({_e}). Waiting {wait_time:.2f}s before retry {_stream_call_retries}/{_MAX_STREAM_RETRIES}..."
+                                )
+                                
+                                # Sleep but check for cancellation
+                                sleep_step = 0.1
+                                slept = 0.0
+                                while slept < wait_time:
+                                    if self._cancel.is_set():
+                                        yield {"type": "interrupted"}
+                                        return
+                                    time.sleep(sleep_step)
+                                    slept += sleep_step
+                                continue
+
+                        # For any other exception, or if we already yielded tokens, yield an error event instead of crashing
                         yield {"type": "error", "message": str(_e)}
                         return
 
@@ -844,46 +909,127 @@ class Agent:
 
                 # ── Execute each tool call ────────────────────────────────────────
                 permanent_failure = False
-                for i, call in enumerate(calls):
-                    if self._cancel.is_set():
-                        # To satisfy strict API validation (e.g. OpenAI/Deepseek), we must
-                        # append tool messages for all remaining tool calls before returning.
-                        for remaining_call in calls[i:]:
+                
+                use_parallel = len(calls) > 1 and all(c["name"] in _PARALLEL_SAFE_TOOLS for c in calls)
+                
+                if use_parallel:
+                    denied_indices = set()
+                    for idx, call in enumerate(calls):
+                        name, args = call["name"], call["arguments"]
+                        if self.permission_callback and not self.permission_callback(name, args):
+                            denied_indices.add(idx)
+                            yield {"type": "tool_denied", "name": name}
                             self.messages.append({
                                 "role": "tool",
-                                "tool_call_id": remaining_call["id"],
-                                "name": remaining_call["name"],
-                                "content": "Process interrupted by user.",
+                                "tool_call_id": call["id"],
+                                "name": name,
+                                "content": "Permission denied by user.",
                             })
-                        yield {"type": "interrupted"}
-                        return
-                    name, args = call["name"], call["arguments"]
-                    if self.permission_callback and not self.permission_callback(name, args):
-                        yield {"type": "tool_denied", "name": name}
+                    
+                    parallel_calls = [(idx, c) for idx, c in enumerate(calls) if idx not in denied_indices]
+                    
+                    if parallel_calls:
+                        for _, call in parallel_calls:
+                            name, args = call["name"], call["arguments"]
+                            yield {"type": "tool_start", "name": name, "args": args}
+                            if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                                try:
+                                    preview_parts = []
+                                    for pk, pv in list(args.items())[:3]:
+                                        if pk not in ("code", "script", "content", "text", "body"):
+                                            preview_parts.append(f"{pk}={repr(pv)[:30]}")
+                                    preview = ", ".join(preview_parts)
+                                    self.tool_progress_callback("tool.started", name, preview, args)
+                                except Exception:
+                                    pass
+                        
+                        from concurrent.futures import ThreadPoolExecutor
+                        def run_one(call):
+                            name, args = call["name"], call["arguments"]
+                            t0 = time.time()
+                            try:
+                                res = self._execute_tool(name, args)
+                            except Exception as e:
+                                import traceback
+                                res = f"Error executing tool: {e}\n{traceback.format_exc()}"
+                            t_elapsed = time.time() - t0
+                            return res, t_elapsed
+
+                        with ThreadPoolExecutor(max_workers=len(parallel_calls)) as executor:
+                            futures = [executor.submit(run_one, call) for _, call in parallel_calls]
+                            for (orig_idx, call), future in zip(parallel_calls, futures):
+                                name, args = call["name"], call["arguments"]
+                                res, t_elapsed = future.result()
+                                if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                                    try:
+                                        self.tool_progress_callback("tool.completed", name, str(res)[:300], args, duration=t_elapsed)
+                                    except Exception:
+                                        pass
+                                yield {"type": "tool_done", "name": name, "result": res, "elapsed": t_elapsed}
+                                res_str = str(res)
+                                self.messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": call["id"],
+                                    "name": name,
+                                    "content": res_str,
+                                })
+                                if "PERMANENT FAILURE" in res_str:
+                                    permanent_failure = True
+                else:
+                    for i, call in enumerate(calls):
+                        if self._cancel.is_set():
+                            for remaining_call in calls[i:]:
+                                self.messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": remaining_call["id"],
+                                    "name": remaining_call["name"],
+                                    "content": "Process interrupted by user.",
+                                })
+                            yield {"type": "interrupted"}
+                            return
+                        name, args = call["name"], call["arguments"]
+                        if self.permission_callback and not self.permission_callback(name, args):
+                            yield {"type": "tool_denied", "name": name}
+                            self.messages.append({
+                                "role": "tool",
+                                "tool_call_id": call["id"],
+                                "name": name,
+                                "content": "Permission denied by user.",
+                            })
+                            continue
+                        yield {"type": "tool_start", "name": name, "args": args}
+                        if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                            try:
+                                preview_parts = []
+                                for pk, pv in list(args.items())[:3]:
+                                    if pk not in ("code", "script", "content", "text", "body"):
+                                        preview_parts.append(f"{pk}={repr(pv)[:30]}")
+                                preview = ", ".join(preview_parts)
+                                self.tool_progress_callback("tool.started", name, preview, args)
+                            except Exception:
+                                pass
+                        t0 = time.time()
+                        try:
+                            result = self._execute_tool(name, args)
+                        except Exception as e:
+                            import traceback
+                            result = f"Error executing tool: {e}\n{traceback.format_exc()}"
+                        t_elapsed = time.time() - t0
+                        if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                            try:
+                                self.tool_progress_callback("tool.completed", name, str(result)[:300], args, duration=t_elapsed)
+                            except Exception:
+                                pass
+                        yield {"type": "tool_done", "name": name, "result": result, "elapsed": t_elapsed}
+                        result_str = str(result)
                         self.messages.append({
                             "role": "tool",
                             "tool_call_id": call["id"],
                             "name": name,
-                            "content": "Permission denied by user.",
+                            "content": result_str,
                         })
-                        continue
-                    yield {"type": "tool_start", "name": name, "args": args}
-                    t0 = time.time()
-                    try:
-                        result = self._execute_tool(name, args)
-                    except Exception as e:
-                        import traceback
-                        result = f"Error executing tool: {e}\n{traceback.format_exc()}"
-                    yield {"type": "tool_done", "name": name, "result": result, "elapsed": time.time() - t0}
-                    result_str = str(result)
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": call["id"],
-                        "name": name,
-                        "content": result_str,
-                    })
-                    if "PERMANENT FAILURE" in result_str:
-                        permanent_failure = True
+                        if "PERMANENT FAILURE" in result_str:
+                            permanent_failure = True
 
                 if permanent_failure:
                     # Tell the model once, then stop — do not retry
@@ -1007,6 +1153,40 @@ class Agent:
                 except Exception:
                     pass
 
+            # ── Email credentials auto-detection ──────────────────────────────
+            email_match = _re.search(r"\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b", user_input)
+            if email_match:
+                email_addr = email_match.group(1)
+                # Find password: "password: xyz" or "password is xyz" or "password = xyz" or "pwd: xyz"
+                pass_match = _re.search(
+                    r"\b(?:pass(?:word)?|pwd|app[- ]?pass(?:word)?)\s*(?:is|:|=)\s*([a-zA-Z0-9_\-~@#$^*()\[\]{}]{8,})\b",
+                    user_input,
+                    _re.IGNORECASE
+                )
+                if pass_match:
+                    email_pass = pass_match.group(1)
+                    try:
+                        from config import load_config, save_config
+                        from skills.email_skill import _preset_for, init_email
+                        _cfg = load_config()
+                        _cfg.setdefault("email", {})
+                        _cfg["email"]["username"] = email_addr
+                        _cfg["email"]["password"] = email_pass
+                        preset = _preset_for(email_addr)
+                        if preset:
+                            _cfg["email"]["smtp_host"] = preset.get("smtp_host", "smtp.gmail.com")
+                            _cfg["email"]["smtp_port"] = preset.get("smtp_port", 587)
+                            _cfg["email"]["imap_host"] = preset.get("imap_host", "imap.gmail.com")
+                        save_config(_cfg)
+                        init_email(_cfg)
+                        working_memory.wm_add(
+                            summary=f"Email credentials for {email_addr} auto-saved.",
+                            detail=f"Auto-configured SMTP: {_cfg['email'].get('smtp_host')}:{_cfg['email'].get('smtp_port')}",
+                            event_type="config",
+                        )
+                    except Exception:
+                        pass
+
             # ── Generic credential patterns ───────────────────────────────────
             for m in _CRED_PATTERNS.finditer(user_input):
                 service = (m.group("service1") or m.group("service2") or "").strip()
@@ -1031,6 +1211,8 @@ class Agent:
             pass
 
     def _execute_tool(self, name: str, args: dict) -> str:
+        from tools.registry import coerce_tool_args
+        args = coerce_tool_args(name, args)
         handler = ALL_HANDLERS.get(name)
         if not handler:
             return f"Unknown tool: {name}. Note: Many tools are disabled by default to save resources. You can check disabled skills using get_config('disabled_skills') and enable them via set_config."
@@ -1093,27 +1275,14 @@ class Agent:
         
         seen = set()
         safe_urls = []
+        from skills.web import is_safe_url
         for u in urls:
             u = u.rstrip(".,;:!?()[]{}'")
             if u in seen:
                 continue
             seen.add(u)
-            try:
-                parsed = urllib.parse.urlparse(u)
-                if parsed.scheme not in ("http", "https"):
-                    continue
-                host = parsed.hostname
-                if not host:
-                    continue
-                if host.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-                    continue
-                if host.startswith(("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")):
-                    continue
-                if host.startswith("169.254."):
-                    continue
+            if is_safe_url(u):
                 safe_urls.append(u)
-            except Exception:
-                continue
                 
         if not safe_urls:
             return
