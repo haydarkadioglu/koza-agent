@@ -65,6 +65,8 @@ function sendMessage() {
     input.value = '';
     isProcessing = true;
     updateSendButtonState(true);
+    currentBubble = null; // Reset bubble so agent reply creates a new one
+
     
     const welcome = document.querySelector('.welcome-box');
     if (welcome) welcome.remove();
