@@ -308,12 +308,98 @@ def init_email(cfg: dict):
     _email_cfg = cfg.get("email", {})
 
 
+def _resolve_credentials(
+    username: str = "",
+    password: str = "",
+    smtp_host: str = "",
+    smtp_port: int = 0,
+    imap_host: str = "",
+) -> tuple[str, str, str, int, str]:
+    """Resolve email credentials with multiple fallbacks (config, env, shared_memory)."""
+    from config import load_config
+    try:
+        cfg = load_config()
+        email_cfg = cfg.get("email", {})
+    except Exception:
+        email_cfg = _email_cfg
+
+    u = username or email_cfg.get("username", "")
+    p = password or email_cfg.get("password", "")
+
+    # 1. Fallback to OS Environment Variables
+    if not u:
+        u = os.getenv("EMAIL_USERNAME", "")
+    if not p:
+        p = os.getenv("EMAIL_PASSWORD", "")
+
+    # 2. Fallback to shared_memory credential pool (.env)
+    if not u or not p:
+        try:
+            from skills import shared_memory
+            env_data = shared_memory._read_env()
+            if not u and "EMAIL_USERNAME" in env_data:
+                u = env_data["EMAIL_USERNAME"][0]
+            if not p and "EMAIL_PASSWORD" in env_data:
+                p = env_data["EMAIL_PASSWORD"][0]
+        except Exception:
+            pass
+
+    # Resolve SMTP/IMAP settings using preset or fallback configurations
+    preset = _preset_for(u)
+
+    h_smtp = smtp_host or email_cfg.get("smtp_host", "") or preset.get("smtp_host", "smtp.gmail.com")
+    port_smtp = smtp_port or email_cfg.get("smtp_port", 0) or preset.get("smtp_port", 587)
+
+    # Check if host or port settings exist in env or shared_memory
+    if not smtp_host:
+        h_smtp_env = os.getenv("SMTP_HOST", "")
+        if h_smtp_env:
+            h_smtp = h_smtp_env
+        else:
+            try:
+                from skills import shared_memory
+                env_data = shared_memory._read_env()
+                if "SMTP_HOST" in env_data:
+                    h_smtp = env_data["SMTP_HOST"][0]
+            except Exception:
+                pass
+
+    if not smtp_port or smtp_port == 0:
+        port_smtp_env = os.getenv("SMTP_PORT", "")
+        if port_smtp_env.isdigit():
+            port_smtp = int(port_smtp_env)
+        else:
+            try:
+                from skills import shared_memory
+                env_data = shared_memory._read_env()
+                if "SMTP_PORT" in env_data and env_data["SMTP_PORT"][0].isdigit():
+                    port_smtp = int(env_data["SMTP_PORT"][0])
+            except Exception:
+                pass
+
+    h_imap = imap_host or email_cfg.get("imap_host", "") or preset.get("imap_host", "imap.gmail.com")
+    if not imap_host:
+        h_imap_env = os.getenv("IMAP_HOST", "")
+        if h_imap_env:
+            h_imap = h_imap_env
+        else:
+            try:
+                from skills import shared_memory
+                env_data = shared_memory._read_env()
+                if "IMAP_HOST" in env_data:
+                    h_imap = env_data["IMAP_HOST"][0]
+            except Exception:
+                pass
+
+    return u, p, h_smtp, int(port_smtp), h_imap
+
+
 def _get_smtp_conn(host: str, port: int) -> smtplib.SMTP:
     """Open SMTP connection — uses SSL on port 465, STARTTLS otherwise."""
     if port == 465:
         context = _ssl.create_default_context()
-        return smtplib.SMTP_SSL(host, port, context=context)
-    srv = smtplib.SMTP(host, port)
+        return smtplib.SMTP_SSL(host, port, context=context, timeout=15)
+    srv = smtplib.SMTP(host, port, timeout=15)
     srv.ehlo()
     srv.starttls()
     srv.ehlo()
@@ -335,13 +421,7 @@ def send_email(
     username: str = "",
     password: str = "",
 ) -> str:
-    u = username or _email_cfg.get("username", "")
-    p = password or _email_cfg.get("password", "")
-
-    # Auto-detect host/port from sender email domain
-    preset = _preset_for(u)
-    h = smtp_host or _email_cfg.get("smtp_host", "") or preset.get("smtp_host", "smtp.gmail.com")
-    port = smtp_port or _email_cfg.get("smtp_port", 0) or preset.get("smtp_port", 587)
+    u, p, h, port, _ = _resolve_credentials(username, password, smtp_host, smtp_port)
 
     if not u:
         return "ERROR: No email username configured. Set email.username in config or pass username parameter."
@@ -421,10 +501,7 @@ def read_emails(
     unread_only: bool = False,
     mark_as_read: bool = False,
 ) -> str:
-    u = username or _email_cfg.get("username", "")
-    p = password or _email_cfg.get("password", "")
-    preset = _preset_for(u)
-    h = imap_host or _email_cfg.get("imap_host", "") or preset.get("imap_host", "imap.gmail.com")
+    u, p, _, _, h = _resolve_credentials(username, password, imap_host=imap_host)
 
     if not u:
         return "ERROR: No email username configured."
@@ -434,7 +511,7 @@ def read_emails(
     limit = min(int(limit), 20)
 
     try:
-        mail = imaplib.IMAP4_SSL(h)
+        mail = imaplib.IMAP4_SSL(h, timeout=15)
         mail.login(u, p)
         mail.select(folder)
         criterion = "UNSEEN" if unread_only else "ALL"
@@ -476,10 +553,7 @@ def search_emails(
     username: str = "",
     password: str = "",
 ) -> str:
-    u = username or _email_cfg.get("username", "")
-    p = password or _email_cfg.get("password", "")
-    preset = _preset_for(u)
-    h = imap_host or _email_cfg.get("imap_host", "") or preset.get("imap_host", "imap.gmail.com")
+    u, p, _, _, h = _resolve_credentials(username, password, imap_host=imap_host)
 
     if not u:
         return "ERROR: No email username configured."
@@ -492,7 +566,7 @@ def search_emails(
     imap_criteria = _build_imap_criteria(query, since_date)
 
     try:
-        mail = imaplib.IMAP4_SSL(h)
+        mail = imaplib.IMAP4_SSL(h, timeout=15)
         mail.login(u, p)
         mail.select(folder, readonly=True)
         _, data = mail.search(None, imap_criteria)
@@ -533,11 +607,7 @@ def reply_email(
     username: str = "",
     password: str = "",
 ) -> str:
-    u = username or _email_cfg.get("username", "")
-    p = password or _email_cfg.get("password", "")
-    preset = _preset_for(u)
-    h = smtp_host or _email_cfg.get("smtp_host", "") or preset.get("smtp_host", "smtp.gmail.com")
-    port = smtp_port or _email_cfg.get("smtp_port", 0) or preset.get("smtp_port", 587)
+    u, p, h, port, _ = _resolve_credentials(username, password, smtp_host, smtp_port)
 
     if not u or not p:
         return "ERROR: Email credentials not configured."
@@ -697,11 +767,7 @@ def send_batch_emails(
         personalized: If True, recipients must be dicts with 'to' and 'name'.
         sender_name: Display name for sender.
     """
-    u = username or _email_cfg.get("username", "")
-    p = password or _email_cfg.get("password", "")
-    preset = _preset_for(u)
-    h = smtp_host or _email_cfg.get("smtp_host", "") or preset.get("smtp_host", "smtp.gmail.com")
-    port = smtp_port or _email_cfg.get("smtp_port", 0) or preset.get("smtp_port", 587)
+    u, p, h, port, _ = _resolve_credentials(username, password, smtp_host, smtp_port)
 
     if not u:
         return "ERROR: No email username configured."
