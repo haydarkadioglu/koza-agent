@@ -85,49 +85,83 @@ def _validate_groups(groups: list) -> list[str]:
     return [g for g in groups if isinstance(g, str) and g in _KNOWN_GROUPS]
 
 
-def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision | None:
-    """Fast local guardrails for short build/code commands.
+_HEURISTIC_PATTERNS = {
+    "email": {
+        "keywords": [
+            "email", "mail", "eposta", "e-posta", "smtp", "imap", "gmail",
+            "outlook", "yandex", "ileti", "gönder", "gonder", "send", "reply"
+        ],
+        "tool_groups": ["email"],
+        "prompt_sections": ["email", "workspace"]
+    },
+    "message": {
+        "keywords": [
+            "message", "sms", "twilio", "whatsapp", "discord", "slack", "wp",
+            "telegram", "bot", "mesaj", "ping", "notify", "inform", "haber ver",
+            "ilet", "yaz"
+        ],
+        "tool_groups": ["message"],
+        "prompt_sections": ["message", "workspace"]
+    },
+    "cron": {
+        "keywords": [
+            "cron", "schedule", "timer", "reminder", "hatırlat", "hatirlat",
+            "every", "her gün", "her gun", "günlük", "gunluk", "saatlik", "weekly",
+            "daily", "hourly", "alarm", "zamanla"
+        ],
+        "tool_groups": ["cron"],
+        "prompt_sections": ["workspace"]
+    },
+    "github": {
+        "keywords": [
+            "github", "git", "repo", "clone", "push", "commit", "pr", "pull request",
+            "issue"
+        ],
+        "tool_groups": ["github", "devops"],
+        "prompt_sections": ["workspace", "code"]
+    }
+}
 
-    The LLM router is useful for nuanced text, but short Turkish commands like
-    "portfolio sitesi yap" are easy to misclassify as web research. If the user
-    combines an action verb with a buildable artifact, treat it as coding.
+
+def _is_hybrid_query(text: str) -> bool:
+    """Check if the text contains keywords belonging to non-heuristic categories
+    indicating it's a hybrid/complex request that should bypass the heuristic router.
     """
+    lower_text = text.lower()
+    
+    # Non-heuristic indicators representing other tool groups
+    non_heuristic_indicators = [
+        "search", "google", "browse", "fetch", "url", "website", "tarayıcı", "ara", "arama",
+        "price", "fiyat", "stock", "crypto", "bitcoin", "gold", "altın", "altin",
+        "arxiv", "paper", "makale", "wikipedia", "research", "araştır", "arastir",
+        "system", "process", "cpu", "bellek", "disk",
+        "port", "ssl", "scan", "tarama", "zafiyet",
+        "hue", "light", "mqtt", "home assistant",
+        "twitter", "reddit", "linkedin", "tweet",
+        "calendar", "sheets", "airtable", "takvim", "tablo",
+        "image", "photo", "screenshot", "ekran", "resim", "görsel", "gorsel",
+        "patch", "grep", "refactor", "pytest", "test et", "runtest"
+    ]
+    
+    return any(ind in lower_text for ind in non_heuristic_indicators)
+
+
+def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision | None:
+    """Fast local guardrails for build/code and specific automated task commands."""
     text = message.strip()
     if not text:
         return None
+        
+    if _is_hybrid_query(text):
+        return None
     
-    lower = text.lower()
     groups: set[str] = set()
     sections: set[str] = set()
     delegate_to_background = False
     activate_coding_mode = False
     matched_any = False
 
-    # 1. Email detection (matches address, 'mail', 'email', 'eposta', etc.)
-    if re.search(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", lower) or any(w in lower for w in ("mail", "email", "eposta", "e-posta", "smtp", "imap", "gmail", "outlook")):
-        groups.update(["email", "memory", "config"])
-        sections.update(["workspace", "email"])
-        matched_any = True
-
-    # 2. Messaging detection (telegram, discord, twilio, whatsapp, sms, etc.)
-    if any(w in lower for w in ("telegram", "discord", "whatsapp", "twilio", "sms", "wp")) or ("mesaj" in lower and "mail" not in lower and "eposta" not in lower):
-        groups.update(["message", "memory", "config"])
-        sections.update(["workspace", "telegram", "message"])
-        matched_any = True
-
-    # 3. GitHub & Repo detection
-    if any(w in lower for w in ("github", "git ", "repo", "clone", "pr ", "pull request")):
-        groups.update(["github", "repo", "file", "shell"])
-        sections.update(["workspace", "repo"])
-        matched_any = True
-
-    # 4. Scheduling detection (cron, schedule, saat, timer, zamanla, etc.)
-    if any(w in lower for w in ("schedule", "cron", "saat ", "her gün", "her gun", "dakika", "saniye", "haftada", "ayda", "yılda", "yilda", "timer", "zamanla", "planla")):
-        groups.update(["cron", "kanban"])
-        sections.update(["workspace"])
-        matched_any = True
-
-    # 5. Code & Build detection
+    # Code & Build detection
     if _CODE_ACTION_RE.search(text) and _CODE_ARTIFACT_RE.search(text):
         groups.update(["file", "shell", "code", "agent", "web"])
         sections.update(["workspace", "code", "shell"])
@@ -137,6 +171,14 @@ def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision |
         delegate_to_background = bool(_BACKGROUND_HINT_RE.search(text))
         matched_any = True
 
+    # Keyword patterns matching
+    lower_text = text.lower()
+    for category, config in _HEURISTIC_PATTERNS.items():
+        if any(kw in lower_text for kw in config["keywords"]):
+            groups.update(config["tool_groups"])
+            sections.update(config["prompt_sections"])
+            matched_any = True
+
     if matched_any:
         return RoutingDecision(
             delegate_to_background=delegate_to_background,
@@ -145,6 +187,7 @@ def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision |
             prompt_sections=list(sections)
         )
     return None
+
 
 
 class IntentRouter:
