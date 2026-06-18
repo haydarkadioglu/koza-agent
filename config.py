@@ -107,8 +107,19 @@ def default_config() -> dict:
 def load_config() -> dict:
     cfg = default_config()
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            loaded = yaml.safe_load(f) or {}
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+        except Exception as e:
+            print(f"Warning: Failed to load config.yaml due to syntax error: {e}")
+            print(f"A backup of the broken config will be saved to config.yaml.broken")
+            try:
+                import shutil
+                shutil.copy(CONFIG_PATH, str(CONFIG_PATH) + ".broken")
+            except Exception:
+                pass
+            loaded = {}
+
         # Deep merge providers
         for key, val in loaded.items():
             if key == "providers" and isinstance(val, dict):
