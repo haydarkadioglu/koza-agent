@@ -96,3 +96,23 @@ class BridgeBase:
             return {"status": "success", "version": _get_version()}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def update_app(self):
+        """Pulls latest updates from git."""
+        try:
+            import subprocess
+            import sys
+            import os
+            
+            project_dir = str(Path(__file__).resolve().parent.parent.parent)
+            
+            # Run git pull
+            try:
+                git_result = subprocess.run(["git", "pull"], capture_output=True, text=True, cwd=project_dir, timeout=15)
+                output = f"Git Output:\n{git_result.stdout}\n{git_result.stderr}"
+            except Exception as e:
+                output = f"Git Error: {str(e)}"
+                
+            return {"status": "success", "message": output.strip()}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

@@ -629,6 +629,20 @@
                             
                             <hr style="border: 0; border-top: 1px solid var(--border-glass); margin: 20px 0;">
                             
+                            <!-- Section: Updates -->
+                            <div class="daemon-section" style="background: rgba(46, 204, 113, 0.05); border: 1px solid rgba(46, 204, 113, 0.2); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+                                <h4 style="margin-bottom:8px; font-size:14px; color:var(--color-green); display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-arrows-rotate"></i> <span data-localize="update-title">Application Updates</span></h4>
+                                <p data-localize="update-desc" style="font-size:11px; color:var(--text-secondary); margin-bottom:14px; line-height:1.4;">
+                                    Check for updates and pull the latest changes from the Koza GitHub repository. Restart the application after updating.
+                                </p>
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span id="update-panel-status" style="font-size:12px; font-weight:600; color:var(--text-secondary);">Current Version: <span id="update-current-version">v--</span></span>
+                                    </div>
+                                    <button class="btn btn-secondary" id="update-panel-btn" onclick="updateApplication(this)" style="padding: 6px 14px; font-size:11px; border-radius: 8px;"><i class="fa-solid fa-download"></i> Update Now</button>
+                                </div>
+                            </div>
+                            
                             <!-- Section: Background Daemon -->
                             <div class="daemon-section" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); border-radius: 12px; padding: 16px;">
                                 <h4 style="margin-bottom:8px; font-size:14px; color:var(--text-primary); display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-server"></i> <span data-localize="daemon-title">Background Services Daemon</span></h4>

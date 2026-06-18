@@ -1206,3 +1206,40 @@ function toggleTurboMode(enabled) {
         });
     }
 }
+
+function updateApplication(btn) {
+    if (!confirm(currentLanguage === 'tr' ? 'Uygulama güncellenecek. Devam edilsin mi?' : 'Application will be updated. Continue?')) return;
+    
+    const ogHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
+    btn.disabled = true;
+    
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.update_app) {
+        window.pywebview.api.update_app().then(res => {
+            btn.innerHTML = ogHtml;
+            btn.disabled = false;
+            if (res.status === 'success') {
+                alert((currentLanguage === 'tr' ? 'Güncelleme tamamlandı:\n' : 'Update completed:\n') + res.message);
+            } else {
+                alert('Error: ' + res.message);
+            }
+        }).catch(err => {
+            btn.innerHTML = ogHtml;
+            btn.disabled = false;
+            alert('Error: ' + err);
+        });
+    }
+}
+
+window.addEventListener('pywebviewready', function() {
+    setTimeout(() => {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.get_app_version) {
+            window.pywebview.api.get_app_version().then(res => {
+                if (res.status === 'success') {
+                    const el = document.getElementById('update-current-version');
+                    if (el) el.innerText = res.version;
+                }
+            });
+        }
+    }, 1000);
+});
