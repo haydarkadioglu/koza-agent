@@ -339,6 +339,22 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "mcp_add_server",
+            "description": "Add a new MCP server to Koza permanently. It takes either a command line (e.g. 'npx @modelcontextprotocol/server-memory') or an HTTP URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_name": {"type": "string", "description": "A short, unique name for the server, e.g. 'memory_server' or 'hexstrike'."},
+                    "command": {"type": "string", "description": "The command line to run the server, e.g. 'python /path/to/script.py'. Only provide one of command or url."},
+                    "url": {"type": "string", "description": "If the server is HTTP-based, provide the URL instead of the command. e.g. 'http://localhost:8000'"}
+                },
+                "required": ["server_name"],
+            },
+        },
+    },
 ]
 
 
@@ -381,7 +397,42 @@ def mcp_call_tool(server_url: str, tool_name: str, arguments: dict = None) -> st
         return f"ERROR calling MCP tool: {e}"
 
 
-HANDLERS = {"mcp_list_tools": mcp_list_tools, "mcp_call_tool": mcp_call_tool}
+def mcp_add_server(server_name: str, command: str = None, url: str = None) -> str:
+    if not command and not url:
+        return "ERROR: You must provide either 'command' or 'url'."
+    
+    payload = {}
+    if url:
+        payload["url"] = url
+    else:
+        parts = command.strip().split(" ")
+        payload["command"] = parts[0]
+        payload["args"] = parts[1:]
+        
+    try:
+        from config import load_config, save_config
+        cfg = load_config()
+        servers = cfg.setdefault("mcp_servers", {})
+        servers[server_name] = payload
+        save_config(cfg)
+        
+        # Trigger reload of dynamic tools so they are immediately available
+        load_dynamic_mcp_tools()
+        
+        # Trigger registry rebuild to update ALL_TOOLS
+        from tools.registry import rebuild_registry
+        rebuild_registry(force=True)
+        
+        return f"SUCCESS: MCP server '{server_name}' added to config. Its tools are now available."
+    except Exception as e:
+        return f"ERROR adding MCP server: {e}"
+
+
+HANDLERS = {
+    "mcp_list_tools": mcp_list_tools,
+    "mcp_call_tool": mcp_call_tool,
+    "mcp_add_server": mcp_add_server,
+}
 
 
 # ─── Cleanup on exit ─────────────────────────────────────────────────────────

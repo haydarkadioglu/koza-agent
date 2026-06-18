@@ -242,8 +242,10 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     "clone": ["repo", "github"], "repo": ["repo", "github"],
     "repository": ["repo"], "github repo": ["repo", "github"],
     "project": ["repo", "kanban"], "proje": ["repo"],
-    "repos": ["repo"], "install deps": ["repo"],
+    "install deps": ["repo"],
     "kurulum": ["repo"], "bagimlilik": ["repo"],
+    # mcp
+    "mcp": ["mcp"], "mcp server": ["mcp"], "model context": ["mcp"],
 }
 
 # ── Core tools always included ────────────────────────────────────────────────
@@ -388,6 +390,7 @@ def _select_tools(user_input: str, messages: list[dict] = None, router_groups: s
                     "vision": "vision",
                     "code": "code_tools",
                     "kanban": "kanban",
+                    "mcp": "mcp_skill",
                 }
                 needed_skills = []
                 for g in groups:
