@@ -147,3 +147,44 @@ function mcpGetTools(name) {
         });
     }
 }
+
+function importMcpConfig() {
+    const input = document.getElementById('mcp-import-path');
+    const resultDiv = document.getElementById('mcp-import-result');
+    const btn = document.getElementById('mcp-import-btn');
+    if (!input) return;
+
+    const pathOrUrl = input.value.trim();
+    if (!pathOrUrl) return;
+
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+    resultDiv.style.display = 'none';
+    resultDiv.textContent = '';
+
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.mcp_import_config) {
+        window.pywebview.api.mcp_import_config(pathOrUrl).then(res => {
+            btn.innerHTML = origHtml;
+            btn.disabled = false;
+
+            if (res.status === 'success') {
+                resultDiv.style.color = 'var(--color-green)';
+                resultDiv.textContent = res.message || 'Import successful.';
+                resultDiv.style.display = 'block';
+                input.value = '';
+                loadMcpServers();
+            } else {
+                resultDiv.style.color = 'var(--color-red)';
+                resultDiv.textContent = 'Error: ' + (res.message || 'Unknown error');
+                resultDiv.style.display = 'block';
+            }
+        }).catch(err => {
+            btn.innerHTML = origHtml;
+            btn.disabled = false;
+            resultDiv.style.color = 'var(--color-red)';
+            resultDiv.textContent = 'Error: ' + err;
+            resultDiv.style.display = 'block';
+        });
+    }
+}

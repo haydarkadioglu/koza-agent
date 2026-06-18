@@ -266,3 +266,14 @@ class SkillsMixin:
             return {"status": "success", "tools": tools}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def mcp_import_config(self, path_or_url: str):
+        """Bulk-import MCP servers from a mcp.json / claude_desktop_config.json file or URL."""
+        try:
+            from skills.mcp_skill import mcp_import_config
+            message = mcp_import_config(path_or_url)
+            if message.startswith("ERROR"):
+                return {"status": "error", "message": message}
+            return {"status": "success", "message": message}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

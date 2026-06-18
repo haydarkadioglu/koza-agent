@@ -355,6 +355,28 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "mcp_import_config",
+            "description": (
+                "Import MCP servers from an existing config file (mcp.json, .cursor/mcp.json, "
+                "claude_desktop_config.json) or a URL. "
+                "The file is parsed and all servers are bulk-imported into Koza automatically. "
+                "Use this when the user provides a file path or URL to an MCP config."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path_or_url": {
+                        "type": "string",
+                        "description": "Absolute file path (e.g. /home/user/.cursor/mcp.json) or HTTP URL to the MCP config file."
+                    }
+                },
+                "required": ["path_or_url"],
+            },
+        },
+    },
 ]
 
 
@@ -432,7 +454,94 @@ HANDLERS = {
     "mcp_list_tools": mcp_list_tools,
     "mcp_call_tool": mcp_call_tool,
     "mcp_add_server": mcp_add_server,
+    "mcp_import_config": mcp_import_config,
 }
+
+
+def mcp_import_config(path_or_url: str) -> str:
+    """Parse a mcp.json / .cursor/mcp.json / claude_desktop_config.json and import all servers."""
+    import json
+    import urllib.request
+    from pathlib import Path
+
+    raw = ""
+    # --- fetch content ---
+    if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
+        try:
+            with urllib.request.urlopen(path_or_url, timeout=10) as r:
+                raw = r.read().decode("utf-8")
+        except Exception as e:
+            return f"ERROR fetching URL: {e}"
+    else:
+        p = Path(path_or_url).expanduser()
+        if not p.exists():
+            return f"ERROR: File not found: {p}"
+        raw = p.read_text(encoding="utf-8")
+
+    # --- parse JSON ---
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        return f"ERROR: Could not parse JSON: {e}"
+
+    # Support multiple known formats
+    # 1. {"mcpServers": {"name": {"command": ..., "args": [...]}}}  ← Claude Desktop / Cursor
+    # 2. {"servers": {...}}  ← generic
+    # 3. flat dict at root level
+    servers_raw: dict = {}
+    if isinstance(data.get("mcpServers"), dict):
+        servers_raw = data["mcpServers"]
+    elif isinstance(data.get("servers"), dict):
+        servers_raw = data["servers"]
+    elif isinstance(data, dict) and all(isinstance(v, dict) for v in data.values()):
+        servers_raw = data
+
+    if not servers_raw:
+        return "ERROR: No MCP servers found in the file. Expected 'mcpServers' or 'servers' key."
+
+    from config import load_config, save_config
+    cfg = load_config()
+    existing = cfg.setdefault("mcp_servers", {})
+
+    added = []
+    skipped = []
+    for name, srv in servers_raw.items():
+        # Normalise: some formats use "command" as full string, others split command+args
+        payload: dict = {}
+        if "url" in srv:
+            payload["url"] = srv["url"]
+        elif "command" in srv:
+            payload["command"] = srv["command"]
+            if "args" in srv:
+                payload["args"] = srv["args"]
+            if "env" in srv:
+                payload["env"] = srv["env"]
+        else:
+            skipped.append(f"{name} (unrecognised format)")
+            continue
+
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+        existing[safe_name] = payload
+        added.append(safe_name)
+
+    cfg["mcp_servers"] = existing
+    save_config(cfg)
+
+    # Reload everything
+    load_dynamic_mcp_tools()
+    try:
+        from tools.registry import rebuild_registry
+        rebuild_registry(force=True)
+    except Exception:
+        pass
+
+    lines = [f"✅ Imported {len(added)} MCP server(s) from config:"]
+    for n in added:
+        lines.append(f"  • {n}")
+    if skipped:
+        lines.append(f"⚠️  Skipped {len(skipped)}: {', '.join(skipped)}")
+    lines.append("Their tools are now available in Koza.")
+    return "\n".join(lines)
 
 
 # ─── Cleanup on exit ─────────────────────────────────────────────────────────

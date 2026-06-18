@@ -875,16 +875,39 @@
                 </header>
                 
                 <div class="tab-panel-container">
+
+                    <!-- Import from file / URL -->
                     <div class="dashboard-card">
                         <div class="dashboard-card-title">
-                            <i class="fa-solid fa-plus"></i> <span data-localize="add-mcp-server">Add MCP Server</span>
+                            <i class="fa-solid fa-file-import"></i> Import from Config File
                         </div>
+                        <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 12px;">
+                            Point to a <code>mcp.json</code>, <code>.cursor/mcp.json</code> or <code>claude_desktop_config.json</code> file (or a URL) — all servers inside will be imported automatically.
+                        </p>
                         <div style="display: flex; gap: 10px;">
-                            <input type="text" id="new-mcp-server-url" placeholder="e.g. http://localhost:3000" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary);">
+                            <input type="text" id="mcp-import-path" placeholder="/home/user/.cursor/mcp.json  or  https://..." style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); font-family: monospace; font-size: 13px;">
+                            <button class="btn btn-primary" id="mcp-import-btn" onclick="importMcpConfig()">
+                                <i class="fa-solid fa-file-import"></i> Import
+                            </button>
+                        </div>
+                        <div id="mcp-import-result" style="margin-top: 10px; font-size: 13px; font-family: monospace; white-space: pre-wrap; color: var(--color-green); display: none;"></div>
+                    </div>
+
+                    <!-- Manual add -->
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-plus"></i> <span data-localize="add-mcp-server">Add MCP Server Manually</span>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 12px;">
+                            Enter an HTTP URL (<code>http://localhost:3000</code>) or a full command (<code>python /path/to/server.py --arg</code>).
+                        </p>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="new-mcp-server-url" placeholder="e.g. http://localhost:3000  or  python /path/server.py" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary);">
                             <button class="btn btn-primary" onclick="addMcpServer()"><i class="fa-solid fa-plus"></i> <span data-localize="btn-save">Save</span></button>
                         </div>
                     </div>
 
+                    <!-- Server list -->
                     <div class="dashboard-card">
                         <div class="dashboard-card-title">
                             <i class="fa-solid fa-network-wired"></i> <span data-localize="registered-mcp-servers">Registered MCP Servers</span>
