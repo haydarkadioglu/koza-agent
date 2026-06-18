@@ -44,7 +44,10 @@ class OutputSpinner:
         """Start the spinner and progress animation with the given label and target pct."""
         with self._lock:
             if not self._running:
-                self._current_pct = 0.0
+                initial_pct = 0.0
+                if hasattr(self._layout, "agent") and self._layout.agent is not None:
+                    initial_pct = getattr(self._layout.agent, "_session_progress", 0.0)
+                self._current_pct = initial_pct
                 self._running = True
                 self._spinner_line_active = True
             self._label = label
@@ -62,6 +65,7 @@ class OutputSpinner:
             self._label = label
             if target_pct is not None:
                 self._target_pct = target_pct
+            self._update_status_bar()
 
     def set_target(self, target_pct: float, label: Optional[str] = None) -> None:
         """Set a new target percentage and optional label."""
@@ -69,6 +73,7 @@ class OutputSpinner:
             self._target_pct = target_pct
             if label is not None:
                 self._label = label
+            self._update_status_bar()
 
     def stop(self) -> None:
         """Stop the spinner animation."""
@@ -76,6 +81,8 @@ class OutputSpinner:
             if not self._running:
                 return
             self._running = False
+            if hasattr(self._layout, "agent") and self._layout.agent is not None:
+                self._layout.agent._session_progress = self._current_pct
 
         # Wait for the animation thread to finish
         if self._thread is not None:

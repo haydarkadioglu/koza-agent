@@ -147,7 +147,9 @@ class StreamRenderer:
         etype = event.get("type")
 
         if etype == "thinking":
-            self._spinner.start("Reasoning…", target_pct=25.0)
+            current = self._spinner._current_pct
+            target = min(95.0, max(current + 5.0, 25.0))
+            self._spinner.start("Reasoning…", target_pct=target)
 
         elif etype == "tool_start":
             name = event["name"]
@@ -160,7 +162,9 @@ class StreamRenderer:
                     visible_parts.append(f"{k}={repr(v)[:40]}")
             arg_str = ", ".join(visible_parts)
             label = self._TOOL_LABELS.get(name, f"Running {name}")
-            self._spinner.start(f"{label}…", target_pct=55.0)
+            current = self._spinner._current_pct
+            target = min(95.0, max(current + 10.0, 55.0))
+            self._spinner.start(f"{label}…", target_pct=target)
             self._close_response_if_open()
             self._close_persona_box()
             self._open_tool_box(name, label, arg_str)
@@ -171,20 +175,51 @@ class StreamRenderer:
         elif etype == "tool_done":
             name = event["name"]
             elapsed = event.get("elapsed", 0)
-            result_preview = self._summarize_tool_result(event.get("result"))
+            result_val = event.get("result")
+            result_preview = self._summarize_tool_result(result_val)
             if not self._tool_box_open:
                 label = self._TOOL_LABELS.get(name, f"Running {name}")
                 self._open_tool_box(name, label, getattr(self, "_pending_tool_arg", ""))
-            self._append_tool_line(
-                _C("✓ ", "green") + _C(name, "white")
-                + _C(f" completed in {elapsed:.2f}s", "green")
-            )
-            if result_preview:
-                self._append_tool_line(_C(result_preview, "grey"))
+
+            # Check for failure in tool execution result
+            result_str = str(result_val).strip() if result_val is not None else ""
+            is_error = False
+            if result_str:
+                if "Exit code:" in result_str and "Exit code: 0" not in result_str:
+                    is_error = True
+                else:
+                    lower = result_str.lower()
+                    if (
+                        result_str.startswith("ERROR:")
+                        or result_str.startswith("Tool error")
+                        or result_str.startswith("Unknown tool")
+                        or result_str.startswith("❌")
+                        or result_str.startswith("[Tool execution cancelled")
+                        or any(err in lower[:50] for err in ("failed", "not configured", "not installed", "required", "error:", "timed out", "permission denied"))
+                    ):
+                        is_error = True
+
+            if is_error:
+                self._append_tool_line(
+                    _C("✗ ", "red") + _C(name, "white")
+                    + _C(f" failed in {elapsed:.2f}s", "red")
+                )
+                if result_preview:
+                    self._append_tool_line(_C(result_preview, "red"))
+            else:
+                self._append_tool_line(
+                    _C("✓ ", "green") + _C(name, "white")
+                    + _C(f" completed in {elapsed:.2f}s", "green")
+                )
+                if result_preview:
+                    self._append_tool_line(_C(result_preview, "grey"))
+
             self._close_tool_box(f"{elapsed:.2f}s")
             self._pending_tool = None
             self._pending_tool_arg = ""
-            self._spinner.start("Reasoning…", target_pct=75.0)
+            current = self._spinner._current_pct
+            target = min(95.0, max(current + 5.0, 75.0))
+            self._spinner.start("Reasoning…", target_pct=target)
 
         elif etype == "text":
             token = event.get("token", "")
@@ -192,7 +227,7 @@ class StreamRenderer:
                 self._close_tool_box()
             if not self._text_started:
                 self._text_started = True
-                self._spinner.stop()
+                self._spinner.update("Streaming...", target_pct=95.0)
                 response_type = event.get("response_type", "normal")
                 self._open_response_box("Koza", response_type)
             self._full_response += token
@@ -201,9 +236,7 @@ class StreamRenderer:
             # Update status with token count — but only every ~20 tokens
             # to avoid excessive set_status calls that trigger invalidation.
             if self._total_tokens % 20 < 2:
-                self.layout.set_status(self._format_status(
-                    _C(f"● Streaming… {self._total_tokens} tok", "green")
-                ))
+                self._spinner.update(f"Streaming ({self._total_tokens} tokens)...")
 
             # Buffer tokens and render complete lines with markdown
             self._line_buf += token
@@ -545,9 +578,33 @@ class StreamRenderer:
         if self._text_started:
             self._flush_line_buf()
             self._close_response_box(f"{elapsed:.1f}s")
-        self.layout.set_status(self._format_status(
-            _C("● Idle", "green")
-        ))
+
+        # Increment session progress by 15.0 (wraps at 100.0)
+        if hasattr(self.layout, "agent") and self.layout.agent is not None:
+            new_pct = getattr(self.layout.agent, "_session_progress", 0.0) + 15.0
+            if new_pct > 100.0:
+                new_pct = 15.0
+            self.layout.agent._session_progress = new_pct
+            self.layout.agent.cfg["session_progress"] = new_pct
+            self._spinner._current_pct = new_pct
+            from config import save_config
+            try:
+                save_config(self.layout.agent.cfg)
+            except Exception:
+                pass
+
+        pct_int = int(self._spinner._current_pct)
+        width = 10
+        filled_width = (pct_int * width) / 100.0
+        full_blocks = int(filled_width)
+        fraction = filled_width - full_blocks
+        frac_char = " ▏▎▍▌▋▊▉█"[int(fraction * 8)] if fraction > 0 else ""
+        empty_blocks = width - full_blocks - (1 if frac_char else 0)
+        filled_part = "\033[36m" + "█" * full_blocks + frac_char + "\033[0m"
+        empty_part = "\033[90m" + "░" * empty_blocks + "\033[0m"
+        state_text = f"{filled_part}{empty_part} \033[36m{pct_int}%\033[0m \033[32m● Idle\033[0m"
+
+        self.layout.set_status(self._format_status(state_text))
         self._reset()
 
     def _reset(self) -> None:

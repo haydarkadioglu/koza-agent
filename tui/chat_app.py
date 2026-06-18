@@ -86,6 +86,7 @@ class ChatApp(App):
     ]
 
     status_text: reactive[str] = reactive("Ready")
+    progress_pct: reactive[float] = reactive(0.0)
 
     def __init__(self, agent: Agent, cfg: dict):
         super().__init__()
@@ -128,16 +129,31 @@ class ChatApp(App):
         self.set_interval(self._refresh_interval, self._refresh_live_panels)
         self.query_one("#chat_input", Input).focus()
 
-    def watch_status_text(self, value: str) -> None:
+    def _update_status_line(self) -> None:
         try:
             elapsed = int(time.time() - self._session_start)
             provider = self.cfg.get("provider", "?")
             model = self.cfg.get("model") or provider
+            if self._busy:
+                pct = int(self.progress_pct)
+                width = 10
+                filled = int(pct * width / 100)
+                empty = width - filled
+                bar = "█" * filled + "░" * empty
+                progress_part = f" | [cyan]Progress:[/] [{bar}] {pct}%"
+            else:
+                progress_part = ""
             self.query_one("#status_line", Label).update(
-                f"{value} | {provider}/{model} | {elapsed // 60}m | Ctrl+P commands"
+                f"{self.status_text}{progress_part} | {provider}/{model} | {elapsed // 60}m | Ctrl+P commands"
             )
         except Exception:
             pass
+
+    def watch_status_text(self, value: str) -> None:
+        self._update_status_line()
+
+    def watch_progress_pct(self, value: float) -> None:
+        self._update_status_line()
 
     @on(Input.Submitted, "#chat_input")
     def input_submitted(self, event: Input.Submitted) -> None:
@@ -265,12 +281,25 @@ class ChatApp(App):
             return
         self._busy = True
         self._response_parts = []
+        self.call_from_thread(setattr, self, "progress_pct", 0.0)
         self.call_from_thread(self._append_chat, f"[bold cyan]You:[/] {text}")
         self.call_from_thread(setattr, self, "status_text", "Thinking")
         try:
             for event in self.agent.stream_chat(text):
                 if not isinstance(event, dict):
                     continue
+                etype = event.get("type", "")
+                if etype == "thinking":
+                    self.call_from_thread(setattr, self, "progress_pct", 15.0)
+                elif etype == "text":
+                    current = self.progress_pct
+                    if current < 80.0:
+                        self.call_from_thread(setattr, self, "progress_pct", min(80.0, current + 1.0))
+                elif etype == "tool_start":
+                    self.call_from_thread(setattr, self, "progress_pct", 45.0)
+                elif etype == "tool_done":
+                    self.call_from_thread(setattr, self, "progress_pct", 75.0)
+
                 channel, payload = stream_event_to_record(event)
                 if channel == "status":
                     self.call_from_thread(setattr, self, "status_text", payload)
@@ -283,11 +312,13 @@ class ChatApp(App):
                     self._response_parts.append(payload)
                     if "\n" in payload:
                         self.call_from_thread(self._flush_response_partial)
+            self.call_from_thread(setattr, self, "progress_pct", 100.0)
             self.call_from_thread(self._flush_response_final)
         except Exception as exc:
             self.call_from_thread(self._append_tool, f"[red]Stream failed:[/] {exc}")
         finally:
             self._busy = False
+            self.call_from_thread(setattr, self, "progress_pct", 0.0)
             self.call_from_thread(setattr, self, "status_text", "Ready")
             self.call_from_thread(self._refresh_all)
 

@@ -199,6 +199,30 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
 
     agent.permission_callback = make_permission_callback(cfg)
 
+    def _on_tool_progress(event_type: str, name: str, preview: str = "", args: dict = None, **kwargs):
+        renderer = _ui_renderer[0]
+        if renderer is not None:
+            if event_type == "tool.started":
+                label = renderer._TOOL_LABELS.get(name, f"Running {name}")
+                if preview:
+                    label = f"{label} ({preview})"
+                current_pct = renderer._spinner._current_pct
+                new_target = min(95.0, max(current_pct + 10.0, 55.0))
+                renderer._spinner.start(label, target_pct=new_target)
+            elif event_type == "tool.completed":
+                label = renderer._TOOL_LABELS.get(name, f"Completed {name}")
+                duration = kwargs.get("duration", 0.0)
+                renderer._spinner.start(f"{label} ({duration:.2f}s)", target_pct=85.0)
+        else:
+            if event_type == "tool.started":
+                label = name
+                if preview:
+                    label = f"{name}({preview})"
+                from cli.ui._colors import _C
+                print(_C(f"  ⏳ {label}...", "grey"))
+
+    agent.tool_progress_callback = _on_tool_progress
+
     # Inject CWD into system prompt
     from skills.shell import get_cwd as _get_cwd
     _launch_cwd = _get_cwd()
@@ -282,6 +306,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
         t_start = time.time()
 
         from cli.ui import StreamRenderer
+        _plain_layout.agent = agent
         renderer = StreamRenderer(
             _plain_layout,
             model_name=model_name,
@@ -939,6 +964,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
         from cli.input_dispatcher import InputDispatcher
 
         layout = ChatLayout(on_submit=lambda t: None)  # placeholder
+        layout.agent = agent
 
         # Derive provider auth mode for status badge
         _provider_auth = cfg.get("providers", {}).get(provider_name, {}).get("auth", "")
