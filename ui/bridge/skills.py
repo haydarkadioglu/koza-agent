@@ -277,3 +277,49 @@ class SkillsMixin:
             return {"status": "success", "message": message}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    # ── Schedule / Cron bridge ────────────────────────────────────────────────
+
+    def schedule_list(self):
+        """Return all scheduled cron jobs as a list of dicts."""
+        try:
+            from skills.cron_db import get_conn
+            with get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT id, name, cron_expr, command, sync_system, created_at FROM cron_jobs ORDER BY id"
+                ).fetchall()
+            tasks = [
+                {"id": r[0], "name": r[1], "cron_expr": r[2],
+                 "command": r[3], "sync_system": bool(r[4]), "created_at": r[5]}
+                for r in rows
+            ]
+            return {"status": "success", "tasks": tasks}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def schedule_create(self, name: str, command: str, cron_expr: str):
+        """Create a recurring cron job."""
+        try:
+            from skills.cron import create_cron
+            msg = create_cron(name, command, cron_expr)
+            return {"status": "success", "message": msg}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def schedule_create_once(self, name: str, command: str, run_at: str = "", delay_minutes: int = 10):
+        """Create a one-time scheduled job."""
+        try:
+            from skills.cron import create_once_cron
+            msg = create_once_cron(name, command, run_at, int(delay_minutes))
+            return {"status": "success", "message": msg}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def schedule_delete(self, job_id: int):
+        """Delete a scheduled job by ID."""
+        try:
+            from skills.cron import delete_cron
+            msg = delete_cron(int(job_id))
+            return {"status": "success", "message": msg}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

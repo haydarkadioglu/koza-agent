@@ -28,16 +28,16 @@
                 </div>
             </div>
 
-            <!-- Big New Session Button -->
-            <div style="padding: 16px 20px 8px 20px;">
-                <button class="btn-sidebar-new-session" onclick="openNewSessionModal()" title="New Session (Ctrl+N)" style="width: 100%; padding: 12px; font-size: 15px; font-weight: bold; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;">
+            <!-- Big New Session Button (right below brand) -->
+            <div style="padding: 12px 16px 0 16px;">
+                <button class="btn-sidebar-new-session" onclick="openNewSessionModal()" title="New Session (Ctrl+N)" style="width: 100%; padding: 10px; font-size: 14px; font-weight: bold; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;">
                     <i class="fa-solid fa-plus"></i>
                     <span data-localize="btn-new-session">New Session</span>
                 </button>
             </div>
 
             <!-- Sessions Header -->
-            <div class="sidebar-header">
+            <div class="sidebar-header" style="margin-top: 10px;">
                 <span class="sidebar-header-title" data-localize="nav-sessions">Sessions</span>
                 <div class="sidebar-header-actions">
                     <button class="sidebar-action-btn" onclick="toggleSessionSearch()" title="Search Sessions">
@@ -66,10 +66,10 @@
                     <span data-localize="customizations-title">Customizations</span>
                 </div>
                 <div class="customizations-list" id="customizations-list">
-                    <div class="customization-item active" id="custom-item-chat" onclick="switchTab('chat')">
+                    <div class="customization-item" id="custom-item-schedule" onclick="switchTab('schedule')">
                         <div class="customization-left">
-                            <i class="fa-solid fa-comments"></i>
-                            <span data-localize="nav-chat">Chat</span>
+                            <i class="fa-solid fa-clock"></i>
+                            <span data-localize="nav-schedule">Schedule</span>
                         </div>
                     </div>
                     <div class="customization-item" id="custom-item-kanban" onclick="switchTab('kanban')">
@@ -140,8 +140,89 @@
 
         <!-- Main Content Area -->
         <main class="main-content">
+            <!-- TAB: SCHEDULE -->
+            <section id="tab-schedule" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="nav-schedule">Scheduled Tasks</h2>
+                        <p data-localize="schedule-subtitle">Create and manage recurring or one-time tasks for the agent.</p>
+                    </div>
+                    <button class="btn btn-secondary" onclick="loadScheduledTasks()">
+                        <i class="fa-solid fa-arrows-rotate"></i> <span>Refresh</span>
+                    </button>
+                </header>
+
+                <div class="tab-panel-container">
+                    <!-- Create Recurring Task -->
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-repeat"></i> New Recurring Task
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Task Name</label>
+                                <input type="text" id="cron-name" placeholder="e.g. Daily Report" style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); box-sizing: border-box;">
+                            </div>
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Cron Expression</label>
+                                <input type="text" id="cron-expr" placeholder="e.g. 0 9 * * * (every day 9am)" style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); font-family: monospace; box-sizing: border-box;">
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Command / Agent Instruction</label>
+                            <textarea id="cron-command" rows="2" placeholder="Shell command or @agent: do something..." style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); resize: vertical; box-sizing: border-box;"></textarea>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <button class="btn btn-primary" onclick="createScheduledTask('recurring')">
+                                <i class="fa-solid fa-plus"></i> Add Recurring Task
+                            </button>
+                            <span style="font-size: 12px; color: var(--text-muted);">Quick:</span>
+                            <button class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="document.getElementById('cron-expr').value='0 9 * * *'">Every day 9am</button>
+                            <button class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="document.getElementById('cron-expr').value='0 * * * *'">Every hour</button>
+                            <button class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="document.getElementById('cron-expr').value='0 9 * * 1'">Every Monday</button>
+                        </div>
+                    </div>
+
+                    <!-- Create One-Time Task -->
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-calendar-check"></i> New One-Time Task
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Task Name</label>
+                                <input type="text" id="once-name" placeholder="e.g. Check build status" style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); box-sizing: border-box;">
+                            </div>
+                            <div>
+                                <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Run after (minutes) or exact time</label>
+                                <input type="text" id="once-when" placeholder="30  or  2025-01-15T14:00:00" style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); font-family: monospace; box-sizing: border-box;">
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Command / Agent Instruction</label>
+                            <textarea id="once-command" rows="2" placeholder="Shell command or @agent: check deployment status..." style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); resize: vertical; box-sizing: border-box;"></textarea>
+                        </div>
+                        <button class="btn btn-primary" onclick="createScheduledTask('once')">
+                            <i class="fa-solid fa-clock"></i> Schedule Once
+                        </button>
+                    </div>
+
+                    <!-- Task List -->
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-list-check"></i> All Scheduled Tasks
+                        </div>
+                        <div id="schedule-task-list" style="min-height: 60px;">
+                            <div style="text-align: center; color: var(--text-muted); padding: 20px;">
+                                <i class="fa-solid fa-spinner fa-spin"></i> Loading...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- TAB: CHAT -->
-            <section id="tab-chat" class="tab-pane active">
+            <section id="tab-chat" class="tab-pane">
                 <header class="pane-header">
                     <div class="pane-title">
                         <h2 data-localize="chat-title">Chat</h2>
@@ -1032,6 +1113,201 @@
                 <pre class="logs-console" id="agent-logs-content">Loading logs...</pre>
             </div>
             <footer class="modal-footer">
+                    </div>
+                </header>
+                
+                <div class="tab-panel-container">
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-server"></i> <span data-localize="daemon-title">Background Services Daemon</span>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="pulse" id="hooks-daemon-light" style="background-color: var(--text-muted); width: 8px; height: 8px; border-radius: 50%;"></span>
+                                <span style="font-size: 13px; font-weight: 600;" id="hooks-daemon-text">Daemon: Checking...</span>
+                            </div>
+                            <button class="btn btn-secondary" id="hooks-daemon-btn" onclick="toggleDaemonFromSidebar()">Start</button>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-link"></i> <span data-localize="proactive-webhooks">Active Integration Channels</span>
+                        </div>
+                        <div class="custom-list" id="active-hooks-list">
+                            <p style="color:var(--text-muted); font-size:12px; padding:10px;" data-localize="no-hooks">No active integration channels.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: MCP SERVERS -->
+            <section id="tab-mcp" class="tab-pane">
+                <header class="pane-header">
+                    <div class="pane-title">
+                        <h2 data-localize="nav-mcp">MCP Servers</h2>
+                        <p data-localize="mcp-subtitle">Extend Koza capabilities by connecting external Model Context Protocol (MCP) servers.</p>
+                    </div>
+                </header>
+                
+                <div class="tab-panel-container">
+
+                    <!-- Import from file / URL -->
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-file-import"></i> Import from Config File
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 12px;">
+                            Point to a <code>mcp.json</code>, <code>.cursor/mcp.json</code> or <code>claude_desktop_config.json</code> file (or a URL) — all servers inside will be imported automatically.
+                        </p>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="mcp-import-path" placeholder="/home/user/.cursor/mcp.json  or  https://..." style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary); font-family: monospace; font-size: 13px;">
+                            <button class="btn btn-primary" id="mcp-import-btn" onclick="importMcpConfig()">
+                                <i class="fa-solid fa-file-import"></i> Import
+                            </button>
+                        </div>
+                        <div id="mcp-import-result" style="margin-top: 10px; font-size: 13px; font-family: monospace; white-space: pre-wrap; color: var(--color-green); display: none;"></div>
+                    </div>
+
+                    <!-- Manual add -->
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-plus"></i> <span data-localize="add-mcp-server">Add MCP Server Manually</span>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 12px;">
+                            Enter an HTTP URL (<code>http://localhost:3000</code>) or a full command (<code>python /path/to/server.py --arg</code>).
+                        </p>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="new-mcp-server-url" placeholder="e.g. http://localhost:3000  or  python /path/server.py" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-primary);">
+                            <button class="btn btn-primary" onclick="addMcpServer()"><i class="fa-solid fa-plus"></i> <span data-localize="btn-save">Save</span></button>
+                        </div>
+                    </div>
+
+                    <!-- Server list -->
+                    <div class="dashboard-card">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-network-wired"></i> <span data-localize="registered-mcp-servers">Registered MCP Servers</span>
+                        </div>
+                        <div class="custom-list" id="mcp-servers-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card" id="mcp-tools-explorer" style="display: none;">
+                        <div class="dashboard-card-title">
+                            <i class="fa-solid fa-terminal"></i> <span id="mcp-tools-explorer-title">MCP Tools Explorer</span>
+                        </div>
+                        <div class="mcp-tools-console" id="mcp-tools-console">
+                            <!-- Console output -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Task Creation Modal -->
+    <div class="modal" id="task-modal">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3 data-localize="modal-task-title">Create New Task</h3>
+                <button class="close-btn" onclick="closeTaskModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="task-title" data-localize="task-title-label">Title</label>
+                    <input type="text" id="task-title" placeholder="Task title...">
+                </div>
+                <div class="form-group">
+                    <label for="task-desc" data-localize="task-desc-label">Description</label>
+                    <textarea id="task-desc" rows="3" placeholder="Task details..."></textarea>
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeTaskModal()" data-localize="btn-cancel">Cancel</button>
+                <button class="btn btn-primary" onclick="submitNewTask()" data-localize="btn-save">Save</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Plugin Creation Modal -->
+    <div class="modal" id="plugin-modal">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3 data-localize="modal-plugin-title">Create New Plugin</h3>
+                <button class="close-btn" onclick="closePluginModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="plugin-name" data-localize="plugin-name-label">Plugin Name</label>
+                    <input type="text" id="plugin-name" placeholder="e.g. weather_tools">
+                </div>
+                <div class="form-group">
+                    <label for="plugin-desc" data-localize="plugin-desc-label">Description</label>
+                    <textarea id="plugin-desc" rows="3" placeholder="What does this plugin do?"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="plugin-author" data-localize="plugin-author-label">Author</label>
+                    <input type="text" id="plugin-author" placeholder="Author name...">
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePluginModal()" data-localize="btn-cancel">Cancel</button>
+                <button class="btn btn-primary" onclick="submitNewPlugin()" data-localize="btn-save">Save</button>
+            </footer>
+        </div>
+    </div>
+
+
+    <!-- Kanban Run Task Capabilities Modal -->
+    <div class="modal" id="kanban-run-modal">
+        <div class="modal-content" style="width: 400px;">
+            <header class="modal-header">
+                <h3 data-localize="run-modal-title">Run Kanban Task</h3>
+                <button class="close-btn" onclick="closeKanbanRunModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label data-localize="label-capabilities" style="margin-bottom: 8px; display: block; font-weight: 600;">Capabilities</label>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-files" checked /> files (Filesystem & Reading)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-code" checked /> code (Shell & Commands)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-browser" /> browser (Web Browsing)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-github" /> github (GitHub repository tools)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="cap-devops" /> devops (Devops & Docker environment)
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeKanbanRunModal()" data-localize="btn-cancel">Cancel</button>
+                <button class="btn btn-primary" onclick="submitRunKanbanTask()">
+                    <i class="fa-solid fa-play"></i> <span data-localize="btn-run-task">Run Task</span>
+                </button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Agent Details Logs Modal -->
+    <div class="modal" id="agent-details-modal">
+        <div class="modal-content" style="width: 700px; max-width: 95%;">
+            <header class="modal-header">
+                <h3><i class="fa-solid fa-terminal"></i> Agent Logs #<span id="modal-agent-id">...</span></h3>
+                <button class="close-btn" onclick="closeAgentDetailsModal()"><i class="fa-solid fa-times"></i></button>
+            </header>
+            <div class="modal-body" style="padding: 12px;">
+                <pre class="logs-console" id="agent-logs-content">Loading logs...</pre>
+            </div>
+            <footer class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeAgentDetailsModal()">Close</button>
             </footer>
         </div>
@@ -1046,6 +1322,7 @@
     <script src="js/skills.js"></script>
     <script src="js/agents.js"></script>
     <script src="js/mcp.js"></script>
+    <script src="js/schedule.js"></script>
     <script src="js/app.js"></script>
 
 </body>

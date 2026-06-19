@@ -155,6 +155,7 @@ function switchTab(tabId) {
     if (tabId === 'sessions') loadSessions();
     if (tabId === 'settings') loadSettings();
     if (tabId === 'skills') loadPluginsAndSkills();
+    if (tabId === 'schedule') loadScheduledTasks();
     
     // Customization tabs empty loaders
     if (tabId === 'instructions') { if (typeof loadUserProfile === 'function') loadUserProfile(); }
