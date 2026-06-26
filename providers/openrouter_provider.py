@@ -67,6 +67,7 @@ class OpenRouterProvider(LLMProvider):
         resp = self._client.chat.completions.create(**kwargs)
 
         tool_chunks: dict[int, dict] = {}
+        _finish_reason = None
 
         for chunk in resp:
             if cancel_event and cancel_event.is_set():
@@ -75,6 +76,8 @@ class OpenRouterProvider(LLMProvider):
 
             choice = chunk.choices[0]
             delta = choice.delta
+            if getattr(choice, "finish_reason", None):
+                _finish_reason = choice.finish_reason
 
             if delta.tool_calls:
                 for tc in delta.tool_calls:
@@ -92,6 +95,9 @@ class OpenRouterProvider(LLMProvider):
 
             if delta.content:
                 yield delta.content
+
+        if _finish_reason:
+            yield {"__finish_reason__": _finish_reason}
 
         # Yield tool call chunks after text
         for idx, stc in sorted(tool_chunks.items()):

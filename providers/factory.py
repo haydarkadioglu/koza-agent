@@ -70,7 +70,10 @@ def get_provider(cfg: dict) -> LLMProvider:
         fallback_model = cfg.get("fallback_model", "")
         fallback = _build_provider(fallback_name, cfg, fallback_model)
         from .fallback_provider import FallbackProvider
-        return FallbackProvider(primary, fallback)
+        provider = FallbackProvider(primary, fallback)
+    else:
+        provider = primary
 
-    return primary
+    from .base import SanitizingProviderWrapper
+    return SanitizingProviderWrapper(provider)
 

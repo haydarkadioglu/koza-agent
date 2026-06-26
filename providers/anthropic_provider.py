@@ -171,6 +171,13 @@ class AnthropicProvider(LLMProvider):
                     "args_chunk": json.dumps(args_parsed),
                 }
 
+        try:
+            final_msg = stream.get_final_message()
+            if final_msg and getattr(final_msg, "stop_reason", None) == "max_tokens":
+                yield {"__finish_reason__": "length"}
+        except Exception:
+            pass
+
     def list_models(self) -> list[str]:
         return [
             "claude-opus-4-5",

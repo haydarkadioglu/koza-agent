@@ -1,5 +1,6 @@
 """Base LLM provider interface."""
 import json
+import re
 import threading
 from abc import ABC, abstractmethod
 from typing import Any, Generator
@@ -216,3 +217,138 @@ class LLMProvider(ABC):
                 m["content"] = str(m.get("content", ""))
             normalized.append(m)
         return normalized
+
+
+_SURROGATE_RE = re.compile(r'[\ud800-\udfff]')
+
+
+def sanitize_messages_surrogates(messages: list[dict]) -> bool:
+    """Sanitize surrogate characters from all string content in a messages list.
+
+    Walks message dicts in-place. Returns True if any surrogates were found
+    and replaced, False otherwise.
+    """
+    found = False
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and _SURROGATE_RE.search(content):
+            msg["content"] = _SURROGATE_RE.sub('\ufffd', content)
+            found = True
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    text = part.get("text")
+                    if isinstance(text, str) and _SURROGATE_RE.search(text):
+                        part["text"] = _SURROGATE_RE.sub('\ufffd', text)
+                        found = True
+        name = msg.get("name")
+        if isinstance(name, str) and _SURROGATE_RE.search(name):
+            msg["name"] = _SURROGATE_RE.sub('\ufffd', name)
+            found = True
+        tool_calls = msg.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for tc in tool_calls:
+                if not isinstance(tc, dict):
+                    continue
+                tc_id = tc.get("id")
+                if isinstance(tc_id, str) and _SURROGATE_RE.search(tc_id):
+                    tc["id"] = _SURROGATE_RE.sub('\ufffd', tc_id)
+                    found = True
+                fn = tc.get("function")
+                if isinstance(fn, dict):
+                    fn_name = fn.get("name")
+                    if isinstance(fn_name, str) and _SURROGATE_RE.search(fn_name):
+                        fn["name"] = _SURROGATE_RE.sub('\ufffd', fn_name)
+                        found = True
+                    fn_args = fn.get("arguments")
+                    if isinstance(fn_args, str) and _SURROGATE_RE.search(fn_args):
+                        fn["arguments"] = _SURROGATE_RE.sub('\ufffd', fn_args)
+                        found = True
+        # Walk any additional string / nested fields
+        for key, value in msg.items():
+            if key in {"content", "name", "tool_calls", "role"}:
+                continue
+            if isinstance(value, str):
+                if _SURROGATE_RE.search(value):
+                    msg[key] = _SURROGATE_RE.sub('\ufffd', value)
+                    found = True
+            elif isinstance(value, (dict, list)):
+                if _sanitize_structure_surrogates(value):
+                    found = True
+    return found
+
+
+def _sanitize_structure_surrogates(payload: Any) -> bool:
+    """Replace surrogate code points in nested dict/list payloads in-place."""
+    found = False
+
+    def _walk(node):
+        nonlocal found
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(value, str):
+                    if _SURROGATE_RE.search(value):
+                        node[key] = _SURROGATE_RE.sub('\ufffd', value)
+                        found = True
+                elif isinstance(value, (dict, list)):
+                    _walk(value)
+        elif isinstance(node, list):
+            for idx, value in enumerate(node):
+                if isinstance(value, str):
+                    if _SURROGATE_RE.search(value):
+                        node[idx] = _SURROGATE_RE.sub('\ufffd', value)
+                        found = True
+                elif isinstance(value, (dict, list)):
+                    _walk(value)
+
+    _walk(payload)
+    return found
+
+
+class SanitizingProviderWrapper(LLMProvider):
+    """Wraps an LLMProvider to sanitize surrogate characters in messages before API calls."""
+    def __init__(self, provider: LLMProvider):
+        self._provider = provider
+
+    def chat(self, messages, tools=None, stream=False):
+        sanitize_messages_surrogates(messages)
+        return self._provider.chat(messages, tools=tools, stream=stream)
+
+    def stream_chat(self, messages, tools=None, cancel_event=None):
+        sanitize_messages_surrogates(messages)
+        return self._provider.stream_chat(messages, tools=tools, cancel_event=cancel_event)
+
+    def list_models(self) -> list[str]:
+        return self._provider.list_models()
+
+    @property
+    def name(self) -> str:
+        return self._provider.name
+
+    @property
+    def model(self) -> str:
+        return self._provider.model
+
+    def rotate_key(self) -> bool:
+        return self._provider.rotate_key()
+
+    @property
+    def supports_thinking(self) -> bool:
+        return self._provider.supports_thinking
+
+    @property
+    def supports_vision(self) -> bool:
+        return self._provider.supports_vision
+
+    def __getattr__(self, name):
+        return getattr(self._provider, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_provider":
+            super().__setattr__(name, value)
+        elif hasattr(self, "_provider") and hasattr(self._provider, name):
+            setattr(self._provider, name, value)
+        else:
+            super().__setattr__(name, value)

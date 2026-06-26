@@ -65,6 +65,7 @@ class DeepSeekProvider(LLMProvider):
         )
 
         tool_chunks: dict[int, dict] = {}
+        _finish_reason = None
         text_buf  = ""   # accumulates ALL emitted text (for DSML post-check)
         pending   = ""   # look-ahead buffer for DSML detection
         # Max chars to hold in pending before we give up and treat as plain text
@@ -86,6 +87,8 @@ class DeepSeekProvider(LLMProvider):
                 continue
             choice = chunk.choices[0]
             delta  = choice.delta
+            if getattr(choice, "finish_reason", None):
+                _finish_reason = choice.finish_reason
 
             # ── Proper API tool call chunks ───────────────────────────────────
             if delta.tool_calls:
@@ -200,6 +203,9 @@ class DeepSeekProvider(LLMProvider):
         # Yield any non-DSML text that was held in pending
         if clean_remainder:
             yield clean_remainder
+
+        if _finish_reason:
+            yield {"__finish_reason__": _finish_reason}
 
     def list_models(self) -> list[str]:
         try:

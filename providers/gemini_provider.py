@@ -850,7 +850,12 @@ class GeminiProvider(LLMProvider):
                 yield chunk.text
             # Handle streaming tool calls
             if chunk.candidates:
-                for part in (chunk.candidates[0].content.parts if chunk.candidates[0].content else []):
+                candidate = chunk.candidates[0]
+                if getattr(candidate, "finish_reason", None):
+                    reason_str = str(candidate.finish_reason).lower()
+                    if "max_tokens" in reason_str or "length" in reason_str:
+                        yield {"__finish_reason__": "length"}
+                for part in (candidate.content.parts if candidate.content else []):
                     if hasattr(part, "function_call") and part.function_call:
                         import json as _json
                         yield {
