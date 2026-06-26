@@ -64,6 +64,8 @@ TOOL_DEFINITIONS = [
 
 def git_operation(operation: str, repo_path: str = ".", remote_url: str = "",
                   message: str = "", branch: str = "") -> str:
+    if operation == "push":
+        return "ERROR: git push is disabled in Koza Agent to prevent accidental remote pushes. Please review and push changes manually."
     try:
         cmds = {
             "clone": ["git", "clone", remote_url],
@@ -72,7 +74,6 @@ def git_operation(operation: str, repo_path: str = ".", remote_url: str = "",
             "log": ["git", "-C", repo_path, "log", "--oneline", "-10"],
             "diff": ["git", "-C", repo_path, "diff"],
             "commit": ["git", "-C", repo_path, "commit", "-am", message or "Auto commit"],
-            "push": ["git", "-C", repo_path, "push"] + (["origin", branch] if branch else []),
         }
         cmd = cmds.get(operation)
         if not cmd:

@@ -100,6 +100,57 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_create_pr",
+            "description": "Create a new pull request on GitHub.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "owner/repo"},
+                    "title": {"type": "string", "description": "Title of the pull request"},
+                    "head": {"type": "string", "description": "The name of the branch where your changes are implemented"},
+                    "base": {"type": "string", "default": "main", "description": "The name of the branch you want the changes pulled into"},
+                    "body": {"type": "string", "default": "", "description": "The contents of the pull request description"},
+                },
+                "required": ["repo", "title", "head"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_get_pr",
+            "description": "Get detailed information about a pull request.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "owner/repo"},
+                    "number": {"type": "integer", "description": "PR number"},
+                },
+                "required": ["repo", "number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_merge_pr",
+            "description": "Merge a pull request.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "owner/repo"},
+                    "number": {"type": "integer", "description": "PR number"},
+                    "commit_title": {"type": "string", "default": "", "description": "Title for the automatic commit message"},
+                    "commit_message": {"type": "string", "default": "", "description": "Extra description for the commit message"},
+                    "merge_method": {"type": "string", "default": "merge", "enum": ["merge", "squash", "rebase"], "description": "The merge method to use"},
+                },
+                "required": ["repo", "number"],
+            },
+        },
+    },
 ]
 
 _github_token: str = ""
@@ -110,6 +161,20 @@ def init_github(token: str):
     _github_token = token
 
 
+def _get_github_token() -> str:
+    global _github_token
+    if _github_token:
+        return _github_token
+    try:
+        import os
+        from config import load_config
+        cfg = load_config()
+        token = cfg.get("github_token") or cfg.get("github", {}).get("token") or os.environ.get("GITHUB_TOKEN") or ""
+        return token
+    except Exception:
+        return ""
+
+
 def _gh_request(path: str, method: str = "GET", data: dict = None) -> dict:
     url = f"https://api.github.com{path}"
     headers = {
@@ -117,8 +182,9 @@ def _gh_request(path: str, method: str = "GET", data: dict = None) -> dict:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    if _github_token:
-        headers["Authorization"] = f"Bearer {_github_token}"
+    token = _get_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     body = json.dumps(data).encode() if data else None
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=15) as resp:
@@ -277,6 +343,54 @@ def github_prepare_repo(repo: str, branch: str = "", dest: str = "", update: boo
         return f"ERROR: {e}"
 
 
+def github_create_pr(repo: str, title: str, head: str, base: str = "main", body: str = "") -> str:
+    try:
+        payload = {
+            "title": title,
+            "head": head,
+            "base": base,
+        }
+        if body:
+            payload["body"] = body
+        data = _gh_request(f"/repos/{repo}/pulls", method="POST", data=payload)
+        return f"Pull Request created successfully: #{data['number']} — {data['html_url']}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def github_get_pr(repo: str, number: int) -> str:
+    try:
+        data = _gh_request(f"/repos/{repo}/pulls/{number}")
+        return (
+            f"PR #{data['number']}: {data['title']}\n"
+            f"State: {data['state']}  (Merged: {data.get('merged', False)})\n"
+            f"Created by: {data['user']['login']}  Created at: {data['created_at']}\n"
+            f"Branches: {data['head']['ref']} -> {data['base']['ref']}\n"
+            f"Commits: {data.get('commits', 0)}  Changes: +{data.get('additions', 0)} -{data.get('deletions', 0)} ({data.get('changed_files', 0)} files)\n\n"
+            f"Description:\n{data.get('body') or 'No description provided.'}\n\n"
+            f"URL: {data['html_url']}"
+        )
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def github_merge_pr(repo: str, number: int, commit_title: str = "", commit_message: str = "", merge_method: str = "merge") -> str:
+    try:
+        payload = {}
+        if commit_title:
+            payload["commit_title"] = commit_title
+        if commit_message:
+            payload["commit_message"] = commit_message
+        if merge_method:
+            payload["merge_method"] = merge_method
+        data = _gh_request(f"/repos/{repo}/pulls/{number}/merge", method="PUT", data=payload)
+        if data.get("merged"):
+            return f"PR #{number} merged successfully: {data.get('message', 'Success')}"
+        return f"PR #{number} merge failed: {data.get('message')}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
 HANDLERS = {
     "github_search_code": github_search_code,
     "github_create_issue": github_create_issue,
@@ -284,4 +398,7 @@ HANDLERS = {
     "github_repo_info": github_repo_info,
     "github_clone_repo": github_clone_repo,
     "github_prepare_repo": github_prepare_repo,
+    "github_create_pr": github_create_pr,
+    "github_get_pr": github_get_pr,
+    "github_merge_pr": github_merge_pr,
 }

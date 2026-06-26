@@ -12,12 +12,19 @@ from contextlib import contextmanager
 from pathlib import Path
 
 _db_path: str = ""
+_shared_conn: sqlite3.Connection | None = None
 MAX_ENTRIES = 20  # ring buffer size
 
 
 def init_db(db_path: str) -> None:
-    global _db_path
+    global _db_path, _shared_conn
     _db_path = db_path
+    if _shared_conn is not None:
+        try:
+            _shared_conn.close()
+        except Exception:
+            pass
+        _shared_conn = None
     if db_path != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with _conn() as conn:
@@ -36,14 +43,22 @@ def init_db(db_path: str) -> None:
 
 @contextmanager
 def _conn():
-    conn = sqlite3.connect(_db_path, timeout=30, check_same_thread=False)
-    conn.execute("PRAGMA busy_timeout=30000")
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+    global _shared_conn
+    if _db_path == ":memory:":
+        if _shared_conn is None:
+            _shared_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            _shared_conn.row_factory = sqlite3.Row
+        yield _shared_conn
+        _shared_conn.commit()
+    else:
+        conn = sqlite3.connect(_db_path, timeout=30, check_same_thread=False)
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
 
 # ─── Internal: auto-trim to ring buffer size ─────────────────────────────────

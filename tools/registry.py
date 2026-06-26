@@ -44,6 +44,7 @@ from skills import (
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
     config_manager, image_gen, sync, skill_ecosystem, vision, plugin_loader, delegation, repo_manager, code_tools,
+    reminder, user_profile,
 )
 
 
@@ -99,6 +100,8 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + sync.TOOL_DEFINITIONS
     + vision.TOOL_DEFINITIONS
     + plugin_loader.TOOL_DEFINITIONS
+    + reminder.TOOL_DEFINITIONS
+    + user_profile.TOOL_DEFINITIONS
 )
 
 _STATIC_HANDLERS: dict[str, Callable] = {
@@ -140,6 +143,8 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **sync.HANDLERS,
     **vision.HANDLERS,
     **plugin_loader.HANDLERS,
+    **reminder.HANDLERS,
+    **user_profile.HANDLERS,
 }
 
 STATIC_SKILL_MODULES = {
@@ -181,6 +186,8 @@ STATIC_SKILL_MODULES = {
     "delegation": delegation,
     "repo_manager": repo_manager,
     "code_tools": code_tools,
+    "reminder": reminder,
+    "user_profile": user_profile,
 }
 
 _REGISTRY_INITIALIZED = True
@@ -288,6 +295,7 @@ def coerce_tool_args(tool_name: str, args: dict) -> dict:
     for key, value in list(args.items()):
         prop_schema = properties.get(key)
         if not prop_schema:
+            del args[key]
             continue
         expected = prop_schema.get("type")
 

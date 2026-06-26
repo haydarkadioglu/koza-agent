@@ -8,7 +8,7 @@ get_user_context() is called by the Agent at init-time to inject them into the
 system prompt automatically.
 """
 import time
-from skills.shared_memory import memory_store, memory_delete, _db_path, _conn, init_db
+from skills import shared_memory
 
 _RULE_PREFIX = "user.rule."
 _NOTE_PREFIX = "user.note."
@@ -19,7 +19,7 @@ def user_rule_add(rule: str) -> str:
     if not rule.strip():
         return "Rule text cannot be empty."
     key = f"{_RULE_PREFIX}{int(time.time())}"
-    return memory_store(key, rule.strip(), tags="user,rule", source="user")
+    return shared_memory.memory_store(key, rule.strip(), tags="user,rule", source="user")
 
 
 def user_note_add(note: str) -> str:
@@ -27,14 +27,14 @@ def user_note_add(note: str) -> str:
     if not note.strip():
         return "Note text cannot be empty."
     key = f"{_NOTE_PREFIX}{int(time.time())}"
-    return memory_store(key, note.strip(), tags="user,note", source="agent")
+    return shared_memory.memory_store(key, note.strip(), tags="user,note", source="agent")
 
 
 def user_profile_list() -> str:
     """List all user rules and notes."""
-    if not _db_path:
+    if not shared_memory._db_path:
         return "User profile DB not initialized."
-    with _conn() as conn:
+    with shared_memory._conn() as conn:
         rows = conn.execute(
             """SELECT key, value, source, updated_at FROM shared_memory
                WHERE tags LIKE '%user%'
@@ -60,19 +60,19 @@ def user_profile_list() -> str:
 
 def user_profile_delete(key: str) -> str:
     """Delete a user rule or note by its key."""
-    return memory_delete(key)
+    return shared_memory.memory_delete(key)
 
 
 def get_user_context(db_path: str = "") -> str:
     """Return a compact string of user rules + notes for injection into system prompt.
     Returns empty string if no data exists (so nothing is added to prompt).
     """
-    if db_path and not _db_path:
-        init_db(db_path)
-    if not _db_path:
+    if db_path and not shared_memory._db_path:
+        shared_memory.init_db(db_path)
+    if not shared_memory._db_path:
         return ""
     try:
-        with _conn() as conn:
+        with shared_memory._conn() as conn:
             rows = conn.execute(
                 """SELECT key, value FROM shared_memory
                    WHERE tags LIKE '%user%'
