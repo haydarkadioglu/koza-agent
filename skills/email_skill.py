@@ -15,6 +15,71 @@ from email.header import decode_header as _decode_header
 from email.utils import formataddr as _formataddr, parseaddr as _parseaddr
 from pathlib import Path
 from typing import Optional
+import socket
+
+def _create_ipv4_connection(
+    host: str,
+    port: int,
+    timeout: Optional[float] = None,
+    source_address = None,
+) -> socket.socket:
+    """Create a TCP connection using only IPv4 addresses to prevent IPv6 hanging."""
+    last_error: OSError | None = None
+    for family, socktype, proto, _canonname, sockaddr in socket.getaddrinfo(
+        host, port, socket.AF_INET, socket.SOCK_STREAM
+    ):
+        sock = socket.socket(family, socktype, proto)
+        if timeout is not None:
+            sock.settimeout(timeout)
+        try:
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            sock.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError(f"No IPv4 address found for {host}:{port}")
+
+class _IPv4SMTP(smtplib.SMTP):
+    def _get_socket(self, host, port, timeout):
+        return _create_ipv4_connection(
+            host,
+            port,
+            timeout,
+            source_address=self.source_address,
+        )
+
+class _IPv4SMTP_SSL(smtplib.SMTP_SSL):
+    def _get_socket(self, host, port, timeout):
+        raw_sock = _create_ipv4_connection(
+            host,
+            port,
+            timeout,
+            source_address=self.source_address,
+        )
+        return self.context.wrap_socket(
+            raw_sock,
+            server_hostname=getattr(self, "_host", host),
+        )
+
+class _IPv4IMAP4_SSL(imaplib.IMAP4_SSL):
+    def open(self, host='', port=993, timeout=None):
+        self.host = host
+        self.port = port
+        self.sock = _create_ipv4_connection(
+            host,
+            port,
+            timeout or getattr(self, "timeout", None)
+        )
+        self.file = self.sock.makefile('rb')
+        if hasattr(self, "context") and self.context:
+            self.sock = self.context.wrap_socket(self.sock, server_hostname=host)
+        else:
+            self.sock = _ssl.wrap_socket(self.sock)
+
 
 # ── Auto-detect SMTP/IMAP settings from email domain ────────────────────────
 _DOMAIN_PRESETS = {
@@ -77,12 +142,15 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "to": {
                         "type": "string",
-                        "description": "Recipient(s) — comma-separated addresses or single address.",
+                        "description": "Recipient(s) — comma-separated addresses or single address. If sending to yourself, you can pass 'me', 'self', or 'kendime'.",
                     },
-                    "subject": {"type": "string", "description": "Email subject line."},
+                    "subject": {
+                        "type": "string",
+                        "description": "Email subject line. If omitted, a default subject is auto-generated.",
+                    },
                     "body": {
                         "type": "string",
-                        "description": "Email body. Plain text by default; set html=true for HTML content.",
+                        "description": "Email body. If omitted, a default notification message is auto-generated.",
                     },
                     "html": {
                         "type": "boolean",
@@ -127,7 +195,6 @@ TOOL_DEFINITIONS = [
                         "description": "SMTP password or app password. Uses config value if omitted.",
                     },
                 },
-                "required": ["to", "subject", "body"],
             },
         },
     },
@@ -294,8 +361,33 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "email_setup",
-            "description": "Interactive email setup wizard. Configures SMTP/IMAP credentials and saves to Koza config. Walks through App Password setup for Gmail.",
-            "parameters": {"type": "object", "properties": {}},
+            "description": "Configure email SMTP/IMAP credentials. Can be run interactively or with direct arguments.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email_addr": {
+                        "type": "string",
+                        "description": "Email address / username to configure. Optional."
+                    },
+                    "password": {
+                        "type": "string",
+                        "description": "Email password or App Password. Optional."
+                    },
+                    "smtp_host": {
+                        "type": "string",
+                        "description": "SMTP host (e.g. smtp.gmail.com). Optional."
+                    },
+                    "smtp_port": {
+                        "type": "integer",
+                        "description": "SMTP port (e.g. 587). Optional."
+                    },
+                    "imap_host": {
+                        "type": "string",
+                        "description": "IMAP host (e.g. imap.gmail.com). Optional."
+                    }
+                },
+                "required": []
+            },
         },
     },
 ]
@@ -395,21 +487,107 @@ def _resolve_credentials(
 
 
 def _get_smtp_conn(host: str, port: int) -> smtplib.SMTP:
-    """Open SMTP connection — uses SSL on port 465, STARTTLS otherwise."""
-    if port == 465:
-        context = _ssl.create_default_context()
-        return smtplib.SMTP_SSL(host, port, context=context, timeout=15)
-    srv = smtplib.SMTP(host, port, timeout=15)
-    srv.ehlo()
-    srv.starttls()
-    srv.ehlo()
-    return srv
+    """Open SMTP connection — uses SSL on port 465, STARTTLS otherwise.
+    
+    Retries with IPv4 fallback on connection-level failures (e.g. unreachable IPv6),
+    and falls back to an unverified SSL context if certificate verification fails.
+    """
+    context = _ssl.create_default_context()
+    
+    def _connect(*, ipv4_only: bool = False, ctx: _ssl.SSLContext = context) -> smtplib.SMTP:
+        smtp_cls = _IPv4SMTP if ipv4_only else smtplib.SMTP
+        smtp_ssl_cls = _IPv4SMTP_SSL if ipv4_only else smtplib.SMTP_SSL
+        
+        if port == 465:
+            return smtp_ssl_cls(host, port, context=ctx, timeout=15)
+            
+        srv = smtp_cls(host, port, timeout=15)
+        try:
+            srv.ehlo()
+            srv.starttls(context=ctx)
+            srv.ehlo()
+            return srv
+        except Exception:
+            srv.close()
+            raise
+
+    try:
+        return _connect()
+    except Exception as exc:
+        if isinstance(exc, _ssl.SSLError):
+            # Fallback to unverified SSL context
+            unverified_ctx = _ssl._create_unverified_context()
+            try:
+                return _connect(ctx=unverified_ctx)
+            except Exception:
+                raise exc
+        if isinstance(exc, (socket.timeout, TimeoutError, ConnectionError, OSError)):
+            try:
+                return _connect(ipv4_only=True)
+            except Exception as exc2:
+                if isinstance(exc2, _ssl.SSLError):
+                    unverified_ctx = _ssl._create_unverified_context()
+                    try:
+                        return _connect(ipv4_only=True, ctx=unverified_ctx)
+                    except Exception:
+                        raise exc2
+                raise exc2
+        raise exc
+
+
+def _get_imap_conn(host: str, port: int = 993) -> imaplib.IMAP4_SSL:
+    """Create an IMAP connection, with IPv4 fallback on connection failures and SSL fallback on verification errors."""
+    context = _ssl.create_default_context()
+
+    def _connect(*, ipv4_only: bool = False, ctx: _ssl.SSLContext = context) -> imaplib.IMAP4_SSL:
+        if ipv4_only:
+            return _IPv4IMAP4_SSL(host, port, ssl_context=ctx, timeout=15)
+        return imaplib.IMAP4_SSL(host, port, ssl_context=ctx, timeout=15)
+
+    try:
+        return _connect()
+    except Exception as exc:
+        if isinstance(exc, _ssl.SSLError):
+            unverified_ctx = _ssl._create_unverified_context()
+            try:
+                return _connect(ctx=unverified_ctx)
+            except Exception:
+                raise exc
+        if isinstance(exc, (socket.timeout, TimeoutError, ConnectionError, OSError)):
+            try:
+                return _connect(ipv4_only=True)
+            except Exception as exc2:
+                if isinstance(exc2, _ssl.SSLError):
+                    unverified_ctx = _ssl._create_unverified_context()
+                    try:
+                        return _connect(ipv4_only=True, ctx=unverified_ctx)
+                    except Exception:
+                        raise exc2
+                raise exc2
+        raise exc
+
+
+def _send_imap_id(imap: imaplib.IMAP4) -> None:
+    """Send RFC 2971 IMAP ID command identifying this client.
+    Required by 163/NetEase mailbox after LOGIN to prevent disconnects.
+    Swallows failures so non-supporting servers keep working.
+    """
+    try:
+        imap.xatom(
+            "ID",
+            '("name" "koza-agent" "version" "1.0.0" '
+            '"vendor" "koza" '
+            '"support-email" "noreply@koza-agent.org")',
+        )
+    except Exception:
+        pass
+
 
 
 def send_email(
-    to: str,
-    subject: str,
-    body: str,
+    to: str = "me",
+    subject: str = "",
+    body: str = "",
     html: bool = False,
     cc: str = "",
     bcc: str = "",
@@ -427,6 +605,15 @@ def send_email(
         return "ERROR: No email username configured. Set email.username in config or pass username parameter."
     if not p:
         return "ERROR: No email password configured. Set email.password in config or pass password parameter."
+
+    recipient_clean = to.strip().lower() if isinstance(to, str) else ""
+    if not recipient_clean or recipient_clean in ("me", "self", "myself", "bana", "kendime"):
+        to = u
+
+    if not subject:
+        subject = "Notification from Koza"
+    if not body:
+        body = "This is an automated notification from your Koza Agent."
 
     to_list  = _parse_recipients(to)
     cc_list  = _parse_recipients(cc)  if cc  else []
@@ -511,8 +698,9 @@ def read_emails(
     limit = min(int(limit), 20)
 
     try:
-        mail = imaplib.IMAP4_SSL(h, timeout=15)
+        mail = _get_imap_conn(h)
         mail.login(u, p)
+        _send_imap_id(mail)
         mail.select(folder)
         criterion = "UNSEEN" if unread_only else "ALL"
         _, data = mail.search(None, criterion)
@@ -566,8 +754,9 @@ def search_emails(
     imap_criteria = _build_imap_criteria(query, since_date)
 
     try:
-        mail = imaplib.IMAP4_SSL(h, timeout=15)
+        mail = _get_imap_conn(h)
         mail.login(u, p)
+        _send_imap_id(mail)
         mail.select(folder, readonly=True)
         _, data = mail.search(None, imap_criteria)
         ids = data[0].split()
@@ -821,13 +1010,46 @@ def send_batch_emails(
 
 # ─── Email Setup (interactive) ────────────────────────────────────────────────
 
-def email_setup() -> str:
-    """Interactive email setup — configures SMTP/IMAP credentials."""
+def email_setup(
+    email_addr: str = "",
+    password: str = "",
+    smtp_host: str = "",
+    smtp_port: int = 0,
+    imap_host: str = "",
+) -> str:
+    """Configure email SMTP/IMAP credentials. Supports direct arguments or interactive prompts."""
     import sys
+
+    # Direct arguments mode
+    if email_addr and password:
+        preset = _preset_for(email_addr)
+        shost = smtp_host or preset.get("smtp_host", "smtp.gmail.com")
+        sport = smtp_port or preset.get("smtp_port", 587)
+        ihost = imap_host or preset.get("imap_host", "imap.gmail.com")
+
+        from config import load_config, save_config
+        cfg = load_config()
+        cfg.setdefault("email", {})
+        cfg["email"]["username"] = email_addr
+        cfg["email"]["password"] = password
+        cfg["email"]["smtp_host"] = shost
+        cfg["email"]["smtp_port"] = sport
+        cfg["email"]["imap_host"] = ihost
+        save_config(cfg)
+        init_email(cfg)
+
+        return (
+            f"✅ Email configured for {email_addr}\n"
+            f"   SMTP: {shost}:{sport}\n"
+            f"   IMAP: {ihost}\n"
+            f"   Test with: send_email(to='test@example.com', subject='Test', body='Hello!')\n"
+        )
+
+    # Interactive mode fallback
     if not (sys.stdin and sys.stdin.isatty()):
         return (
             "❌ Non-interactive environment detected.\n"
-            "   Please configure your email credentials directly in the Settings panel (under 'Messaging & Sync' -> 'Email') of the GUI interface."
+            "   Please configure your email credentials directly in the Settings panel (under 'Messaging & Sync' -> 'Email') of the GUI interface, or use programmatic setup: email_setup(email_addr='...', password='...')"
         )
 
     from cli.ui import _C, _prompt, _prompt_secret
@@ -879,5 +1101,5 @@ HANDLERS = {
     "reply_email":       lambda **kw: reply_email(**kw),
     "send_batch_emails": lambda **kw: send_batch_emails(**kw),
     "email_log":         lambda limit=20: email_log(int(limit)),
-    "email_setup":       lambda: email_setup(),
+    "email_setup":       lambda **kw: email_setup(**kw),
 }
