@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Core agent loop — tool-calling orchestration."""
 import shutil
 import sys
@@ -14,6 +15,99 @@ from tools.registry import ALL_TOOLS, ALL_HANDLERS
 
 # Re-export context constants from core_context for backward compatibility
 from core_context import MAX_CONTEXT_MESSAGES, TOOL_COMPACT_AFTER
+
+
+def _escape_invalid_chars_in_json_strings(raw: str) -> str:
+    """Escape unescaped control chars inside JSON string values."""
+    out: list[str] = []
+    in_string = False
+    i = 0
+    n = len(raw)
+    while i < n:
+        ch = raw[i]
+        if in_string:
+            if ch == "\\" and i + 1 < n:
+                out.append(ch)
+                out.append(raw[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+            elif ord(ch) < 0x20:
+                out.append(f"\\u{ord(ch):04x}")
+            else:
+                out.append(ch)
+        else:
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _repair_tool_call_arguments(raw_args: str, tool_name: str = "?") -> str:
+    """Attempt to repair malformed tool_call argument JSON.
+
+    Adopts the Hermes JSON repair taxonomy (trailing commas, control chars, unclosed braces).
+    """
+    import json
+    import re
+
+    raw_stripped = raw_args.strip() if isinstance(raw_args, str) else ""
+    if not raw_stripped:
+        return "{}"
+
+    if raw_stripped == "None":
+        return "{}"
+
+    # Repair pass 0: strict=False json load/dump
+    try:
+        parsed = json.loads(raw_stripped, strict=False)
+        return json.dumps(parsed, separators=(",", ":"))
+    except Exception:
+        pass
+
+    # Attempt common JSON repairs
+    fixed = raw_stripped
+    fixed = re.sub(r',\s*([}\]])', r'\1', fixed)
+
+    open_curly = fixed.count('{') - fixed.count('}')
+    open_bracket = fixed.count('[') - fixed.count(']')
+    if open_curly > 0:
+        fixed += '}' * open_curly
+    if open_bracket > 0:
+        fixed += ']' * open_bracket
+
+    for _ in range(50):
+        try:
+            json.loads(fixed)
+            break
+        except json.JSONDecodeError:
+            if fixed.endswith('}') and fixed.count('}') > fixed.count('{'):
+                fixed = fixed[:-1]
+            elif fixed.endswith(']') and fixed.count(']') > fixed.count('['):
+                fixed = fixed[:-1]
+            else:
+                break
+
+    try:
+        json.loads(fixed)
+        return fixed
+    except json.JSONDecodeError:
+        pass
+
+    # Repair pass 4: escape control chars and retry
+    try:
+        escaped = _escape_invalid_chars_in_json_strings(fixed)
+        if escaped != fixed:
+            json.loads(escaped)
+            return escaped
+    except Exception:
+        pass
+
+    return "{}"
+
 
 
 def _detect_capabilities() -> dict:
@@ -289,6 +383,129 @@ def _tool_name(t: dict) -> str:
 _TOOL_BY_NAME: dict[str, dict] = {_tool_name(t): t for t in ALL_TOOLS}
 
 
+class ToolLoopGuardrail:
+    """
+    Tracks tool-call failures and repetition across a single turn/loop.
+    Provides warning or block actions to steer model out of loop state.
+    """
+    IDEMPOTENT_TOOLS = frozenset({
+        "read_file", "read_file_range", "search_files", "find_files", "list_dir",
+        "web_search", "fetch_url", "memory_recall", "memory_search",
+        "get_config", "list_tasks", "list_crons", "list_subagents", "get_subagent_status",
+        "email_log", "list_core_skills", "plugin_list"
+    })
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self._consecutive_idempotent_calls: dict[tuple[str, str], list[str]] = {}
+        self._consecutive_failures: dict[tuple[str, str], int] = {}
+        self._total_failures_by_tool: dict[str, int] = {}
+
+    def before_call(self, name: str, args: dict) -> tuple[bool, str]:
+        import json
+        try:
+            args_str = json.dumps(args, sort_keys=True)
+        except Exception:
+            args_str = str(args)
+
+        key = (name, args_str)
+
+        # 1. Block if the exact same tool call has failed 4 or more times
+        exact_fail_count = self._consecutive_failures.get(key, 0)
+        if exact_fail_count >= 4:
+            msg = (
+                f"ERROR: Tool call blocked. The tool call '{name}' with arguments {args} "
+                f"has failed {exact_fail_count} times consecutively. Stop retrying it unchanged; "
+                f"change your arguments, switch to a different tool, or report the blocker to the user."
+            )
+            return True, msg
+
+        # 2. Block if we've run this same tool in general 7 times and it failed
+        tool_fail_count = self._total_failures_by_tool.get(name, 0)
+        if tool_fail_count >= 7:
+            msg = (
+                f"ERROR: Tool call blocked. The tool '{name}' has failed {tool_fail_count} times in this turn. "
+                f"Stop retrying this tool; change strategy entirely."
+            )
+            return True, msg
+
+        # 3. Block if we've run this idempotent tool and got the same result 5 times consecutively
+        if name in self.IDEMPOTENT_TOOLS:
+            consec_results = self._consecutive_idempotent_calls.get(key, [])
+            if len(consec_results) >= 5:
+                msg = (
+                    f"ERROR: Tool call blocked. This read-only tool call has returned the same result "
+                    f"{len(consec_results)} times consecutively. Stop repeating it unchanged; "
+                    f"use the information already returned in previous turns or try a different query."
+                )
+                return True, msg
+
+        return False, ""
+
+    def after_call(self, name: str, args: dict, result: str) -> str:
+        import json
+        try:
+            args_str = json.dumps(args, sort_keys=True)
+        except Exception:
+            args_str = str(args)
+
+        key = (name, args_str)
+
+        is_failure = False
+        result_str = str(result).strip()
+        if result_str:
+            if "Exit code:" in result_str and "Exit code: 0" not in result_str:
+                is_failure = True
+            else:
+                lower = result_str.lower()
+                if (
+                    result_str.startswith("ERROR:")
+                    or result_str.startswith("Tool error")
+                    or result_str.startswith("Unknown tool")
+                    or result_str.startswith("❌")
+                    or result_str.startswith("[Tool execution cancelled")
+                    or any(err in lower[:50] for err in ("failed", "not configured", "not installed", "required", "error:", "timed out", "permission denied"))
+                ):
+                    is_failure = True
+
+        if is_failure:
+            self._consecutive_failures[key] = self._consecutive_failures.get(key, 0) + 1
+            self._total_failures_by_tool[name] = self._total_failures_by_tool.get(name, 0) + 1
+            self._consecutive_idempotent_calls.pop(key, None)
+
+            exact_fail_count = self._consecutive_failures[key]
+            if exact_fail_count >= 2:
+                warning = (
+                    f"\n\n[Warning: Tool call '{name}' has failed {exact_fail_count} times consecutively "
+                    f"with identical arguments. This looks like a loop; inspect the error, check your credentials "
+                    f"or configurations, and modify your arguments/strategy instead of retrying unchanged.]"
+                )
+                return result + warning
+        else:
+            self._consecutive_failures.pop(key, None)
+            self._total_failures_by_tool[name] = max(0, self._total_failures_by_tool.get(name, 0) - 1)
+
+            if name in self.IDEMPOTENT_TOOLS:
+                results = self._consecutive_idempotent_calls.setdefault(key, [])
+                results.append(result_str)
+                if len(results) > 10:
+                    results.pop(0)
+
+                if len(results) >= 3 and len(set(results[-3:])) == 1:
+                    warning = (
+                        f"\n\n[Warning: This read-only tool call has returned the same result {len(results)} "
+                        f"times consecutively. Use the results already returned above or change arguments "
+                        f"instead of repeating the request.]"
+                    )
+                    return result + warning
+            else:
+                self._consecutive_idempotent_calls.clear()
+
+        return result
+
+
 def _expand_tools_for_call(current_tools: list[dict], called_names: list[str]) -> list[dict]:
     """
     Dynamically expand the tool list when the model calls a tool that wasn't
@@ -319,9 +536,9 @@ def _expand_tools_for_call(current_tools: list[dict], called_names: list[str]) -
 import re as _re
 _CRED_PATTERNS = _re.compile(
     r"(?:"
-    r"(?P<service1>[\w\s]+?)\s+(?:api\s*)?(?:key|token|secret|password|credential|apikey|api_key|access_token)\s*(?:is|:|=)\s*(?P<val1>\S{8,})"
+    r"(?P<service1>[\w\s]+?)\s+(?:api\s*)?(?:key|token|secret|password|credential|apikey|api_key|access_token|anahtar|anahtarı|şifre|sifre|parola)\s*(?:is|:|da|de|=)\s*(?P<val1>\S{8,})"
     r"|(?P<val2>(?:sk-|ghp_|xox[bprao]-|Bearer\s+)\S{6,})"
-    r"|(?P<service2>[\w]+)\s+(?:api\s+)?key\s*[:=]\s*(?P<val3>\S{8,})"
+    r"|(?P<service2>[\w]+)\s+(?:api\s+)?(?:key|anahtar)\s*[:=]\s*(?P<val3>\S{8,})"
     r")",
     _re.IGNORECASE,
 )
@@ -340,6 +557,14 @@ def _select_tools(user_input: str, messages: list[dict] = None, router_groups: s
     """
     lower = user_input.lower()
     groups: set[str] = set()
+
+    # Regex checks on current user input
+    if _re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", user_input):
+        groups.add("email")
+    if _re.search(r"\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b|\b(?:05\d{9}|\+905\d{9})\b", user_input):
+        groups.add("message")
+    if _re.search(r"github\.com/[\w\-]+/[\w\-]+", user_input, _re.IGNORECASE) or _re.search(r"\bgithub\b", user_input, _re.IGNORECASE):
+        groups.update(["github", "devops"])
 
     # 1. Scan current user input
     for keyword, grp_list in _KEYWORD_MAP.items():
@@ -365,6 +590,12 @@ def _select_tools(user_input: str, messages: list[dict] = None, router_groups: s
                             recent_user_texts.append(item.get("text", "").lower())
         
         for r_text in recent_user_texts:
+            if _re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", r_text):
+                groups.add("email")
+            if _re.search(r"\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b|\b(?:05\d{9}|\+905\d{9})\b", r_text):
+                groups.add("message")
+            if _re.search(r"github\.com/[\w\-]+/[\w\-]+", r_text, _re.IGNORECASE) or _re.search(r"\bgithub\b", r_text, _re.IGNORECASE):
+                groups.update(["github", "devops"])
             for keyword, grp_list in _KEYWORD_MAP.items():
                 if keyword in r_text:
                     groups.update(grp_list)
@@ -471,10 +702,16 @@ class Agent:
         from skills import agents
         agents.init_db(db_path)
         
-        # Initialize IntentRouter
+        # Initialize IntentRouter and StreamingThinkScrubber
         from router import IntentRouter
+        from providers.think_scrubber import StreamingThinkScrubber
         coding_enabled = self.cfg.get("coding_mode", {}).get("enabled", False)
         self._router = IntentRouter(provider, coding_enabled=coding_enabled)
+        self._stream_think_scrubber = StreamingThinkScrubber()
+        
+        # Initialize tool execution middleware list
+        from tools.middleware import DEFAULT_MIDDLEWARES
+        self.tool_middlewares = list(DEFAULT_MIDDLEWARES)
         
         # Load tools and plugins dynamically based on active config state
         from tools.registry import rebuild_registry
@@ -501,6 +738,9 @@ class Agent:
             for sub in ("projects", "subagents", "tmp", "downloads"):
                 (ws / sub).mkdir(parents=True, exist_ok=True)
             _shell.set_cwd(str(ws))
+        
+        # Tool call loop guardrail
+        self._guardrail = ToolLoopGuardrail()
 
     @property
     def messages(self) -> list[dict]:
@@ -627,6 +867,58 @@ class Agent:
         })
 
 
+    def _resolve_available_tools(
+        self,
+        user_input: str,
+        tool_groups: set[str] | None,
+        is_local: bool,
+        previous_tools: list[dict] | None = None
+    ) -> list[dict]:
+        """
+        Resolve the final list of tools (up to 128) based on routing selection,
+        plugin tools prioritization, and optional merging with previously expanded tools.
+        """
+        tools = _select_tools(user_input, self.messages, router_groups=tool_groups)
+        if not is_local:
+            # For remote providers, maximize capabilities (up to 128 tools),
+            # but MUST prioritize selected tools so they are never truncated.
+            original_selected_names = {_tool_name(t) for t in tools}
+            selected_names = set(original_selected_names)
+            
+            from tools.registry import _PLUGIN_TOOLS
+            plugin_names = {_tool_name(t) for t in _PLUGIN_TOOLS}
+            
+            merged_tools = list(tools)
+            
+            # Prioritize plugin (e.g. MCP) tools so they don't get truncated
+            for t in ALL_TOOLS:
+                name = _tool_name(t)
+                if name not in selected_names and name in plugin_names:
+                    merged_tools.append(t)
+                    selected_names.add(name)
+            
+            for t in ALL_TOOLS:
+                if _tool_name(t) not in selected_names:
+                    merged_tools.append(t)
+            
+            if not getattr(self, "cfg", {}).get("dynamic_tool_selection_cloud", False):
+                tools = merged_tools[:128]
+            else:
+                if original_selected_names.issubset(_CORE_TOOL_NAMES):
+                    tools = merged_tools[:128]
+
+        if previous_tools:
+            # Merge current tools (including those added by _expand_tools_for_call)
+            merged = list(tools)
+            current_names = {_tool_name(t) for t in tools}
+            for t in previous_tools:
+                name = _tool_name(t)
+                if name not in current_names:
+                    merged.append(t)
+            tools = merged[:128]
+            
+        return tools
+
     def _run_conversation_loop(self, user_input: str, image_path: str | None = None):
         """
         Unified conversation loop that drives one turn.
@@ -640,6 +932,9 @@ class Agent:
           {"type": "interrupted"}
         """
         import time, json as _json
+
+        if hasattr(self, "_guardrail") and self._guardrail:
+            self._guardrail.reset()
 
         self._pre_fetched_context = ""
         try:
@@ -688,34 +983,7 @@ class Agent:
         self.messages.append(user_msg)
         is_local = getattr(self.provider, "name", "ollama") in ("ollama", "lm_studio")
         tool_groups = set(routing_decision.tool_groups) if routing_decision else None
-        tools = _select_tools(processed_input, self.messages, router_groups=tool_groups)
-        if not is_local:
-            # For remote providers, maximize capabilities (up to 128 tools),
-            # but MUST prioritize selected tools so they are never truncated.
-            original_selected_names = {_tool_name(t) for t in tools}
-            selected_names = set(original_selected_names)
-            
-            from tools.registry import _PLUGIN_TOOLS
-            plugin_names = {_tool_name(t) for t in _PLUGIN_TOOLS}
-            
-            merged_tools = list(tools)
-            
-            # Prioritize plugin (e.g. MCP) tools so they don't get truncated
-            for t in ALL_TOOLS:
-                name = _tool_name(t)
-                if name not in selected_names and name in plugin_names:
-                    merged_tools.append(t)
-                    selected_names.add(name)
-            
-            for t in ALL_TOOLS:
-                if _tool_name(t) not in selected_names:
-                    merged_tools.append(t)
-            
-            if not getattr(self, "cfg", {}).get("dynamic_tool_selection_cloud", False):
-                tools = merged_tools[:128]
-            else:
-                if original_selected_names.issubset(_CORE_TOOL_NAMES):
-                    tools = merged_tools[:128]
+        tools = self._resolve_available_tools(processed_input, tool_groups, is_local)
 
         self._cancel.clear()
         self._busy = True
@@ -725,10 +993,20 @@ class Agent:
         try:
             MAX_ROUNDS = 25  # safety cap — allows complex multi-step tasks
             empty_retries = 0
+            length_continuation_count = 0
             for _round in range(MAX_ROUNDS):
                 if self._cancel.is_set():
                     yield {"type": "interrupted"}
                     return
+
+                # Dynamically re-evaluate tools to pick up newly enabled skills / plugins, while preserving previously expanded tools
+                try:
+                    tools = self._resolve_available_tools(
+                        processed_input, tool_groups, is_local, previous_tools=tools
+                    )
+                except Exception as _tool_sel_err:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Error updating tools during loop: {_tool_sel_err}")
 
                 if self.provider.supports_thinking:
                     yield {"type": "thinking"}
@@ -741,8 +1019,11 @@ class Agent:
                 _stream_key_retries = 0
                 _stream_call_retries = 0
                 _MAX_STREAM_RETRIES = 3
+                _finish_reason = None
                 while True:
                     try:
+                        if hasattr(self, "_stream_think_scrubber"):
+                            self._stream_think_scrubber.reset()
                         for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
                             if self._cancel.is_set():
                                 yield {"type": "interrupted"}
@@ -756,11 +1037,23 @@ class Agent:
                                 if item.get("id"):
                                     _tool_buf[idx]["id"] = item["id"]
                                 _tool_buf[idx]["args"] += item.get("args_chunk", "")
+                            elif isinstance(item, dict) and item.get("__finish_reason__"):
+                                _finish_reason = item["__finish_reason__"]
                             else:
                                 token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
                                 if token:
-                                    full += token
-                                    yield {"type": "text", "token": token}
+                                    if hasattr(self, "_stream_think_scrubber"):
+                                        scrubbed = self._stream_think_scrubber.feed(token)
+                                    else:
+                                        scrubbed = token
+                                    if scrubbed:
+                                        full += scrubbed
+                                        yield {"type": "text", "token": scrubbed}
+                        if hasattr(self, "_stream_think_scrubber"):
+                            tail = self._stream_think_scrubber.flush()
+                            if tail:
+                                full += tail
+                                yield {"type": "text", "token": tail}
                         break  # stream finished successfully
                     except Exception as _e:
                         from providers.error_classifier import classify_api_error, FailoverReason
@@ -883,6 +1176,26 @@ class Agent:
                 # Reset empty retries counter if we got some content or tool calls
                 empty_retries = 0
 
+                if _finish_reason in ("length", "max_tokens"):
+                    if length_continuation_count < 3:
+                        length_continuation_count += 1
+                        self.messages.append({"role": "assistant", "content": full})
+                        self.messages.append({
+                            "role": "user",
+                            "content": (
+                                "[System: Your previous response was truncated by the output length limit. "
+                                "Continue exactly where you left off. Do not restart or repeat prior text. "
+                                "Finish the answer directly.]"
+                            )
+                        })
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"Response truncated. Triggering continuation round {length_continuation_count}/3."
+                        )
+                        if self.provider.supports_thinking:
+                            yield {"type": "thinking"}
+                        continue
+
                 # ── No tool calls → pure text response, done ─────────────────────
                 if not _tool_buf:
                     self.messages.append({"role": "assistant", "content": full})
@@ -891,10 +1204,15 @@ class Agent:
                 # ── Build call list from buffered chunks ─────────────────────────
                 calls = []
                 for idx, stc in sorted(_tool_buf.items()):
+                    raw_args = stc["args"] or "{}"
                     try:
-                        args_parsed = _json.loads(stc["args"] or "{}")
+                        args_parsed = _json.loads(raw_args)
                     except Exception:
-                        args_parsed = {}
+                        repaired = _repair_tool_call_arguments(raw_args, tool_name=stc["name"])
+                        try:
+                            args_parsed = _json.loads(repaired)
+                        except Exception:
+                            args_parsed = {}
                     calls.append({
                         "id": stc["id"] or stc["name"],
                         "name": stc["name"],
@@ -929,6 +1247,16 @@ class Agent:
                     parallel_calls = [(idx, c) for idx, c in enumerate(calls) if idx not in denied_indices]
                     
                     if parallel_calls:
+                        non_blocked_parallel_calls = []
+                        blocked_results = {}
+                        for idx, call in parallel_calls:
+                            name, args = call["name"], call["arguments"]
+                            blocked, synth_err = self._guardrail.before_call(name, args)
+                            if blocked:
+                                blocked_results[call["id"]] = synth_err
+                            else:
+                                non_blocked_parallel_calls.append((idx, call))
+
                         for _, call in parallel_calls:
                             name, args = call["name"], call["arguments"]
                             yield {"type": "tool_start", "name": name, "args": args}
@@ -955,26 +1283,82 @@ class Agent:
                             t_elapsed = time.time() - t0
                             return res, t_elapsed
 
-                        with ThreadPoolExecutor(max_workers=len(parallel_calls)) as executor:
-                            futures = [executor.submit(run_one, call) for _, call in parallel_calls]
-                            for (orig_idx, call), future in zip(parallel_calls, futures):
+                        if non_blocked_parallel_calls:
+                            import concurrent.futures
+                            with ThreadPoolExecutor(max_workers=len(non_blocked_parallel_calls)) as executor:
+                                future_to_call = {}
+                                for idx, call in non_blocked_parallel_calls:
+                                    future_to_call[executor.submit(run_one, call)] = (idx, call)
+
+                                futures = list(future_to_call.keys())
+                                completed_results = {}
+
+                                while futures:
+                                    if self._cancel.is_set():
+                                        for f in futures:
+                                            f.cancel()
+                                        break
+
+                                    done, futures = concurrent.futures.wait(
+                                        futures, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED
+                                    )
+
+                                    for f in done:
+                                        idx, call = future_to_call[f]
+                                        name, args = call["name"], call["arguments"]
+                                        try:
+                                            res, t_elapsed = f.result()
+                                        except concurrent.futures.CancelledError:
+                                            res = "Tool execution cancelled due to user interrupt."
+                                            t_elapsed = 0.0
+                                        except Exception as e:
+                                            import traceback
+                                            res = f"Error executing tool: {e}\n{traceback.format_exc()}"
+                                            t_elapsed = 0.0
+
+                                        res = self._guardrail.after_call(name, args, res)
+                                        completed_results[call["id"]] = (res, t_elapsed)
+
+                                        if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                                            try:
+                                                self.tool_progress_callback("tool.completed", name, str(res)[:300], args, duration=t_elapsed)
+                                            except Exception:
+                                                pass
+
+                                for idx, call in non_blocked_parallel_calls:
+                                    call_id = call["id"]
+                                    if call_id in completed_results:
+                                        res, t_elapsed = completed_results[call_id]
+                                    else:
+                                        res = "Tool execution cancelled or skipped."
+                                        t_elapsed = 0.0
+
+                                    name, args = call["name"], call["arguments"]
+                                    yield {"type": "tool_done", "name": name, "result": res, "elapsed": t_elapsed}
+                                    res_str = str(res)
+                                    self.messages.append({
+                                        "role": "tool",
+                                        "tool_call_id": call_id,
+                                        "name": name,
+                                        "content": res_str,
+                                    })
+                                    if "PERMANENT FAILURE" in res_str:
+                                        permanent_failure = True
+                        
+                        for idx, call in parallel_calls:
+                            if call["id"] in blocked_results:
                                 name, args = call["name"], call["arguments"]
-                                res, t_elapsed = future.result()
-                                if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
-                                    try:
-                                        self.tool_progress_callback("tool.completed", name, str(res)[:300], args, duration=t_elapsed)
-                                    except Exception:
-                                        pass
-                                yield {"type": "tool_done", "name": name, "result": res, "elapsed": t_elapsed}
-                                res_str = str(res)
+                                res_str = blocked_results[call["id"]]
+                                yield {"type": "tool_done", "name": name, "result": res_str, "elapsed": 0.0}
                                 self.messages.append({
                                     "role": "tool",
                                     "tool_call_id": call["id"],
                                     "name": name,
                                     "content": res_str,
                                 })
-                                if "PERMANENT FAILURE" in res_str:
-                                    permanent_failure = True
+                        if self._cancel.is_set():
+                            yield {"type": "interrupted"}
+                            return
                 else:
                     for i, call in enumerate(calls):
                         if self._cancel.is_set():
@@ -988,6 +1372,20 @@ class Agent:
                             yield {"type": "interrupted"}
                             return
                         name, args = call["name"], call["arguments"]
+                        
+                        # Check loop guardrail before call
+                        blocked, synth_err = self._guardrail.before_call(name, args)
+                        if blocked:
+                            yield {"type": "tool_start", "name": name, "args": args}
+                            yield {"type": "tool_done", "name": name, "result": synth_err, "elapsed": 0.0}
+                            self.messages.append({
+                                "role": "tool",
+                                "tool_call_id": call["id"],
+                                "name": name,
+                                "content": synth_err,
+                            })
+                            continue
+
                         if self.permission_callback and not self.permission_callback(name, args):
                             yield {"type": "tool_denied", "name": name}
                             self.messages.append({
@@ -1015,6 +1413,10 @@ class Agent:
                             import traceback
                             result = f"Error executing tool: {e}\n{traceback.format_exc()}"
                         t_elapsed = time.time() - t0
+                        
+                        # Check loop guardrail after call
+                        result = self._guardrail.after_call(name, args, result)
+
                         if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
                             try:
                                 self.tool_progress_callback("tool.completed", name, str(result)[:300], args, duration=t_elapsed)
@@ -1159,7 +1561,7 @@ class Agent:
                 email_addr = email_match.group(1)
                 # Find password: "password: xyz" or "password is xyz" or "password = xyz" or "pwd: xyz"
                 pass_match = _re.search(
-                    r"\b(?:pass(?:word)?|pwd|app[- ]?pass(?:word)?)\s*(?:is|:|=)\s*([a-zA-Z0-9_\-~@#$^*()\[\]{}]{8,})\b",
+                    r"\b(?:pass(?:word)?|pwd|app[- ]?pass(?:word)?|şifre[m]?|sifre[m]?|parola[m]?)\s*(?:is|:|da|de|=|\s)\s*([a-zA-Z0-9_\-~@#$^*()\[\]{}]{8,})\b",
                     user_input,
                     _re.IGNORECASE
                 )
@@ -1211,34 +1613,22 @@ class Agent:
             pass
 
     def _execute_tool(self, name: str, args: dict) -> str:
-        from tools.registry import coerce_tool_args
-        args = coerce_tool_args(name, args)
+        from tools.middleware import MiddlewareChain
+        from tools.registry import ALL_HANDLERS
+
         handler = ALL_HANDLERS.get(name)
         if not handler:
             return f"Unknown tool: {name}. Note: Many tools are disabled by default to save resources. You can check disabled skills using get_config('disabled_skills') and enable them via set_config."
+
+        def terminal_call(final_args: dict) -> Any:
+            return handler(**final_args)
+
+        middlewares = getattr(self, "tool_middlewares", [])
+        chain = MiddlewareChain(middlewares)
         try:
-            if name == "save_session" and not args.get("messages"):
-                return self.auto_save(
-                    title=str(args.get("title") or ""),
-                    summary=str(args.get("summary") or ""),
-                )
-            if name == "browser_task":
-                try:
-                    from skills import browser_control as _browser_control
-                    _browser_control.set_permission_callback(self.permission_callback)
-                except Exception:
-                    pass
-            result = handler(**args)
-            # Auto-log tool call to working memory
-            arg_preview = ", ".join(f"{k}={str(v)[:40]}" for k, v in args.items())
-            summary = f"{name}({arg_preview})"
-            detail = str(result)[:300]
-            working_memory.wm_add(summary=summary, detail=detail, event_type="tool")
-            return result
+            return chain.execute(self, name, args, terminal_call)
         except Exception as e:
-            err = f"Tool error ({name}): {e}"
-            working_memory.wm_add(summary=f"{name} failed: {e}", event_type="error")
-            return err
+            return f"Tool error ({name}): {e}"
 
     def reset(self):
         self.auto_save()  # save session before clearing
@@ -1246,6 +1636,15 @@ class Agent:
         self.messages = [{"role": "system", "content": build_system_prompt(channel=self.channel)}]
         self._context_summary = ""
         working_memory.wm_clear()  # wipe short-term memory on reset
+        self._session_progress = 0.0
+        if hasattr(self, "cfg") and self.cfg is not None:
+            self.cfg["session_progress"] = 0.0
+            from config import save_config
+            try:
+                save_config(self.cfg)
+            except Exception:
+                pass
+
 
     def auto_save(self, title: str = "", summary: str = "") -> str:
         """Auto-save current session messages."""

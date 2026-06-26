@@ -115,6 +115,29 @@ class StreamRenderer:
         # Spinner widget for animated status in status bar
         self._spinner: OutputSpinner = OutputSpinner(layout)
         self._spinner._format_status = self._format_status
+        self._current_turn_start_pct: Optional[float] = None
+        self._current_tool_count: int = 0
+
+    def _get_target_pct(self, step: str) -> float:
+        """Calculate target percentage based on event type, mapping to cumulative progress."""
+        if self._current_turn_start_pct is None:
+            if hasattr(self.layout, "agent") and self.layout.agent is not None:
+                self._current_turn_start_pct = getattr(self.layout.agent, "_session_progress", 0.0)
+            else:
+                self._current_turn_start_pct = 0.0
+
+        S = self._current_turn_start_pct
+        if step == "thinking":
+            return S + 3.0
+        elif step == "tool_start":
+            self._current_tool_count += 1
+            return S + min(14.0, 3.0 + self._current_tool_count * 3.0)
+        elif step == "tool_done":
+            return S + min(14.0, 3.0 + self._current_tool_count * 3.0 + 1.5)
+        elif step == "text":
+            return S + 14.0
+        return S
+
 
     def set_coding_mode(self, active: bool) -> None:
         """Toggle coding mode indicator in the status bar."""
@@ -147,8 +170,7 @@ class StreamRenderer:
         etype = event.get("type")
 
         if etype == "thinking":
-            current = self._spinner._current_pct
-            target = min(95.0, max(current + 5.0, 25.0))
+            target = self._get_target_pct("thinking")
             self._spinner.start("Reasoning…", target_pct=target)
 
         elif etype == "tool_start":
@@ -162,8 +184,7 @@ class StreamRenderer:
                     visible_parts.append(f"{k}={repr(v)[:40]}")
             arg_str = ", ".join(visible_parts)
             label = self._TOOL_LABELS.get(name, f"Running {name}")
-            current = self._spinner._current_pct
-            target = min(95.0, max(current + 10.0, 55.0))
+            target = self._get_target_pct("tool_start")
             self._spinner.start(f"{label}…", target_pct=target)
             self._close_response_if_open()
             self._close_persona_box()
@@ -217,8 +238,7 @@ class StreamRenderer:
             self._close_tool_box(f"{elapsed:.2f}s")
             self._pending_tool = None
             self._pending_tool_arg = ""
-            current = self._spinner._current_pct
-            target = min(95.0, max(current + 5.0, 75.0))
+            target = self._get_target_pct("tool_done")
             self._spinner.start("Reasoning…", target_pct=target)
 
         elif etype == "text":
@@ -227,7 +247,8 @@ class StreamRenderer:
                 self._close_tool_box()
             if not self._text_started:
                 self._text_started = True
-                self._spinner.update("Streaming...", target_pct=95.0)
+                target = self._get_target_pct("text")
+                self._spinner.update("Streaming...", target_pct=target)
                 response_type = event.get("response_type", "normal")
                 self._open_response_box("Koza", response_type)
             self._full_response += token
@@ -616,3 +637,5 @@ class StreamRenderer:
         self._current_box_color = "teal"
         self._tool_box_open = False
         self._tool_box_started = 0.0
+        self._current_turn_start_pct = None
+        self._current_tool_count = 0

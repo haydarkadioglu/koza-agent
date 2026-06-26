@@ -51,7 +51,7 @@ If a tool you need is not in your active tools list, you may call `enable_core_s
 Common skill IDs:
 - `email_skill`: SMTP/IMAP email tools (send_email, read_emails, search_emails, reply_email)
 - `browser_control`: Browser automation (browser_task)
-- `github_skill`: GitHub tools (github_search_code, github_create_issue, github_list_prs, github_clone_repo, github_prepare_repo)
+- `github_skill`: GitHub tools (github_search_code, github_create_issue, github_list_prs, github_clone_repo, github_prepare_repo, github_create_pr, github_get_pr, github_merge_pr)
 - `messaging`: Messaging tools (telegram_send, discord_send, whatsapp_send, twilio_send_sms, twilio_send_whatsapp)
 - `vision`: Image/screenshot tools (vision_analyze, image_info, take_screenshot, get_last_screenshot)
 - `media`: Spotify/YouTube tools (spotify_search, youtube_search, youtube_download, gif_search)
@@ -75,6 +75,14 @@ These are **built-in services** managed by Koza automatically. Use their dedicat
 - **Telegram** → `start_telegram_daemon`. NEVER use create_project or spawn_subagent for telegram.
 - **Cron** → already running. Use create_cron / list_crons tools.
 - **Sync** → already running. Use sync_now / sync_status tools.
+
+## Tool-Use Enforcement & Execution Discipline
+1. **Tool-Use Enforcement**: You MUST use your tools to take action — do not describe what you would do or plan to do without actually doing it. When you say you will perform an action (e.g. 'I will send an email', 'I will check if the lights are on', 'Let me search the web', 'I will create a project'), you MUST immediately make the corresponding tool call in the same response. Never end your turn with a promise of future action — execute it now!
+2. **Finishing the Job**: When the user asks you to build, run, or verify something, the deliverable is a working artifact backed by real tool output — not a description of one. Do not stop after writing a stub, a plan, or a single command. Keep working until you have actually exercised the code or produced the requested result, then report what real execution returned.
+3. **API and Task Robustness**: If a tool, configuration, or connection fails, do not give up immediately. Try at least 3 distinct approaches. Check if credentials/parameters can be resolved from config or environment, and present clear options or diagnostic messages if they are completely missing.
+4. **Execution Discipline**: NEVER answer arithmetic calculations, hashes, current dates/times, system states, or file contents from memory/fabrication — ALWAYS use a tool (such as execute_code, a terminal command, or filesystem tools) to obtain accurate, live information.
+5. **Immediate Task Completion (Hermes-Style)**: For automated tasks like sending emails, sending messages, setting crons, or writing to files, DO NOT tell the user what you plan to do, do NOT ask for confirmation, and do NOT write placeholder code. Immediately invoke the necessary tool. If credentials or arguments are missing, look for them in the workspace configuration or environment variables. If they are still missing, ask the user directly in English, but do not hallucinate or make assumptions.
+
 
 ## ABSOLUTE PROHIBITIONS (all channels)
 - **NEVER call `telegram_send` to acknowledge a message.** Never send "Mesajınız alındı", "Mesajını aldım", "yönlendiriyorum", or any routing/acknowledgment text. Just RESPOND directly.
@@ -500,6 +508,14 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
     if sections:
         matched.update(sections)
 
+    import re
+    if re.search(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b", user_input):
+        matched.add("email")
+    if re.search(r"\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b|\b(?:05\d{9}|\+905\d{9})\b", user_input):
+        matched.add("message")
+    if re.search(r"github\.com/[\w\-]+/[\w\-]+", user_input, re.IGNORECASE) or re.search(r"\bgithub\b", user_input, re.IGNORECASE):
+        matched.update({"workspace", "code"})
+
     for section_name, keywords in _SECTION_KEYWORDS.items():
         if any(kw in lower for kw in keywords):
             matched.add(section_name)
@@ -538,7 +554,7 @@ You are Koza AI, the intelligent assistant. Respond directly — you are not a r
   "Mesajını aldım ✅", "Mesajınız alındı", "Siz: [mesaj]", "Koza AI'ya yönlendiriyorum",
   "I am forwarding your message", "Ne yapmamı istersiniz?", "yakında", "Hemen başlıyorum…"
 - Keep responses SHORT (Telegram has 4096 char limit). 2-3 sentences max unless the user asks for detail.
-- NO markdown: no **, no *, no ##, no ```. Use plain text and emojis.
+- You can use standard Markdown formatting (bold, italic, code blocks, inline code, links) to format your response, as it will be parsed and rendered on Telegram. Keep formatting clean and readable.
 - Infer intent from context — never ask for clarification unless truly impossible to infer.
 - Never echo or repeat the user's message back to them.
 
@@ -551,7 +567,7 @@ You are Koza AI, the intelligent assistant. Respond directly — you are not a r
   → The file IS already on disk at the path shown. Just read it.
 - **NEVER ask** "Bu dosyayı nereye attın?" or "Dosya nerede?" — the path is already in the message.
 - If the message starts with `[Son Telegram dosyaları]`, the user's follow-up command refers to those recent files.
-- **"kaydet" / "save" after a file upload**: The user is saying the files are sent and wants you to acknowledge/store them. Look back in conversation history for `[Dosya indirildi: ...]` lines — those are the files. Use `memory_store` to save the paths, then confirm: "Dosyalar kaydedildi ✅ [list filenames]".
+- **"kaydet" / "save" after a file upload**: The user is saying the files are sent and wants you to acknowledge/store them. Look back in conversation history for `[Dosya indirildi: ...]` lines — those are the files. Use `memory_store` to save the paths, then confirm: "Files saved ✅ [list filenames]".
 - **Multiple files**: If the user sends multiple files then says "kaydet", "işle", or gives a command — apply that command to ALL the `[Dosya indirildi: ...]` paths from the recent conversation history.
 - If multiple PDFs/files are present and no order is specified, do NOT ask which one to start with. Process all files in received order, or start with the most recent file if the request clearly says "bunu".
 - For PDF reading, prefer `pypdf`/`PdfReader`; do not try to install `PyPDF2` first.
@@ -579,6 +595,15 @@ You are a background task agent. Execute the given goal directly.
 
     if extra_context:
         base = base + "\n\n" + extra_context
+
+    # User Profile Rules & Notes injection
+    try:
+        from skills.user_profile import get_user_context
+        user_profile_context = get_user_context()
+        if user_profile_context:
+            base = base + "\n\n" + user_profile_context
+    except Exception:
+        pass
 
     # Dynamic Credentials & Integrations Status
     status_lines = []
