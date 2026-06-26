@@ -40,39 +40,101 @@ async function stopVoiceMode() {
 function updateVoiceStatus(state) {
     const btn  = document.getElementById('mic-btn');
     const icon = document.getElementById('mic-icon');
-    if (!btn || !icon) return;
+    const overlay = document.getElementById('voice-overlay');
+    const statusText = document.getElementById('vo-status-text');
 
-    // Remove all state classes
-    btn.classList.remove('voice-listening', 'voice-recording', 'voice-transcribing', 'voice-speaking', 'voice-off');
+    if (btn) {
+        btn.classList.remove('voice-listening', 'voice-recording', 'voice-transcribing', 'voice-speaking', 'voice-off');
+    }
+    if (overlay) {
+        overlay.classList.remove('state-listening', 'state-recording', 'state-transcribing', 'state-speaking');
+    }
 
     switch (state) {
         case 'listening':
             _voiceActive = true;
-            btn.classList.add('voice-listening');
-            btn.title = 'Voice active — listening… (click to stop)';
-            icon.className = 'fa-solid fa-microphone';
+            if (btn) {
+                btn.classList.add('voice-listening');
+                btn.title = 'Voice active — listening… (click to stop)';
+            }
+            if (icon) icon.className = 'fa-solid fa-microphone';
+            if (overlay) {
+                overlay.classList.add('active', 'state-listening');
+            }
+            if (statusText) statusText.innerText = 'LISTENING';
             break;
         case 'recording':
-            btn.classList.add('voice-recording');
-            btn.title = 'Recording speech…';
-            icon.className = 'fa-solid fa-circle-dot';
+            _voiceActive = true;
+            if (btn) {
+                btn.classList.add('voice-recording');
+                btn.title = 'Recording speech…';
+            }
+            if (icon) icon.className = 'fa-solid fa-circle-dot';
+            if (overlay) {
+                overlay.classList.add('active', 'state-recording');
+            }
+            if (statusText) statusText.innerText = 'RECORDING';
             break;
         case 'transcribing':
-            btn.classList.add('voice-transcribing');
-            btn.title = 'Processing…';
-            icon.className = 'fa-solid fa-spinner fa-spin';
+            _voiceActive = true;
+            if (btn) {
+                btn.classList.add('voice-transcribing');
+                btn.title = 'Processing…';
+            }
+            if (icon) icon.className = 'fa-solid fa-spinner fa-spin';
+            if (overlay) {
+                overlay.classList.add('active', 'state-transcribing');
+            }
+            if (statusText) statusText.innerText = 'THINKING';
             break;
         case 'speaking':
-            btn.classList.add('voice-speaking');
-            btn.title = 'Koza is speaking…';
-            icon.className = 'fa-solid fa-volume-high';
+            _voiceActive = true;
+            if (btn) {
+                btn.classList.add('voice-speaking');
+                btn.title = 'Koza is speaking…';
+            }
+            if (icon) icon.className = 'fa-solid fa-volume-high';
+            if (overlay) {
+                overlay.classList.add('active', 'state-speaking');
+            }
+            if (statusText) statusText.innerText = 'SPEAKING';
             break;
         default: // 'off'
             _voiceActive = false;
-            btn.classList.add('voice-off');
-            btn.title = 'Voice Mode (click to activate)';
-            icon.className = 'fa-solid fa-microphone';
+            if (btn) {
+                btn.classList.add('voice-off');
+                btn.title = 'Voice Mode (click to activate)';
+            }
+            if (icon) icon.className = 'fa-solid fa-microphone';
+            if (overlay) {
+                overlay.classList.remove('active');
+            }
             break;
+    }
+}
+
+function updateLastAssistantBubble(text) {
+    // 1. Update standard chat bubble
+    const chatMsgs = document.getElementById('chat-messages');
+    if (chatMsgs) {
+        // Find the last message with class agent or assistant
+        const bubbles = chatMsgs.querySelectorAll('.message.agent .message-bubble, .message.assistant .message-bubble');
+        if (bubbles.length > 0) {
+            const lastBubble = bubbles[bubbles.length - 1];
+            if (typeof formatMarkdown === 'function') {
+                lastBubble.innerHTML = formatMarkdown(text);
+            } else {
+                lastBubble.innerText = text;
+            }
+            lastBubble.setAttribute('data-raw', text);
+        }
+        chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    }
+
+    // 2. Update voice overlay transcript
+    const voAgent = document.getElementById('vo-agent-text');
+    if (voAgent) {
+        voAgent.innerText = text;
     }
 }
 
@@ -94,3 +156,10 @@ function showToast(msg, type) {
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 3500);
 }
+
+// Press Escape to exit voice mode
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _voiceActive) {
+        stopVoiceMode();
+    }
+});

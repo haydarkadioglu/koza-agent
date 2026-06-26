@@ -175,6 +175,17 @@ function appendMessageBubble(role, content, attachments = []) {
     if (role === 'agent') {
         currentBubble = bubble;
     }
+
+    // Update voice overlay transcript if active
+    if (role === 'user') {
+        const voUser = document.getElementById('vo-user-text');
+        if (voUser) voUser.innerText = content;
+        const voAgent = document.getElementById('vo-agent-text');
+        if (voAgent) voAgent.innerText = ''; // clear previous agent response
+    } else if (role === 'assistant' || role === 'agent') {
+        const voAgent = document.getElementById('vo-agent-text');
+        if (voAgent) voAgent.innerText = content;
+    }
 }
 
 function formatMarkdown(text) {
