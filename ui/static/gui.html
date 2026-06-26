@@ -276,8 +276,8 @@
                         <button class="attach-btn" id="attach-btn" onclick="handleAttachClick()" title="Attach File">
                             <i class="fa-solid fa-paperclip"></i>
                         </button>
-                        <button class="mic-btn" id="mic-btn" onclick="toggleChatVoice()" title="Enable Voice Mode" style="display:none;">
-                            <i class="fa-solid fa-microphone"></i>
+                        <button class="mic-btn" id="mic-btn" onclick="toggleVoiceMode()" title="Voice Mode">
+                            <i class="fa-solid fa-microphone" id="mic-icon"></i>
                         </button>
                         <textarea id="chat-input" data-localize-placeholder="chat-input-placeholder" placeholder="Type a message to Koza... (Press Enter to send, Shift+Enter for new line)"></textarea>
                         <button class="send-btn" id="send-btn" onclick="handleSendClick()">
@@ -676,10 +676,9 @@
                         <div id="settings-panel-general" class="settings-panel active">
                             <h3 data-localize="sub-general" style="margin-bottom:15px;">General Settings</h3>
                             <div class="form-group">
-                                <label for="setting-lang">Interface Language / Dil</label>
+                                <label for="setting-lang">Interface Language</label>
                                 <select id="setting-lang" onchange="changeLanguage(this.value)">
                                     <option value="en">English</option>
-                                    <option value="tr">Türkçe</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -1323,6 +1322,7 @@
     <script src="js/agents.js"></script>
     <script src="js/mcp.js"></script>
     <script src="js/schedule.js"></script>
+    <script src="js/voice.js"></script>
     <script src="js/app.js"></script>
 
 </body>

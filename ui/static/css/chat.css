@@ -371,18 +371,57 @@
     transform: scale(1.03);
 }
 
-.mic-btn.active {
+.mic-btn.active,
+.mic-btn.voice-listening {
+    color: #50fa7b;
+    background: rgba(80, 250, 123, 0.1);
+    border-color: rgba(80, 250, 123, 0.4);
+    box-shadow: 0 0 12px rgba(80, 250, 123, 0.25);
+    animation: mic-pulse-green 2s infinite alternate;
+}
+
+.mic-btn.voice-recording {
     color: #ff5555;
     background: rgba(255, 85, 85, 0.12);
     border-color: rgba(255, 85, 85, 0.5);
-    box-shadow: 0 0 12px rgba(255, 85, 85, 0.3);
-    animation: mic-pulse 1.5s infinite alternate;
+    box-shadow: 0 0 14px rgba(255, 85, 85, 0.4);
+    animation: mic-pulse-red 0.8s infinite alternate;
+}
+
+.mic-btn.voice-transcribing {
+    color: #f1fa8c;
+    background: rgba(241, 250, 140, 0.1);
+    border-color: rgba(241, 250, 140, 0.35);
+}
+
+.mic-btn.voice-speaking {
+    color: #8be9fd;
+    background: rgba(139, 233, 253, 0.1);
+    border-color: rgba(139, 233, 253, 0.4);
+    animation: mic-pulse-blue 1s infinite alternate;
 }
 
 @keyframes mic-pulse {
     0% { transform: scale(1); box-shadow: 0 0 4px rgba(255, 85, 85, 0.2); }
     100% { transform: scale(1.06); box-shadow: 0 0 16px rgba(255, 85, 85, 0.5); }
 }
+
+@keyframes mic-pulse-green {
+    0% { transform: scale(1); box-shadow: 0 0 6px rgba(80, 250, 123, 0.2); }
+    100% { transform: scale(1.04); box-shadow: 0 0 18px rgba(80, 250, 123, 0.45); }
+}
+
+@keyframes mic-pulse-red {
+    0% { transform: scale(1); box-shadow: 0 0 8px rgba(255, 85, 85, 0.3); }
+    100% { transform: scale(1.08); box-shadow: 0 0 20px rgba(255, 85, 85, 0.6); }
+}
+
+@keyframes mic-pulse-blue {
+    0% { transform: scale(1); box-shadow: 0 0 6px rgba(139, 233, 253, 0.2); }
+    100% { transform: scale(1.04); box-shadow: 0 0 16px rgba(139, 233, 253, 0.4); }
+}
+
+
 
 /* Chat container state transitions removed */
 
