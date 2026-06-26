@@ -6,11 +6,18 @@ from cli.ui import _C, _print_error
 
 
 def _configure_console_encoding() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+    import os
+    if sys.platform == "win32":
+        os.environ.setdefault("PYTHONUTF8", "1")
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for stream_name in ("stdout", "stderr", "stdin"):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None:
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
 
 
 def _configure_logging() -> None:

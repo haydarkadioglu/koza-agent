@@ -530,7 +530,20 @@ def start_services_background(cfg: dict = None) -> bool:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    import os
+    if sys.platform == "win32":
+        os.environ.setdefault("PYTHONUTF8", "1")
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for stream_name in ("stdout", "stderr", "stdin"):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None:
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
     KOZA_DIR.mkdir(parents=True, exist_ok=True)
+
 
     # Set process title for Task Manager visibility
     if sys.platform == "win32":

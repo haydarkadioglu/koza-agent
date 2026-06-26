@@ -47,11 +47,12 @@ class InlineKeyboardManager:
         conf_id = uuid.uuid4().hex[:8]
         future = loop.create_future()
 
+        import html
         # Format message text
         args_summary = ", ".join(
-            f"{k}={str(v)[:50]}" for k, v in tool_args.items()
+            f"{html.escape(k)}={html.escape(str(v)[:50])}" for k, v in tool_args.items()
         )
-        text = f"🔧 **Tool:** `{tool_name}`\n📋 **Args:** `{args_summary}`\n\nApprove execution?"
+        text = f"🔧 <b>Tool:</b> <code>{html.escape(tool_name)}</code>\n📋 <b>Args:</b> <code>{args_summary}</code>\n\nApprove execution?"
 
         keyboard = InlineKeyboardMarkup([
             [

@@ -122,6 +122,101 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _markdown_to_html(text: str) -> str:
+    """Convert markdown formatting to Telegram HTML formatting.
+    Ensures safe escaping and closes unclosed blocks for streaming safety.
+    """
+    import html
+    if not text:
+        return text
+
+    # Normalise carriage returns
+    text = text.replace('\r\n', '\n')
+
+    # Self-correcting for code blocks in streaming:
+    # If there is an odd number of ```, append a closing fence.
+    if text.count('```') % 2 != 0:
+        text += '\n```'
+
+    # Similarly, if there is an odd number of inline code backticks, close it.
+    if text.count('`') % 2 != 0:
+        text += '`'
+
+    placeholders = {}
+    counter = [0]
+
+    def _ph(value: str) -> str:
+        key = f"\x00HTMLPH{counter[0]}\x00"
+        counter[0] += 1
+        placeholders[key] = value
+        return key
+
+    # 1. Protect fenced code blocks (``` ... ```)
+    def _protect_fenced(m):
+        raw = m.group(0)
+        # Parse opening fence and potential language
+        first_line_end = raw.find('\n')
+        if first_line_end != -1:
+            lang = raw[3:first_line_end].strip()
+            body = raw[first_line_end+1:-3]
+        else:
+            lang = ""
+            body = raw[3:-3]
+        
+        escaped_body = html.escape(body)
+        if lang:
+            html_code = f'<pre><code class="language-{lang}">{escaped_body}</code></pre>'
+        else:
+            html_code = f'<pre><code>{escaped_body}</code></pre>'
+        return _ph(html_code)
+
+    text = re.sub(r'```(?:[^\n]*\n)?[\s\S]*?```', _protect_fenced, text)
+
+    # 2. Protect inline code (`...`)
+    def _protect_inline(m):
+        body = m.group(1)
+        escaped_body = html.escape(body)
+        return _ph(f'<code>{escaped_body}</code>')
+
+    text = re.sub(r'`([^`]+)`', _protect_inline, text)
+
+    # 3. Escape all remaining text for HTML safety
+    text = html.escape(text)
+
+    # 4. Process formatting tags in the HTML-escaped text
+    # Convert markdown links: [text](url) -> <a href="url">text</a>
+    def _convert_link(m):
+        disp = m.group(1)
+        url = m.group(2)
+        return f'<a href="{url}">{disp}</a>'
+
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', _convert_link, text)
+
+    # Convert headers: #... to bold
+    def _convert_header(m):
+        return f'<b>{m.group(1).strip()}</b>'
+    text = re.sub(r'^#{1,6}\s+(.+)$', _convert_header, text, flags=re.MULTILINE)
+
+    # Convert bold: **text** -> <b>text</b>
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
+
+    # Convert italic: *text* -> <i>text</i>
+    text = re.sub(r'\*([^*\n]+?)\*', r'<i>\1</i>', text)
+    text = re.sub(r'\b_([^_]+?)_\b', r'<i>\1</i>', text)
+
+    # Convert bullet points
+    text = re.sub(r'^[\-\*]\s+', '• ', text, flags=re.MULTILINE)
+
+    # 5. Restore placeholders (code blocks and inline code)
+    for key in reversed(list(placeholders.keys())):
+        text = text.replace(key, placeholders[key])
+
+    return text
+
+
+
+
 # Patterns that the LLM should never generate but sometimes does — strip them out
 _ECHO_PATTERNS = re.compile(
     r"(?:"
@@ -226,7 +321,7 @@ def _make_permission_callback(chat_id: int, bot, loop, kb_manager, approval_enab
         # Send confirmation message from the agent's worker thread
         send_coro = bot.send_message(
             chat_id=chat_id, text=text, reply_markup=keyboard,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         msg_future = asyncio.run_coroutine_threadsafe(send_coro, loop)
         try:
@@ -319,14 +414,15 @@ async def _process_message(update, context, agent_factory: Callable,
                 # Notify the user that their chat_id was saved
                 _uname = update.effective_user.username or update.effective_user.first_name or str(chat_id)
                 try:
+                    import html
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text=(
-                            f"✅ @{_uname} connected!\n\n"
-                            f"Your Chat ID (`{chat_id}`) has been saved. "
+                            f"✅ @{html.escape(_uname)} connected!\n\n"
+                            f"Your Chat ID (<code>{html.escape(str(chat_id))}</code>) has been saved. "
                             "Proactive notifications and commands will be sent to this account."
                         ),
-                        parse_mode="Markdown",
+                        parse_mode="HTML",
                     )
                 except Exception:
                     pass
@@ -493,49 +589,98 @@ async def _process_message(update, context, agent_factory: Callable,
 
     _bg_task_ids: list[str] = []  # task IDs started in this turn (for watcher)
 
-    async def _flush(force: bool = False):
-        nonlocal sent_msg, last_edit, status, edit_count
-        now = _time.time()
-        if not force and (now - last_edit) < 1.5:
+    async def _send_or_edit(raw_text: str):
+        nonlocal sent_msg, edit_count
+        html_text = _sanitize_response(_markdown_to_html(raw_text))
+        plain_text = _sanitize_response(_strip_markdown(raw_text))
+
+        if not html_text.strip():
             return
-        display = text_buf + (f"\n\n{status}" if status else "")
-        display = _sanitize_response(_strip_markdown(display))
-        if not display.strip():
-            return
-        # Overflow: start new message
-        if len(display) > 4000:
-            overflow = display[4000:]
-            display  = display[:4000]
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=sent_msg.message_id,
-                    text=display,
-                )
-            except Exception:
-                pass
-            sent_msg = await context.bot.send_message(
-                chat_id=chat_id, text=overflow[:4000],
-            )
-            edit_count = 0
-            last_edit = now
-            return
+
         if sent_msg is None:
-            sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
-            edit_count = 0
+            try:
+                sent_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=html_text,
+                    parse_mode="HTML"
+                )
+                edit_count = 0
+            except Exception as e:
+                logger.warning(f"Failed to send message as HTML: {e}. Falling back to plain text.")
+                sent_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=plain_text
+                )
+                edit_count = 0
         else:
             try:
                 await context.bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=sent_msg.message_id,
-                    text=display,
+                    text=html_text,
+                    parse_mode="HTML"
                 )
                 edit_count += 1
-            except _BadRequest:
-                pass   # "message not modified" — ignore
-            except Exception:
-                sent_msg = await context.bot.send_message(chat_id=chat_id, text=display)
-                edit_count = 0
+            except _BadRequest as e:
+                # Catch "message not modified" or similar
+                if "Message is not modified" in str(e):
+                    pass
+                else:
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=sent_msg.message_id,
+                            text=plain_text
+                        )
+                        edit_count += 1
+                    except Exception:
+                        sent_msg = await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=plain_text
+                        )
+                        edit_count = 0
+            except Exception as e:
+                logger.warning(f"Failed to edit message as HTML: {e}. Falling back to plain text.")
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=sent_msg.message_id,
+                        text=plain_text
+                    )
+                    edit_count += 1
+                except Exception:
+                    sent_msg = await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=plain_text
+                    )
+                    edit_count = 0
+
+    async def _flush(force: bool = False):
+        nonlocal sent_msg, last_edit, status, edit_count
+        now = _time.time()
+        if not force and (now - last_edit) < 1.5:
+            return
+        
+        raw_display = text_buf + (f"\n\n{status}" if status else "")
+        if not raw_display.strip():
+            return
+
+        # Handle overflow
+        if len(raw_display) > 4000:
+            raw_overflow = raw_display[4000:]
+            raw_display = raw_display[:4000]
+            
+            # Flush the current part
+            await _send_or_edit(raw_display)
+            
+            # Start a new message for overflow
+            sent_msg = None
+            edit_count = 0
+            await _send_or_edit(raw_overflow)
+            last_edit = now
+            return
+
+        await _send_or_edit(raw_display)
         last_edit = now
 
     async def _finalize_msg_and_start_fresh(new_text: str = ""):
@@ -556,7 +701,7 @@ async def _process_message(update, context, agent_factory: Callable,
             return
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Nasıl devam edelim?",
+            text="How should we proceed?",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
@@ -570,7 +715,7 @@ async def _process_message(update, context, agent_factory: Callable,
         # Timeout protection — prevent infinite hangs
         if _time.time() - _stream_start > _STREAM_TIMEOUT:
             agent.interrupt()
-            text_buf += "\n\n⏱ (timeout — 10 dakika aşıldı)"
+            text_buf += "\n\n⏱ (timeout — 10 minutes exceeded)"
             break
 
         try:
@@ -631,12 +776,12 @@ async def _process_message(update, context, agent_factory: Callable,
 
         elif etype == "interrupted":
             status = ""
-            text_buf += "\n\n⏹ Kesildi."
+            text_buf += "\n\n⏹ Interrupted."
             await _flush(force=True)
             return
 
         elif etype == "error":
-            err = event.get('message', 'Hata')
+            err = event.get('message', 'Error')
             text_buf += f"\n\n❌ {err}"
             await _flush(force=True)
             return
@@ -742,14 +887,15 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             def _tg_subagent_notify(agent_id: str, status: str, goal: str, result: str) -> None:
                 if not _tg_chat:
                     return
+                import html
                 icon = "✅" if status == "done" else "❌"
                 text = (
-                    f"{icon} *Sub-agent completed* `{agent_id}`\n"
-                    f"📋 Task: {goal}\n"
-                    f"💬 Summary: {result[:300] or '(no result)'}"
+                    f"{icon} <b>Sub-agent completed</b> <code>{html.escape(agent_id)}</code>\n"
+                    f"📋 Task: {html.escape(goal)}\n"
+                    f"💬 Summary: {html.escape(result[:300] or '(no result)')}"
                 )
                 asyncio.run_coroutine_threadsafe(
-                    _tg_bot.send_message(chat_id=_tg_chat, text=text, parse_mode="Markdown"),
+                    _tg_bot.send_message(chat_id=_tg_chat, text=text, parse_mode="HTML"),
                     _tg_loop,
                 )
 

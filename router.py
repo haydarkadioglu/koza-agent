@@ -41,7 +41,8 @@ _ROUTING_SYSTEM_PROMPT = PromptLoader().load("routing/classifier.md")
 _CODE_ACTION_RE = re.compile(
     r"\b("
     r"yap|yapsana|oluştur|olustur|kur|hazırla|hazirla|üret|uret|"
-    r"kodla|yaz|tasarla|geliştir|gelistir|build|create|make|write|implement"
+    r"kodla|yaz|tasarla|geliştir|gelistir|build|create|make|write|implement|"
+    r"çalıştır|calistir|run|execute|test"
     r")\b",
     re.IGNORECASE,
 )
@@ -50,7 +51,8 @@ _CODE_ARTIFACT_RE = re.compile(
     r"website|web\s*site|site|landing|portfolio|portfolyo|"
     r"app|uygulama|dashboard|panel|"
     r"react|vue|svelte|next|vite|html|css|javascript|typescript|"
-    r"python|script|bot|api|frontend|backend|component|sayfa|index\.(js|html|css)"
+    r"python|script|bot|api|frontend|backend|component|sayfa|index\.(js|html|css)|"
+    r"pytest|test|tests|testleri"
     r")\b",
     re.IGNORECASE,
 )
@@ -89,7 +91,10 @@ _HEURISTIC_PATTERNS = {
     "email": {
         "keywords": [
             "email", "mail", "eposta", "e-posta", "smtp", "imap", "gmail",
-            "outlook", "yandex", "ileti", "gönder", "gonder", "send", "reply"
+            "outlook", "yandex", "ileti", "reply", "send email", "send mail",
+            "mail at", "mail gönder", "mail gonder", "mail yolla", 
+            "eposta gönder", "eposta gonder", "eposta yolla", 
+            "ileti yolla", "ileti gönder", "ileti gonder"
         ],
         "tool_groups": ["email"],
         "prompt_sections": ["email", "workspace"]
@@ -98,7 +103,12 @@ _HEURISTIC_PATTERNS = {
         "keywords": [
             "message", "sms", "twilio", "whatsapp", "discord", "slack", "wp",
             "telegram", "bot", "mesaj", "ping", "notify", "inform", "haber ver",
-            "ilet", "yaz"
+            "send message", "send sms", "send text",
+            "mesaj at", "mesaj gönder", "mesaj gonder", "mesaj yolla",
+            "sms gönder", "sms gonder", "sms yolla", "whatsapp yolla", "whatsapp gönder",
+            "whatsapp gonder", "discord yolla", "discord gönder", "discord gonder",
+            "slack yolla", "slack gönder", "slack gonder", "telegram yolla",
+            "telegram gönder", "telegram gonder"
         ],
         "tool_groups": ["message"],
         "prompt_sections": ["message", "workspace"]
@@ -106,7 +116,8 @@ _HEURISTIC_PATTERNS = {
     "cron": {
         "keywords": [
             "cron", "schedule", "timer", "reminder", "hatırlat", "hatirlat",
-            "every", "her gün", "her gun", "günlük", "gunluk", "saatlik", "weekly",
+            "every day", "every week", "every hour", "every minute", "every month",
+            "her gün", "her gun", "günlük", "gunluk", "saatlik", "weekly",
             "daily", "hourly", "alarm", "zamanla"
         ],
         "tool_groups": ["cron"],
@@ -133,10 +144,6 @@ def _is_hybrid_query(text: str) -> bool:
     non_heuristic_indicators = [
         "search", "google", "browse", "fetch", "url", "website", "tarayıcı", "ara", "arama",
         "price", "fiyat", "stock", "crypto", "bitcoin", "gold", "altın", "altin",
-        "arxiv", "paper", "makale", "wikipedia", "research", "araştır", "arastir",
-        "system", "process", "cpu", "bellek", "disk",
-        "port", "ssl", "scan", "tarama", "zafiyet",
-        "hue", "light", "mqtt", "home assistant",
         "twitter", "reddit", "linkedin", "tweet",
         "calendar", "sheets", "airtable", "takvim", "tablo",
         "image", "photo", "screenshot", "ekran", "resim", "görsel", "gorsel",
@@ -146,13 +153,13 @@ def _is_hybrid_query(text: str) -> bool:
     return any(ind in lower_text for ind in non_heuristic_indicators)
 
 
-def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision | None:
+def _heuristic_decision(message: str, coding_enabled: bool, ignore_hybrid: bool = False) -> RoutingDecision | None:
     """Fast local guardrails for build/code and specific automated task commands."""
     text = message.strip()
     if not text:
         return None
         
-    if _is_hybrid_query(text):
+    if not ignore_hybrid and _is_hybrid_query(text):
         return None
     
     groups: set[str] = set()
@@ -160,6 +167,25 @@ def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision |
     delegate_to_background = False
     activate_coding_mode = False
     matched_any = False
+
+    # 1. Regex checks first
+    # Check for email address
+    if re.search(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b", text):
+        groups.add("email")
+        sections.update(["email", "workspace"])
+        matched_any = True
+
+    # Check for phone number
+    if re.search(r"\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b|\b(?:05\d{9}|\+905\d{9})\b", text):
+        groups.add("message")
+        sections.update(["message", "workspace"])
+        matched_any = True
+
+    # Check for Github URL
+    if re.search(r"github\.com/[\w\-]+/[\w\-]+", text, re.IGNORECASE) or re.search(r"\bgithub\b", text, re.IGNORECASE):
+        groups.update(["github", "devops"])
+        sections.update(["workspace", "code"])
+        matched_any = True
 
     # Code & Build detection
     if _CODE_ACTION_RE.search(text) and _CODE_ARTIFACT_RE.search(text):
@@ -187,7 +213,6 @@ def _heuristic_decision(message: str, coding_enabled: bool) -> RoutingDecision |
             prompt_sections=list(sections)
         )
     return None
-
 
 
 class IntentRouter:
@@ -219,22 +244,28 @@ class IntentRouter:
                 tools=None,
             )
             raw_content = response.get("content", "")
-        except Exception as e:
-            logger.warning(f"Router LLM call failed: {e}")
-            return RoutingDecision()
-
-        try:
             data = _extract_json(raw_content)
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"Router JSON parse failed: {e}")
-            return RoutingDecision()
+            decision = RoutingDecision(
+                delegate_to_background=bool(data.get("delegate_to_background", False)),
+                activate_coding_mode=(
+                    bool(data.get("activate_coding_mode", False))
+                    and self._coding_enabled
+                ),
+                tool_groups=_validate_groups(data.get("tool_groups", [])),
+                prompt_sections=[s for s in data.get("prompt_sections", []) if isinstance(s, str)],
+            )
+        except Exception as e:
+            logger.warning(f"Router LLM call/parse failed: {e}")
+            decision = RoutingDecision()
 
-        return RoutingDecision(
-            delegate_to_background=bool(data.get("delegate_to_background", False)),
-            activate_coding_mode=(
-                bool(data.get("activate_coding_mode", False))
-                and self._coding_enabled
-            ),
-            tool_groups=_validate_groups(data.get("tool_groups", [])),
-            prompt_sections=[s for s in data.get("prompt_sections", []) if isinstance(s, str)],
-        )
+        if not decision.tool_groups:
+            # Fallback to relaxed heuristic routing if LLM didn't resolve tool groups
+            relaxed = _heuristic_decision(message, self._coding_enabled, ignore_hybrid=True)
+            if relaxed and relaxed.tool_groups:
+                decision = RoutingDecision(
+                    delegate_to_background=decision.delegate_to_background,
+                    activate_coding_mode=decision.activate_coding_mode,
+                    tool_groups=relaxed.tool_groups,
+                    prompt_sections=list(set(decision.prompt_sections + relaxed.prompt_sections)),
+                )
+        return decision

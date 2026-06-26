@@ -56,3 +56,8 @@ where = ["."]
 
 [tool.setuptools]
 py-modules = ["koza_run", "core", "router", "config", "prompt_loader", "koza_daemon", "prompt", "core_context"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tmp", ".venv", "build", "dist", "*.egg-info"]
+

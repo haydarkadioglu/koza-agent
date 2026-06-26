@@ -15,11 +15,11 @@ window.addEventListener('pywebviewready', () => {
         });
     }
     
-    // Restore language preference
-    const savedLang = localStorage.getItem('koza_gui_lang');
-    if (savedLang) {
-        currentLanguage = savedLang;
-        document.getElementById('setting-lang').value = savedLang;
+    // Restore language preference (Enforced English-only interface)
+    currentLanguage = 'en';
+    const settingLang = document.getElementById('setting-lang');
+    if (settingLang) {
+        settingLang.value = 'en';
     }
     applyLocalization();
     loadInitialData();
@@ -53,11 +53,11 @@ function applyLocalization() {
 }
 
 function changeLanguage(lang) {
-    currentLanguage = lang;
-    localStorage.setItem('koza_gui_lang', lang);
+    currentLanguage = 'en';
+    localStorage.setItem('koza_gui_lang', 'en');
     applyLocalization();
     if (window.pywebview && window.pywebview.api && window.pywebview.api.update_nested_config) {
-        window.pywebview.api.update_nested_config('language', lang);
+        window.pywebview.api.update_nested_config('language', 'en');
     }
 }
 
