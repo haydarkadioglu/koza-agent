@@ -97,22 +97,103 @@ class BridgeBase:
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+    def check_for_updates(self):
+        """Check for updates on GitHub."""
+        try:
+            from cli.update_cmd import _check_latest_version
+            latest, current = _check_latest_version()
+            if not latest:
+                return {
+                    "status": "success",
+                    "current": current,
+                    "latest": current,
+                    "update_available": False,
+                    "message": "Could not check latest version (offline or API rate limit)."
+                }
+            from packaging.version import Version
+            update_available = Version(latest) > Version(current)
+            return {
+                "status": "success",
+                "current": current,
+                "latest": latest,
+                "update_available": update_available
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     def update_app(self):
-        """Pulls latest updates from git."""
+        """Performs a robust self-update by pulling from git and reinstalling packages."""
         try:
             import subprocess
             import sys
-            import os
+            import shutil
             
-            project_dir = str(Path(__file__).resolve().parent.parent.parent)
+            project_dir = Path(__file__).resolve().parent.parent.parent
+            git = shutil.which("git")
             
-            # Run git pull
+            if not git:
+                return {"status": "error", "message": "git executable not found on system path."}
+            
+            # 1. Pull changes using autostash to preserve local modifications
             try:
-                git_result = subprocess.run(["git", "pull"], capture_output=True, text=True, cwd=project_dir, timeout=15)
-                output = f"Git Output:\n{git_result.stdout}\n{git_result.stderr}"
-            except Exception as e:
-                output = f"Git Error: {str(e)}"
+                # Try pull with rebase and autostash
+                git_result = subprocess.run(
+                    [git, "pull", "--rebase", "--autostash"],
+                    capture_output=True, text=True, cwd=str(project_dir), timeout=20
+                )
+                if git_result.returncode != 0:
+                    # Fallback to standard git pull if autostash isn't supported or fails
+                    git_result = subprocess.run(
+                        [git, "pull"],
+                        capture_output=True, text=True, cwd=str(project_dir), timeout=20
+                    )
                 
-            return {"status": "success", "message": output.strip()}
+                git_output = f"STDOUT:\n{git_result.stdout}\nSTDERR:\n{git_result.stderr}"
+                if git_result.returncode != 0:
+                    return {"status": "error", "message": f"Git pull failed:\n{git_output}"}
+            except Exception as e:
+                return {"status": "error", "message": f"Git pull error: {str(e)}"}
+            
+            # 2. Reinstall package to check/resolve dependencies
+            pip_installed = False
+            pip_error = ""
+            try:
+                # Run pip install -e . to update dependencies
+                pip_cmd = [sys.executable, "-m", "pip", "install", "-e", ".", "--quiet"]
+                
+                if sys.platform != "win32":
+                    # For Linux/Mac, try standard first
+                    pip_res = subprocess.run(pip_cmd, capture_output=True, text=True, cwd=str(project_dir), timeout=60)
+                    if pip_res.returncode != 0 and "externally-managed-environment" in pip_res.stderr:
+                        # Try with break system packages
+                        pip_res = subprocess.run(
+                            pip_cmd + ["--break-system-packages"],
+                            capture_output=True, text=True, cwd=str(project_dir), timeout=60
+                        )
+                    pip_installed = (pip_res.returncode == 0)
+                    if not pip_installed:
+                        pip_error = pip_res.stderr
+                else:
+                    # Windows: files might be locked, so we run a detached process that installs in the background
+                    import time
+                    ps_cmd = f"Start-Sleep -Seconds 2; & '{sys.executable}' -m pip install -e '{project_dir}' --quiet"
+                    subprocess.Popen(
+                        ["powershell", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+                        creationflags=subprocess.CREATE_NEW_CONSOLE
+                    )
+                    pip_installed = True  # assumed started successfully
+            except Exception as e:
+                pip_error = str(e)
+            
+            msg = f"Code pulled successfully from GitHub.\n\n{git_output.strip()}"
+            if pip_installed:
+                if sys.platform == "win32":
+                    msg += "\n\nDependency updates are being applied in the background (Windows)."
+                else:
+                    msg += "\n\nDependencies and packages updated successfully."
+            else:
+                msg += f"\n\nWarning: Could not update dependencies automatically: {pip_error}\nYou may need to run 'pip install -e .' manually."
+                
+            return {"status": "success", "message": msg}
         except Exception as e:
             return {"status": "error", "message": str(e)}

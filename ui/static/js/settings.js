@@ -1241,5 +1241,27 @@ window.addEventListener('pywebviewready', function() {
                 }
             });
         }
+
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.check_for_updates) {
+            window.pywebview.api.check_for_updates().then(res => {
+                const el = document.getElementById('update-current-version');
+                if (!el) return;
+                
+                if (res.status === 'success') {
+                    if (res.update_available) {
+                        el.innerHTML = `v${res.current} <span style="color:#ffb86c; font-weight:bold; margin-left:8px;"><i class="fa-solid fa-circle-exclamation"></i> Update available (v${res.latest})</span>`;
+                        const btn = document.getElementById('update-panel-btn');
+                        if (btn) {
+                            btn.style.boxShadow = '0 0 12px rgba(46, 204, 113, 0.4)';
+                            btn.style.borderColor = 'rgba(46, 204, 113, 0.6)';
+                            btn.style.background = 'rgba(46, 204, 113, 0.15)';
+                            btn.style.color = '#50fa7b';
+                        }
+                    } else {
+                        el.innerHTML = `v${res.current} <span style="color:#50fa7b; font-weight:normal; margin-left:8px;"><i class="fa-solid fa-circle-check"></i> Up to date</span>`;
+                    }
+                }
+            });
+        }
     }, 1000);
 });
