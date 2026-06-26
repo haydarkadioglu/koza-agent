@@ -6,6 +6,7 @@ Commands:
   koza voice devices   — update audio device selection
   koza voice off       — disable voice feature
 """
+from pathlib import Path
 from cli.ui import _C, _hr, _print_error
 
 _DEVICE_SKIP = object()
@@ -311,7 +312,80 @@ def cmd_voice(args: list) -> None:
         print(_C("  ✗  No config found. Run:  koza setup\n", "red"))
         return
 
-    print(_C("\n  🎙  Koza Voice Mode is now a GUI-exclusive feature.", "yellow"))
-    print(_C("  Please use the GUI Cockpit ('koza start') to talk to Koza.", "grey"))
-    print(_C("  The CLI always-on voice mode is no longer supported.\n", "grey"))
-    return
+    cfg = load_config()
+
+    # Auto-enable voice if not yet configured
+    if not cfg.get("voice", {}).get("enabled"):
+        print(_C("  ⚠  Voice not configured. Running setup first…\n", "yellow"))
+        configure_voice(cfg, save=True)
+        cfg = load_config()
+        if not cfg.get("voice", {}).get("enabled"):
+            return
+
+    try:
+        from skills.voice import ensure_audio_deps, ensure_local_stt_deps, normalize_voice_config, vad_listen_loop, tts_speak_configured
+        voice_cfg = normalize_voice_config(cfg)
+        stt_cfg = voice_cfg.get("stt", {})
+        provider = stt_cfg.get("provider", "local_whisper")
+
+        ensure_audio_deps()
+        if provider == "local_whisper":
+            ensure_local_stt_deps()
+    except Exception as e:
+        print(_C(f"  ✗  Audio setup error: {e}\n", "red"))
+        return
+
+    # ── Bootstrap agent ──────────────────────────────────────────────────────
+    try:
+        from config import load_config as _lc
+        from providers.factory import get_provider
+        from core import Agent
+        _cfg = _lc()
+        provider_obj = get_provider(_cfg)
+        agent = Agent(provider_obj, db_path=str(Path.home() / ".Koza" / "sessions.db"), cfg=_cfg)
+    except Exception as e:
+        print(_C(f"  ✗  Could not start agent: {e}\n", "red"))
+        return
+
+    import threading
+    stop_event = threading.Event()
+    input_device  = voice_cfg.get("input_device")
+    output_device = voice_cfg.get("output_device")
+    language      = voice_cfg.get("stt", {}).get("language") or None
+
+    print(_C("\n  🎙  Voice mode active. Speak to Koza — Ctrl+C to exit.\n", "bold", "cyan"))
+    _hr("·", "grey")
+
+    try:
+        for text in vad_listen_loop(
+            input_device=input_device,
+            language=language,
+            stop_event=stop_event,
+            cfg=cfg,
+        ):
+            text = text.strip()
+            if not text:
+                continue
+
+            print(_C(f"\n  You: {text}", "teal"))
+
+            # Collect full agent response (non-streaming for simplicity)
+            try:
+                reply_parts = []
+                for event in agent._run_conversation_loop(text):
+                    if event.get("type") == "text":
+                        reply_parts.append(event["token"])
+                reply = "".join(reply_parts).strip()
+            except Exception as e:
+                reply = f"Sorry, I encountered an error: {e}"
+
+            if reply:
+                print(_C(f"  Koza: {reply}\n", "green"))
+                try:
+                    tts_speak_configured(reply, cfg=cfg, output_device=output_device)
+                except Exception as tts_err:
+                    print(_C(f"  ⚠  TTS error: {tts_err}", "yellow"))
+
+    except KeyboardInterrupt:
+        stop_event.set()
+        print(_C("\n\n  Voice mode stopped.\n", "grey"))
