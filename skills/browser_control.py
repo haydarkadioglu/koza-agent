@@ -443,6 +443,82 @@ def _run_simple_task(page, instruction: str, steps: list[str], max_steps: int) -
                 page.wait_for_timeout(2000)
 
 
+import threading
+import atexit
+
+_playwright_context_manager = None
+_playwright_instance = None
+_browser_context = None
+_browser_page = None
+_current_browser_note = ""
+_thread_local = threading.local()
+
+
+def _on_download(download):
+    try:
+        suggested = download.suggested_filename or f"download_{int(time.time())}"
+        dest = _download_dir() / suggested
+        download.save_as(str(dest))
+        if hasattr(_thread_local, "downloads"):
+            _thread_local.downloads.append(str(dest.resolve()))
+    except Exception as exc:
+        if hasattr(_thread_local, "downloads"):
+            _thread_local.downloads.append(f"ERROR saving download: {exc}")
+
+
+def _on_popup(popup):
+    try:
+        if hasattr(_thread_local, "steps"):
+            _thread_local.steps.append(f"New tab/popup opened: {popup.url}")
+    except Exception:
+        if hasattr(_thread_local, "steps"):
+            _thread_local.steps.append("New tab/popup opened.")
+
+
+def _on_dialog(dialog):
+    try:
+        if hasattr(_thread_local, "steps"):
+            _thread_local.steps.append(f"Dialog encountered ({dialog.type}): {dialog.message}")
+        dialog.accept()
+    except Exception as exc:
+        if hasattr(_thread_local, "steps"):
+            _thread_local.steps.append(f"Failed to handle dialog: {exc}")
+
+
+def _is_browser_healthy() -> bool:
+    global _browser_context, _browser_page
+    if not _browser_context or not _browser_page:
+        return False
+    try:
+        _ = _browser_page.url
+        _ = _browser_context.pages
+        return True
+    except Exception:
+        return False
+
+
+def _close_global_browser():
+    global _playwright_context_manager, _playwright_instance, _browser_context, _browser_page, _current_browser_note
+    try:
+        if _browser_context:
+            _browser_context.close()
+    except Exception:
+        pass
+    try:
+        if _playwright_context_manager and _playwright_instance:
+            _playwright_context_manager.__exit__(None, None, None)
+    except Exception:
+        pass
+    _browser_context = None
+    _browser_page = None
+    _playwright_instance = None
+    _playwright_context_manager = None
+    _current_browser_note = ""
+
+
+atexit.register(_close_global_browser)
+
+
 def browser_task(
     instruction: str,
     start_url: str = "",
@@ -456,6 +532,10 @@ def browser_task(
     if _looks_critical(instruction) and not _request_critical_permission("Start critical browser task", instruction, start_url):
         return "Permission denied: critical browser task was not approved."
 
+    if re.search(r"\b(close browser|close the browser|close session|tarayıcıyı kapat|tarayıcı kapat|kapat)\b", instruction, re.IGNORECASE):
+        _close_global_browser()
+        return "Browser session closed successfully."
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -467,14 +547,23 @@ def browser_task(
     downloads: list[str] = []
     screenshot_path = ""
     cookie_note = ""
-    browser_note = ""
+
+    _thread_local.downloads = downloads
+    _thread_local.steps = steps
 
     _profile_dir().mkdir(parents=True, exist_ok=True)
     _download_dir().mkdir(parents=True, exist_ok=True)
     _screenshot_dir().mkdir(parents=True, exist_ok=True)
 
+    global _playwright_context_manager, _playwright_instance, _browser_context, _browser_page, _current_browser_note
+
     try:
-        with sync_playwright() as pw:
+        if not _is_browser_healthy():
+            _close_global_browser()
+            
+            _playwright_context_manager = sync_playwright()
+            _playwright_instance = _playwright_context_manager.__enter__()
+            
             chrome_path = _find_chrome_executable()
             launch_kwargs = {
                 "headless": False,
@@ -484,53 +573,40 @@ def browser_task(
             }
             if chrome_path:
                 launch_kwargs["executable_path"] = chrome_path
-                browser_note = f"Using system browser: {chrome_path}"
+                _current_browser_note = f"Using system browser: {chrome_path}"
             else:
-                browser_note = "Using Playwright Chromium fallback."
+                _current_browser_note = "Using Playwright Chromium fallback."
 
-            context = pw.chromium.launch_persistent_context(str(_profile_dir()), **launch_kwargs)
-            page = context.pages[0] if context.pages else context.new_page()
+            _browser_context = _playwright_instance.chromium.launch_persistent_context(str(_profile_dir()), **launch_kwargs)
+            _browser_page = _browser_context.pages[0] if _browser_context.pages else _browser_context.new_page()
+            
+            _browser_page.on("download", _on_download)
+            _browser_page.on("popup", _on_popup)
+            _browser_page.on("dialog", _on_dialog)
 
-            if use_existing_profile and target_url:
-                cookie_note = _import_browser_cookies(context, target_url)
+        page = _browser_page
+        context = _browser_context
+        browser_note = _current_browser_note
 
-            def _on_download(download):
-                try:
-                    suggested = download.suggested_filename or f"download_{int(time.time())}"
-                    dest = _download_dir() / suggested
-                    download.save_as(str(dest))
-                    downloads.append(str(dest.resolve()))
-                except Exception as exc:
-                    downloads.append(f"ERROR saving download: {exc}")
+        if use_existing_profile and target_url:
+            cookie_note = _import_browser_cookies(context, target_url)
 
-            if allow_downloads:
-                page.on("download", _on_download)
+        if target_url:
+            page.goto(target_url, timeout=30000, wait_until="domcontentloaded")
+            steps.append(f"Opened: {target_url}")
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                page.wait_for_timeout(2000)
+        else:
+            steps.append(f"Continuing on page: {page.url}")
 
-            def _on_popup(popup):
-                try:
-                    steps.append(f"New tab/popup opened: {popup.url}")
-                except Exception:
-                    steps.append("New tab/popup opened.")
+        _run_simple_task(page, instruction, steps, max_steps)
 
-            page.on("popup", _on_popup)
-
-            if target_url:
-                page.goto(target_url, timeout=30000, wait_until="domcontentloaded")
-                steps.append(f"Opened: {target_url}")
-                try:
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                except Exception:
-                    page.wait_for_timeout(2000)
-            else:
-                steps.append("No start URL found; opened persistent browser profile only.")
-
-            _run_simple_task(page, instruction, steps, max_steps)
-
-            screenshot_path = str((_screenshot_dir() / f"browser_task_{int(time.time())}.png").resolve())
-            page.screenshot(path=screenshot_path, full_page=True)
-            visible_text = _page_text(page)
-            final_url = page.url
-            context.close()
+        screenshot_path = str((_screenshot_dir() / f"browser_task_{int(time.time())}.png").resolve())
+        page.screenshot(path=screenshot_path, full_page=True)
+        visible_text = _page_text(page)
+        final_url = page.url
 
         lines = [
             "Browser task finished.",
@@ -555,6 +631,7 @@ def browser_task(
             lines.append(visible_text)
         return "\n".join(lines)
     except Exception as exc:
+        _close_global_browser()
         return f"ERROR: browser_task failed: {exc}"
 
 
