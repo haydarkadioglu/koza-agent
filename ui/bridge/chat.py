@@ -74,16 +74,35 @@ class ChatMixin:
             return {"status": "error", "message": "Window not initialized"}
 
         try:
-            # 0 is OPEN_DIALOG in pywebview
-            result = self.webview_window.create_file_dialog(
-                dialog_type=0,
-                allow_multiple=False,
-                file_types=('All files (*.*)',)
-            )
-            if not result or len(result) == 0:
-                return {"status": "cancel"}
+            file_path = None
+            import os
+            
+            # On Windows, use tkinter first to avoid pywebview's buggy WinForms dialog UnboundLocalError
+            if os.name == 'nt':
+                try:
+                    import tkinter as tk
+                    from tkinter import filedialog
+                    root = tk.Tk()
+                    root.withdraw()  # Hide the main tk window
+                    root.attributes('-topmost', True)  # Show dialog on top
+                    file_path = filedialog.askopenfilename(parent=root, title="Select File")
+                    root.destroy()
+                except Exception as tk_err:
+                    print(f"[GUI] Tkinter dialog failed: {tk_err}, falling back to pywebview")
+            
+            if not file_path:
+                # Fallback to pywebview's create_file_dialog
+                result = self.webview_window.create_file_dialog(
+                    dialog_type=0,
+                    allow_multiple=False,
+                    file_types=('All files (*.*)',)
+                )
+                if not result or len(result) == 0:
+                    return {"status": "cancel"}
+                file_path = result[0]
 
-            file_path = result[0]
+            if not file_path:
+                return {"status": "cancel"}
             src = Path(file_path)
             
             # Find the active workspace directory
