@@ -101,13 +101,17 @@ class GeminiProvider(LLMProvider):
             from google import genai
             self._cfg = cfg
             api_key = self._get_api_key(cfg)
+            base_url = cfg.get("base_url", "")
+            http_options = None
+            if base_url:
+                http_options = {"base_url": base_url}
             if api_key:
-                self._client = genai.Client(api_key=api_key)
+                self._client = genai.Client(api_key=api_key, http_options=http_options)
             else:
                 try:
                     self._client = self._build_genai_client_from_adc()
                 except Exception:
-                    self._client = genai.Client(api_key="sk-placeholder")
+                    self._client = genai.Client(api_key="sk-placeholder", http_options=http_options)
 
     def _update_client_key(self) -> None:
         new_key = self._get_api_key(self._cfg)

@@ -192,9 +192,6 @@ def _setup_primary_provider(cfg: dict) -> None:
                 else:
                     api_key = ""
 
-    ollama_url = "http://localhost:11434"
-    if provider == "ollama":
-        ollama_url = _prompt("Ollama base URL", default="http://localhost:11434")
     if provider == "google-oauth":
         print(_C("\n  🔑 Starting Google OAuth login...\n", "cyan"))
         from providers.google_oauth_provider import run_oauth_login
@@ -209,14 +206,20 @@ def _setup_primary_provider(cfg: dict) -> None:
             print(_C("  ✅ Connected to Anthropic account.\n", "green"))
         else:
             print(_C("  ⚠  Connection failed. Continuing setup.\n", "yellow"))
-    openrouter_url = ""
-    if provider == "openrouter":
-        existing_url = cfg.get("providers", {}).get("openrouter", {}).get("base_url", "")
-        custom = _prompt(
-            "Custom base URL (Enter to use openrouter.ai default)",
-            default=existing_url or "",
-        )
-        openrouter_url = custom.strip() or ""
+
+    # Universal Base URL customization
+    from config import default_config
+    defaults = default_config().get("providers", {}).get(provider, {})
+    default_url = defaults.get("base_url", "")
+    
+    if default_url:
+        existing_url = cfg.get("providers", {}).get(provider, {}).get("base_url", "")
+        url_prompt_val = existing_url or default_url
+        custom_url = _prompt(
+            f"{provider.capitalize()} Base URL",
+            default=url_prompt_val
+        ).strip()
+        cfg.setdefault("providers", {}).setdefault(provider, {})["base_url"] = custom_url
 
     # Patch cfg
     cfg["provider"] = provider
@@ -227,10 +230,6 @@ def _setup_primary_provider(cfg: dict) -> None:
             cfg["providers"]["gemini"]["api_key"] = api_key
     elif api_key:
         cfg.setdefault("providers", {}).setdefault(provider, {})["api_key"] = api_key
-    if provider == "ollama":
-        cfg.setdefault("providers", {}).setdefault("ollama", {})["base_url"] = ollama_url
-    if provider == "openrouter" and openrouter_url:
-        cfg.setdefault("providers", {}).setdefault("openrouter", {})["base_url"] = openrouter_url
     print(_C(f"\n  ✓  Primary provider set to {provider} / {model}\n", "green"))
 
 
