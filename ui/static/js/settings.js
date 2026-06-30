@@ -1,5 +1,22 @@
 let providersMetadata = { providers: [], models: {}, needs_key: [] };
 
+const DEFAULT_BASE_URLS = {
+    'openai': 'https://api.openai.com/v1',
+    'anthropic': 'https://api.anthropic.com',
+    'deepseek': 'https://api.deepseek.com/v1',
+    'gemini': 'https://generativelanguage.googleapis.com',
+    'ollama': 'http://localhost:11434',
+    'antigravity': 'http://127.0.0.1:8045/v1',
+    'github': 'https://models.inference.ai.azure.com',
+    'kimi': 'https://api.moonshot.cn/v1',
+    'minimax': 'https://api.minimax.io/v1',
+    'zai': 'https://open.bigmodel.cn/api/paas/v4',
+    'portal': 'https://api.nous.portal/v1',
+    'groq': 'https://api.groq.com/openai/v1',
+    'openrouter': 'https://openrouter.ai/api/v1',
+    'lm_studio': 'http://localhost:1234/v1'
+};
+
 const STT_MODELS = {
     local_whisper: ['tiny', 'base', 'small'],
     openai: ['whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe'],
@@ -244,6 +261,26 @@ function updateApiKeyFieldVisibility(provider, cfg) {
     const keyInput      = document.getElementById('setting-api-key');
     const statusEl      = document.getElementById('api-key-status');
 
+    // ── Base URL Display Logic ────────────────────────────────────
+    const baseUrlGroup  = document.getElementById('group-base-url');
+    const baseUrlInput  = document.getElementById('setting-base-url');
+    const saveUrlBtn    = document.getElementById('btn-save-base-url');
+    const urlStatusEl   = document.getElementById('base-url-status');
+
+    if (baseUrlGroup && baseUrlInput && saveUrlBtn) {
+        if (DEFAULT_BASE_URLS[provider]) {
+            baseUrlGroup.style.display = 'block';
+            const currentUrl = (cfg.providers && cfg.providers[provider]) ? cfg.providers[provider].base_url : '';
+            const defaultUrl = DEFAULT_BASE_URLS[provider];
+            baseUrlInput.value = currentUrl || defaultUrl;
+            baseUrlInput.placeholder = `Default: ${defaultUrl}`;
+            saveUrlBtn.disabled = true;
+            if (urlStatusEl) urlStatusEl.style.display = 'none';
+        } else {
+            baseUrlGroup.style.display = 'none';
+        }
+    }
+
     // ── Antigravity Direct OAuth mode ──────────────────────────────
     if (provider === 'antigravity') {
         antigravGroup.style.display = 'none'; // Hide the proxy inputs completely
@@ -350,6 +387,46 @@ function updateApiKeyFieldVisibility(provider, cfg) {
         oauthGroup.style.display = 'none';
         if (anthropicOauthGroup) anthropicOauthGroup.style.display = 'none';
     }
+}
+
+function saveProviderBaseUrl() {
+    const provider = document.getElementById('setting-provider').value;
+    const url = document.getElementById('setting-base-url').value.trim();
+    const btn = document.getElementById('btn-save-base-url');
+    const statusEl = document.getElementById('base-url-status');
+
+    if (!provider) return;
+
+    btn.disabled = true;
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--text-secondary)';
+        statusEl.innerText = currentLanguage === 'tr' ? 'Kaydediliyor...' : 'Saving...';
+    }
+
+    window.pywebview.api.update_nested_config(`providers.${provider}.base_url`, url).then(res => {
+        if (res && res.status === 'success') {
+            if (statusEl) {
+                statusEl.style.color = '#2CB67D';
+                statusEl.innerHTML = `<i class="fa-solid fa-circle-check"></i> ${currentLanguage === 'tr' ? 'Base URL kaydedildi!' : 'Base URL saved successfully!'}`;
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 3000);
+            }
+        } else {
+            btn.disabled = false;
+            if (statusEl) {
+                statusEl.style.color = '#FF5555';
+                statusEl.innerText = res ? res.message : 'Error';
+            }
+        }
+    }).catch(err => {
+        btn.disabled = false;
+        if (statusEl) {
+            statusEl.style.color = '#FF5555';
+            statusEl.innerText = err;
+        }
+    });
 }
 
 function onProviderChanged(provider) {

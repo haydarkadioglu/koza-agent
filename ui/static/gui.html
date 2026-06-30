@@ -379,6 +379,16 @@
                                 </select>
                                 <input type="text" id="setting-model-custom" placeholder="Enter custom model name..." style="display:none; margin-top:8px;" onchange="onCustomModelChanged(this.value)">
                             </div>
+                            <div class="form-group" id="group-base-url" style="display:none; margin-bottom: 15px;">
+                                <label for="setting-base-url">Base URL</label>
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <input type="text" id="setting-base-url" placeholder="Enter base URL..." style="flex:1;" oninput="document.getElementById('btn-save-base-url').disabled = false;">
+                                    <button class="btn btn-secondary" id="btn-save-base-url" onclick="saveProviderBaseUrl()" style="white-space:nowrap; padding:8px 14px; font-size:12px;" disabled>
+                                        <i class="fa-solid fa-floppy-disk"></i> Save URL
+                                    </button>
+                                </div>
+                                <div id="base-url-status" style="margin-top:6px; font-size:12px; display:none;"></div>
+                            </div>
                             <div class="form-group" id="group-api-key" style="display:none;">
                                 <label id="label-api-key" for="setting-api-key">API Key</label>
                                 <div style="display:flex; gap:8px; align-items:center;">
