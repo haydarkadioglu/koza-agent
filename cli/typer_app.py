@@ -188,10 +188,10 @@ def version() -> None:
     _run(cmd_version)
 
 
-@app.command()
-def update() -> None:
-    """Self-update Koza."""
-    _run(cmd_update)
+# @app.command()
+# def update() -> None:
+#     """Self-update Koza."""
+#     _run(cmd_update)
 
 
 @app.command()

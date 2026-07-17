@@ -760,7 +760,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                     result = "  ✗  Usage: /plugin create <name> [description]"
                 else:
                     try:
-                        from skills.plugin_loader import plugin_create
+                        from core.plugin_manager import plugin_create
                         result = "  " + plugin_create(name, desc, author="CLI User")
                     except Exception as e:
                         result = f"  ✗  Error creating plugin: {e}"
@@ -777,7 +777,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
         # ── /plugins ── list plugins ─────────────────────────────────────────
         if user_input == "/plugins":
             try:
-                from skills.plugin_loader import plugin_list
+                from core.plugin_manager import plugin_list
                 result = plugin_list()
             except ImportError:
                 result = "  ℹ  Plugin system not available."

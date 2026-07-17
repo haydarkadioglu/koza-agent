@@ -1,7 +1,7 @@
 """Tool registry — ALL_TOOLS and ALL_HANDLERS assembled from all skill modules."""
 from typing import Callable
 
-# Runtime plugin tools accumulator — populated by plugin_loader
+# Runtime plugin tools accumulator — populated by plugin_manager
 _PLUGIN_TOOLS: list[dict] = []
 _PLUGIN_HANDLERS: dict[str, Callable] = {}
 
@@ -9,7 +9,7 @@ _PLUGIN_HANDLERS: dict[str, Callable] = {}
 def register_plugin_tools(tools: list[dict], handlers: dict[str, Callable]) -> None:
     """Register tools and handlers from an external plugin.
     
-    Called at runtime by plugin_loader.load_plugin(). After registration,
+    Called at runtime by plugin_manager.load_plugin(). After registration,
     ALL_TOOLS and ALL_HANDLERS are rebuilt to include the new entries.
     """
     global ALL_TOOLS, ALL_HANDLERS
@@ -37,13 +37,14 @@ def _build_all_handlers() -> dict[str, Callable]:
     h.update(_PLUGIN_HANDLERS)
     return h
 
+from core import plugin_manager
 from skills import (
     filesystem, shell, web, code_runner, system_info, kanban, cron,
     agents, browser_control, creative, datascience, devops, email_skill, finance,
     gaming, github_skill, mcp_skill, media, mlops, notes,
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
-    config_manager, image_gen, sync, skill_ecosystem, vision, plugin_loader, delegation, repo_manager, code_tools,
+    config_manager, image_gen, sync, skill_ecosystem, vision, delegation, repo_manager, code_tools,
     reminder, user_profile,
 )
 
@@ -99,7 +100,7 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + image_gen.TOOL_DEFINITIONS
     + sync.TOOL_DEFINITIONS
     + vision.TOOL_DEFINITIONS
-    + plugin_loader.TOOL_DEFINITIONS
+    + plugin_manager.TOOL_DEFINITIONS
     + reminder.TOOL_DEFINITIONS
     + user_profile.TOOL_DEFINITIONS
 )
@@ -142,7 +143,7 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **image_gen.HANDLERS,
     **sync.HANDLERS,
     **vision.HANDLERS,
-    **plugin_loader.HANDLERS,
+    **plugin_manager.HANDLERS,
     **reminder.HANDLERS,
     **user_profile.HANDLERS,
 }
@@ -182,7 +183,7 @@ STATIC_SKILL_MODULES = {
     "sync": sync,
     "skill_ecosystem": skill_ecosystem,
     "vision": vision,
-    "plugin_loader": plugin_loader,
+    "plugin_manager": plugin_manager,
     "delegation": delegation,
     "repo_manager": repo_manager,
     "code_tools": code_tools,
@@ -241,12 +242,12 @@ def rebuild_registry(force: bool = False) -> None:
     _PLUGIN_HANDLERS.clear()
     
     try:
-        from skills import plugin_loader
-        # Clear plugin cache in plugin_loader
-        if hasattr(plugin_loader, "_loaded_plugins"):
-            plugin_loader._loaded_plugins.clear()
+        from skills import plugin_manager
+        # Clear plugin cache in plugin_manager
+        if hasattr(plugin_manager, "_loaded_plugins"):
+            plugin_manager._loaded_plugins.clear()
         # Call load_all_plugins with this module to register them
-        plugin_loader.load_all_plugins(registry_module=sys.modules[__name__])
+        plugin_manager.load_all_plugins(registry_module=sys.modules[__name__])
     except Exception:
         pass
 

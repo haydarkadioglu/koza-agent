@@ -88,7 +88,7 @@ class SkillsMixin:
     def get_plugins(self):
         """Return list of installed plugins with their active state."""
         try:
-            from skills.plugin_loader import discover_plugins
+            from core.plugin_manager import discover_plugins
             plugins = discover_plugins()
             return {"status": "success", "data": plugins}
         except Exception as e:
@@ -97,7 +97,7 @@ class SkillsMixin:
     def toggle_plugin(self, plugin_name, enable):
         """Enable or disable an external plugin."""
         try:
-            from skills.plugin_loader import plugin_enable, plugin_disable
+            from core.plugin_manager import plugin_enable, plugin_disable
             if enable:
                 plugin_enable(plugin_name)
             else:
@@ -148,7 +148,7 @@ class SkillsMixin:
     def create_plugin(self, name, description, author):
         """Create a new external plugin."""
         try:
-            from skills.plugin_loader import plugin_create
+            from core.plugin_manager import plugin_create
             res = plugin_create(name, description, author)
             if res.startswith("✅"):
                 return {"status": "success", "message": res}
