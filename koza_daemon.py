@@ -582,8 +582,8 @@ def main():
         _log(f"Services-only started — PID {os.getpid()}")
         server._start_services()
         try:
-            while not server._shutdown.is_set():
-                server._shutdown.wait(timeout=1.0)
+            from cli.tray import start_tray_icon
+            start_tray_icon(server._shutdown)
         finally:
             server._sync_on_exit()
             _cleanup()
