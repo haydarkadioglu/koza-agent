@@ -37,7 +37,7 @@ def _build_all_handlers() -> dict[str, Callable]:
     h.update(_PLUGIN_HANDLERS)
     return h
 
-from core import plugin_manager
+# plugin_manager import removed to prevent circular import
 from skills import (
     filesystem, shell, web, code_runner, system_info, kanban, cron,
     agents, browser_control, creative, datascience, devops, email_skill, finance,
@@ -100,7 +100,6 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + image_gen.TOOL_DEFINITIONS
     + sync.TOOL_DEFINITIONS
     + vision.TOOL_DEFINITIONS
-    + plugin_manager.TOOL_DEFINITIONS
     + reminder.TOOL_DEFINITIONS
     + user_profile.TOOL_DEFINITIONS
 )
@@ -143,7 +142,6 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **image_gen.HANDLERS,
     **sync.HANDLERS,
     **vision.HANDLERS,
-    **plugin_manager.HANDLERS,
     **reminder.HANDLERS,
     **user_profile.HANDLERS,
 }
@@ -183,7 +181,6 @@ STATIC_SKILL_MODULES = {
     "sync": sync,
     "skill_ecosystem": skill_ecosystem,
     "vision": vision,
-    "plugin_manager": plugin_manager,
     "delegation": delegation,
     "repo_manager": repo_manager,
     "code_tools": code_tools,

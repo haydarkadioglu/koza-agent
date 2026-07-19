@@ -64,6 +64,8 @@ class AnthropicProvider(LLMProvider):
 
     def chat(self, messages, tools=None, stream=False):
         messages = self._adapt_vision_messages(messages)
+        from .prompt_caching import apply_anthropic_cache_control
+        messages = apply_anthropic_cache_control(messages, native_anthropic=True)
         system = next((m["content"] for m in messages if m["role"] == "system"), None)
         msgs = [m for m in messages if m["role"] != "system"]
         kwargs = {"model": self._model, "max_tokens": 4096, "messages": msgs}
@@ -110,6 +112,8 @@ class AnthropicProvider(LLMProvider):
             Connection errors propagate as exceptions (not caught).
         """
         messages = self._adapt_vision_messages(messages)
+        from .prompt_caching import apply_anthropic_cache_control
+        messages = apply_anthropic_cache_control(messages, native_anthropic=True)
         system = next((m["content"] for m in messages if m["role"] == "system"), None)
         msgs = [m for m in messages if m["role"] != "system"]
         kwargs = {"model": self._model, "max_tokens": 4096, "messages": msgs}

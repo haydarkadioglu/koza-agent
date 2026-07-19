@@ -27,6 +27,7 @@ from cli.daemon import cmd_quit, cmd_start, cmd_status
 from cli.setup import cmd_provider, cmd_setup
 from cli.tui_cmd import cmd_tui
 from cli.voice_cmd import cmd_voice
+from cli.ui_cmd import cmd_ui
 
 app = typer.Typer(
     add_completion=True,
@@ -123,6 +124,12 @@ def start(
             raise typer.BadParameter("must be one of: plain, tui")
         args += ["--ui", ui]
     _run(cmd_start, args)
+
+
+@app.command()
+def ui() -> None:
+    """Start the Koza Web UI and its backend servers."""
+    _run(cmd_ui)
 
 
 @app.command()

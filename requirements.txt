@@ -18,6 +18,8 @@ pyyaml>=6.0.1
 python-dotenv>=1.0.1
 packaging>=23.0
 pygments>=2.17.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
 
 # Creative
 pyfiglet>=1.0.2
