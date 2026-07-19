@@ -1,15 +1,15 @@
 ---
 title: Introduktion
-description: Kom godt i gang med OpenCode.
+description: Kom godt i gang med Koza.
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 import config from "../../../../config.mjs"
 export const console = config.console
 
-[**OpenCode**](/) er en open source AI-kodningsagent. Den er tilgængelig som en terminalbaseret grænseflade, desktop-app eller IDE-udvidelse.
+[**Koza**](/) er en open source AI-kodningsagent. Den er tilgængelig som en terminalbaseret grænseflade, desktop-app eller IDE-udvidelse.
 
-![OpenCode TUI med opencode-temaet](../../../assets/lander/screenshot.png)
+![Koza TUI med koza-temaet](../../../assets/lander/screenshot.png)
 
 Lad os komme i gang.
 
@@ -17,7 +17,7 @@ Lad os komme i gang.
 
 #### Forudsætninger
 
-For at bruge OpenCode i din terminal skal du bruge:
+For at bruge Koza i din terminal skal du bruge:
 
 1. En moderne terminalemulator som:
    - [WezTerm](https://wezterm.org), på tværs af platforme
@@ -31,10 +31,10 @@ For at bruge OpenCode i din terminal skal du bruge:
 
 ## Installation
 
-Den nemmeste måde at installere OpenCode på er gennem installationsscriptet.
+Den nemmeste måde at installere Koza på er gennem installationsscriptet.
 
 ```bash
-curl -fsSL https://opencode.ai/install | bash
+curl -fsSL https://koza.ai/install | bash
 ```
 
 Du kan også installere det med følgende kommandoer:
@@ -45,28 +45,28 @@ Du kan også installere det med følgende kommandoer:
 
       <TabItem label="npm">
       ```bash
-      npm install -g opencode-ai
+      npm install -g koza-ai
       ```
 
           </TabItem>
 
         <TabItem label="Bun">
         ```bash
-        bun install -g opencode-ai
+        bun install -g koza-ai
         ```
 
           </TabItem>
 
         <TabItem label="pnpm">
         ```bash
-        pnpm install -g opencode-ai
+        pnpm install -g koza-ai
         ```
 
           </TabItem>
 
         <TabItem label="Yarn">
         ```bash
-        yarn global add opencode-ai
+        yarn global add koza-ai
         ```
 
       </TabItem>
@@ -76,69 +76,69 @@ Du kan også installere det med følgende kommandoer:
 - **Brug af Homebrew på macOS og Linux**
 
   ```bash
-  brew install anomalyco/tap/opencode
+  brew install anomalyco/tap/koza
   ```
 
-  > Vi anbefaler at bruge OpenCode-tap for at få de mest opdaterede udgivelser. Den officielle `brew install opencode`-formel vedligeholdes af Homebrew-teamet og opdateret sjældnere.
+  > Vi anbefaler at bruge Koza-tap for at få de mest opdaterede udgivelser. Den officielle `brew install koza`-formel vedligeholdes af Homebrew-teamet og opdateret sjældnere.
 
 - **Brug af Paru på Arch Linux**
 
   ```bash
-  sudo pacman -S opencode           # Arch Linux (Stable)
-  paru -S opencode-bin              # Arch Linux (Latest from AUR)
+  sudo pacman -S koza           # Arch Linux (Stable)
+  paru -S koza-bin              # Arch Linux (Latest from AUR)
   ```
 
 #### Windows
 
 :::tip[Anbefalet: Brug WSL]
-For at få den bedste oplevelse på Windows anbefaler vi at bruge [Windows Subsystem for Linux (WSL)](/docs/windows-wsl). Det giver bedre ydeevne og fuld kompatibilitet med OpenCodes funktioner.
+For at få den bedste oplevelse på Windows anbefaler vi at bruge [Windows Subsystem for Linux (WSL)](/docs/windows-wsl). Det giver bedre ydeevne og fuld kompatibilitet med Kozas funktioner.
 :::
 
 - **Brug af Chocolatey**
 
   ```bash
-  choco install opencode
+  choco install koza
   ```
 
 - **Brug af Scoop**
 
   ```bash
-  scoop install opencode
+  scoop install koza
   ```
 
 - **Bruger NPM**
 
   ```bash
-  npm install -g opencode-ai
+  npm install -g koza-ai
   ```
 
 - **Brug af Mise**
 
   ```bash
-  mise use -g github:anomalyco/opencode
+  mise use -g github:anomalyco/koza
   ```
 
 - **Brug af Docker**
 
   ```bash
-  docker run -it --rm ghcr.io/anomalyco/opencode
+  docker run -it --rm ghcr.io/anomalyco/koza
   ```
 
-Support til installation af OpenCode på Windows ved hjælp af Bun er i gang.
+Support til installation af Koza på Windows ved hjælp af Bun er i gang.
 
-Du kan også få fat i binæren fra [Releases](https://github.com/anomalyco/opencode/releases).
+Du kan også få fat i binæren fra [Releases](https://github.com/anomalyco/koza/releases).
 
 ---
 
 ## Konfiguration
 
-Med OpenCode kan du bruge enhver LLM udbyder ved at konfigurere deres API-nøgler.
+Med Koza kan du bruge enhver LLM udbyder ved at konfigurere deres API-nøgler.
 
-Hvis du er ny til at bruge LLM-udbydere, anbefaler vi at bruge [OpenCode Zen](/docs/zen).
-Det er en udvalgt liste over modeller, der er blevet testet og verificeret af OpenCode
+Hvis du er ny til at bruge LLM-udbydere, anbefaler vi at bruge [Koza Zen](/docs/zen).
+Det er en udvalgt liste over modeller, der er blevet testet og verificeret af Koza
 holde.
 
-1. Kør kommandoen `/connect` i TUI, vælg opencode, og gå til [opencode.ai/auth](https://opencode.ai/auth).
+1. Kør kommandoen `/connect` i TUI, vælg koza, og gå til [koza.ai/auth](https://koza.ai/auth).
 
    ```txt
    /connect
@@ -168,33 +168,33 @@ du vil arbejde på.
 cd /path/to/project
 ```
 
-Og kør OpenCode.
+Og kør Koza.
 
 ```bash
-opencode
+koza
 ```
 
-Derefter initialiseres OpenCode for projektet ved at køre følgende kommando.
+Derefter initialiseres Koza for projektet ved at køre følgende kommando.
 
 ```bash frame="none"
 /init
 ```
 
-Dette får OpenCode til at analysere dit projekt og oprette en `AGENTS.md` fil i
+Dette får Koza til at analysere dit projekt og oprette en `AGENTS.md` fil i
 projektets rod.
 
 :::tip
 Du bør overgive dit projekter `AGENTS.md` fil til Git.
 :::
 
-Dette hjælper OpenCode med at forstå projektstrukturen og kodningsmønstrene
+Dette hjælper Koza med at forstå projektstrukturen og kodningsmønstrene
 brugt.
 
 ---
 
 ## Brug
 
-Du er nu klar til at bruge OpenCode til at arbejde på dit projekt. Spørg det gerne
+Du er nu klar til at bruge Koza til at arbejde på dit projekt. Spørg det gerne
 noget!
 
 Hvis du er ny til at bruge en AI-kodningsagent, er her nogle eksempler, der evt
@@ -204,7 +204,7 @@ hjælp.
 
 ### Stil spørgsmål
 
-Du kan bede OpenCode om at forklare kodebasen for dig.
+Du kan bede Koza om at forklare kodebasen for dig.
 
 :::tip
 Brug `@`-tasten til at søge efter filer i projektet.
@@ -220,11 +220,11 @@ Dette er nyttigt, hvis der er en del af kodebasen, som du ikke har arbejdet på.
 
 ### Tilføj funktioner
 
-Du kan bede OpenCode om at tilføje nye funktioner til dit projekt. Selvom vi først anbefaler, at du beder den om at lave en plan.
+Du kan bede Koza om at tilføje nye funktioner til dit projekt. Selvom vi først anbefaler, at du beder den om at lave en plan.
 
 1. **Opret en plan**
 
-   OpenCode har en _Plan mode_, der deaktiverer dens evne til at foretage ændringer og
+   Koza har en _Plan mode_, der deaktiverer dens evne til at foretage ændringer og
    foreslå i stedet _hvordan_ det vil implementere funktionen.
 
    Skift til det ved hjælp af **Tab**-tasten. Du vil se en indikator for dette i nederste højre hjørne.
@@ -241,11 +241,11 @@ Du kan bede OpenCode om at tilføje nye funktioner til dit projekt. Selvom vi f�
    From this screen, the user can undelete a note or permanently delete it.
    ```
 
-   Du vil give OpenCode nok detaljer til at forstå, hvad du ønsker. Det hjælper
+   Du vil give Koza nok detaljer til at forstå, hvad du ønsker. Det hjælper
    at tale med det, som om du taler med en juniorudvikler på dit team.
 
 :::tip
-Giv OpenCode masser af kontekst og eksempler for at hjælpe den med at forstå, hvad du
+Giv Koza masser af kontekst og eksempler for at hjælpe den med at forstå, hvad du
 ønsker.
 :::
 
@@ -262,7 +262,7 @@ Giv OpenCode masser af kontekst og eksempler for at hjælpe den med at forstå, 
 Træk og slip billeder i terminalen for at tilføje dem til prompten.
 :::
 
-OpenCode kan scanne alle billeder, du giver dem og tilføje dem til prompten. Det kan du
+Koza kan scanne alle billeder, du giver dem og tilføje dem til prompten. Det kan du
 gør dette ved at trække og slippe et billede ind i terminalen.
 
 3. **Byg funktionen**
@@ -284,7 +284,7 @@ gør dette ved at trække og slippe et billede ind i terminalen.
 
 ### Foretag ændringer
 
-For mere ligetil ændringer kan du bede OpenCode om at bygge den direkte
+For mere ligetil ændringer kan du bede Koza om at bygge den direkte
 uden at skulle gennemgå planen først.
 
 ```txt frame="none" "@packages/functions/src/settings.ts" "@packages/functions/src/notes.ts"
@@ -293,14 +293,14 @@ handled in the /notes route in @packages/functions/src/notes.ts and implement
 the same logic in @packages/functions/src/settings.ts
 ```
 
-Du vil sikre dig, at du giver en god mængde detaljer, så OpenCode gør det rigtige
+Du vil sikre dig, at du giver en god mængde detaljer, så Koza gør det rigtige
 ændringer.
 
 ---
 
 ### Fortryd ændringer
 
-Lad os sige, at du beder OpenCode om at foretage nogle ændringer.
+Lad os sige, at du beder Koza om at foretage nogle ændringer.
 
 ```txt frame="none" "@packages/functions/src/api/index.ts"
 Can you refactor the function in @packages/functions/src/api/index.ts?
@@ -313,14 +313,14 @@ ved hjælp af kommandoen `/undo`.
 /undo
 ```
 
-OpenCode vil nu vende tilbage til ændringerne, du har foretaget, og vise din oprindelige besked
+Koza vil nu vende tilbage til ændringerne, du har foretaget, og vise din oprindelige besked
 igen.
 
 ```txt frame="none" "@packages/functions/src/api/index.ts"
 Can you refactor the function in @packages/functions/src/api/index.ts?
 ```
 
-Herfra kan du justere prompten og bede OpenCode om at prøve igen.
+Herfra kan du justere prompten og bede Koza om at prøve igen.
 
 :::tip
 Du kan køre `/undo` flere gange for at fortryde flere ændringer.
@@ -336,7 +336,7 @@ Eller du **kan gentage** ændringerne ved hjælp af kommandoen `/redo`.
 
 ## Deling
 
-De samtaler, du har med OpenCode, kan [deles med din
+De samtaler, du har med Koza, kan [deles med din
 team](/docs/share).
 
 ```bash frame="none"
@@ -349,12 +349,12 @@ Dette vil oprette et link til den aktuelle samtale og kopiere det til denne udkl
 Samtaler dele ikke som standard.
 :::
 
-Her er en [eksempelsamtale](https://opencode.ai/s/4XP1fce5) med OpenCode.
+Her er en [eksempelsamtale](https://koza.ai/s/4XP1fce5) med Koza.
 
 ---
 
 ## Tilpasning
 
-Og det er det! Du er nu en professionel i at bruge OpenCode.
+Og det er det! Du er nu en professionel i at bruge Koza.
 
-For at gøre det til dit eget, anbefaler vi [at vælge et tema](/docs/themes), [tilpasse genvejstaster](/docs/keybinds), [konfigurere kodeformater](/docs/formatters), [oprette brugerdefinerede kommandoer](/docs/commands) eller at lege med [OpenCode-konfiguration](/docs/config).
+For at gøre det til dit eget, anbefaler vi [at vælge et tema](/docs/themes), [tilpasse genvejstaster](/docs/keybinds), [konfigurere kodeformater](/docs/formatters), [oprette brugerdefinerede kommandoer](/docs/commands) eller at lege med [Koza-konfiguration](/docs/config).

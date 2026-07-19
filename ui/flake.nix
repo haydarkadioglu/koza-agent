@@ -1,5 +1,5 @@
 {
-  description = "OpenCode development flake";
+  description = "Koza development flake";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -39,11 +39,11 @@
             };
           in
           rec {
-            opencode = final.callPackage ./nix/opencode.nix {
+            koza = final.callPackage ./nix/koza.nix {
               inherit node_modules;
             };
-            opencode-desktop = final.callPackage ./nix/desktop.nix {
-              inherit opencode;
+            koza-desktop = final.callPackage ./nix/desktop.nix {
+              inherit koza;
             };
           };
       };
@@ -56,12 +56,12 @@
           };
         in
         rec {
-          default = opencode;
-          opencode = pkgs.callPackage ./nix/opencode.nix {
+          default = koza;
+          koza = pkgs.callPackage ./nix/koza.nix {
             inherit node_modules;
           };
-          opencode-desktop = pkgs.callPackage ./nix/desktop.nix {
-            inherit opencode;
+          koza-desktop = pkgs.callPackage ./nix/desktop.nix {
+            inherit koza;
           };
           # Updater derivation with fakeHash - build fails and reveals correct hash
           node_modules_updater = node_modules.override {

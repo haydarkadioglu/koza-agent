@@ -1,16 +1,16 @@
 export * from "./client.js"
 export * from "./server.js"
 
-import { createOpencodeClient } from "./client.js"
-import { createOpencodeServer } from "./server.js"
+import { createKozaClient } from "./client.js"
+import { createKozaServer } from "./server.js"
 import type { ServerOptions } from "./server.js"
 
-export async function createOpencode(options?: ServerOptions) {
-  const server = await createOpencodeServer({
+export async function createKoza(options?: ServerOptions) {
+  const server = await createKozaServer({
     ...options,
   })
 
-  const client = createOpencodeClient({
+  const client = createKozaClient({
     baseUrl: server.url,
   })
 

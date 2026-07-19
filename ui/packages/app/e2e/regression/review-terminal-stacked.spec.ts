@@ -36,13 +36,13 @@ test("keeps the review tree and terminal sized when both panels are open", async
     provider: {
       all: [
         {
-          id: "opencode",
+          id: "koza",
           name: "Koza",
           models: { test: { id: "test", name: "Test", limit: { context: 200_000 } } },
         },
       ],
-      connected: ["opencode"],
-      default: { providerID: "opencode", modelID: "test" },
+      connected: ["koza"],
+      default: { providerID: "koza", modelID: "test" },
     },
     sessions: [
       {
@@ -100,7 +100,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await page.addInitScript(() => {
     localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
     localStorage.setItem(
-      "opencode.global.dat:layout",
+      "koza.global.dat:layout",
       JSON.stringify({ review: { diffStyle: "split", panelOpened: true } }),
     )
   })

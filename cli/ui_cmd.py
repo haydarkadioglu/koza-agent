@@ -4,20 +4,20 @@ import shutil
 import subprocess
 import time
 
-def find_electron_install_script(opencode_dir):
-    for root, dirs, files in os.walk(os.path.join(opencode_dir, "node_modules")):
+def find_electron_install_script(koza_dir):
+    for root, dirs, files in os.walk(os.path.join(koza_dir, "node_modules")):
         if "install.js" in files and "electron" in root:
             return os.path.join(root, "install.js")
     return None
 
-def cleanup_unused_folders(opencode_dir):
-    print("🧹 Cleaning up unused OpenCode folders...")
+def cleanup_unused_folders(koza_dir):
+    print("🧹 Cleaning up unused Koza folders...")
     folders_to_delete = [
         ".git", ".github", ".husky", ".vscode", ".zed",
         "infra", "nix", "perf", "specs", "sdks", "patches", "artifacts", "github"
     ]
     for folder in folders_to_delete:
-        path = os.path.join(opencode_dir, folder)
+        path = os.path.join(koza_dir, folder)
         if os.path.exists(path):
             if os.path.isdir(path):
                 shutil.rmtree(path, ignore_errors=True)
@@ -25,18 +25,18 @@ def cleanup_unused_folders(opencode_dir):
                 os.remove(path)
                 
     packages_to_delete = ["console", "stats", "storybook", "slack", "enterprise", "docs"]
-    packages_dir = os.path.join(opencode_dir, "packages")
+    packages_dir = os.path.join(koza_dir, "packages")
     for pkg in packages_to_delete:
         path = os.path.join(packages_dir, pkg)
         if os.path.exists(path):
             shutil.rmtree(path, ignore_errors=True)
             
-    for file in os.listdir(opencode_dir):
+    for file in os.listdir(koza_dir):
         if file.startswith("README.") and file.endswith(".md") and file != "README.tr.md":
-            os.remove(os.path.join(opencode_dir, file))
+            os.remove(os.path.join(koza_dir, file))
             
     for extra_file in ["STATS.md", "CONTEXT.md", "CONTRIBUTING.md", "SECURITY.md"]:
-        path = os.path.join(opencode_dir, extra_file)
+        path = os.path.join(koza_dir, extra_file)
         if os.path.exists(path):
             os.remove(path)
 
@@ -59,7 +59,7 @@ def create_desktop_shortcut(koza_exe, agent_dir):
 
 def cmd_ui(args: list[str] | None = None) -> None:
     agent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    opencode_dir = os.path.join(agent_dir, "ui")
+    koza_dir = os.path.join(agent_dir, "ui")
     
     # Locate python executable that has fastapi installed
     python_exe = None
@@ -75,7 +75,7 @@ def cmd_ui(args: list[str] | None = None) -> None:
     if not python_exe:
         python_exe = sys.executable  # fallback
         
-    desktop_dist_dir = os.path.join(opencode_dir, "packages", "desktop", "dist", "win-unpacked")
+    desktop_dist_dir = os.path.join(koza_dir, "packages", "desktop", "dist", "win-unpacked")
     exe_path = os.path.join(desktop_dist_dir, "Koza Dev.exe")
     
     # Check if compiled app exists
@@ -96,26 +96,26 @@ def cmd_ui(args: list[str] | None = None) -> None:
         print("🔧 First-time Koza UI Setup Initiated...")
         
         # 1. Clone if needed
-        if not os.path.exists(opencode_dir):
+        if not os.path.exists(koza_dir):
             print("📥 Cloning Koza UI repository...")
-            subprocess.run(["git", "clone", "https://github.com/anomalyco/opencode.git", opencode_dir], check=True)
-            cleanup_unused_folders(opencode_dir)
+            subprocess.run(["git", "clone", "https://github.com/anomalyco/koza.git", koza_dir], check=True)
+            cleanup_unused_folders(koza_dir)
             
         # 2. Bun install
         print("📦 Installing package dependencies (this may take a few minutes)...")
-        subprocess.run(["bun", "install"], cwd=opencode_dir, shell=True, check=True)
+        subprocess.run(["bun", "install"], cwd=koza_dir, shell=True, check=True)
         
         # 3. Download Electron binary
         print("⬇️ Downloading Electron platform binary...")
-        install_js = find_electron_install_script(opencode_dir)
+        install_js = find_electron_install_script(koza_dir)
         if install_js:
-            subprocess.run(["node", install_js], cwd=opencode_dir, check=True)
+            subprocess.run(["node", install_js], cwd=koza_dir, check=True)
         else:
             print("⚠️ Warning: Electron install script not found, hoping bun install handled it.")
             
         # 4. Package Electron app (dir mode)
         print("⚙️ Compiling and packaging native desktop application...")
-        subprocess.run(["bun", "run", "--cwd", "packages/desktop", "package:win", "--dir"], cwd=opencode_dir, shell=True, check=True)
+        subprocess.run(["bun", "run", "--cwd", "packages/desktop", "package:win", "--dir"], cwd=koza_dir, shell=True, check=True)
         
         # 5. Create shortcut
         if os.path.exists(exe_path):
@@ -142,7 +142,7 @@ def cmd_ui(args: list[str] | None = None) -> None:
     # 2. Start Desktop App client
     print("  -> Launching Koza Desktop App...")
     env = os.environ.copy()
-    env["OPENCODE_DISABLE_CHANNEL_DB"] = "1"
+    env["KOZA_DISABLE_CHANNEL_DB"] = "1"
     desktop_proc = subprocess.Popen(
         [exe_path],
         cwd=desktop_dist_dir,

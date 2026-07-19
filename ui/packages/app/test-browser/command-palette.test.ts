@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { GlobalSession, Project } from "@opencode-ai/sdk/v2/client"
+import type { GlobalSession, Project } from "@koza-ai/sdk/v2/client"
 import { createRoot } from "solid-js"
 import { createServerSessionEntries } from "@/components/command-palette"
 import type { LocalProject } from "@/context/layout"

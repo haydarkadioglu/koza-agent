@@ -1,4 +1,4 @@
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@koza-ai/core/util/encode"
 import { expect, test, type Page } from "@playwright/test"
 import {
   assistantMessage,
@@ -64,7 +64,7 @@ for (const scenario of scenarios) {
       provider: {
         all: [
           {
-            id: "opencode",
+            id: "koza",
             name: "Koza",
             models: {
               "claude-opus-4-6": {
@@ -75,8 +75,8 @@ for (const scenario of scenarios) {
             },
           },
         ],
-        connected: ["opencode"],
-        default: { providerID: "opencode", modelID: "claude-opus-4-6" },
+        connected: ["koza"],
+        default: { providerID: "koza", modelID: "claude-opus-4-6" },
       },
       sessions: [session()],
       sessionStatus: { [sessionID]: { type: "busy" } },

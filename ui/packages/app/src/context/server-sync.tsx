@@ -1,13 +1,13 @@
 import type {
   Config,
   McpResource,
-  OpencodeClient,
+  KozaClient,
   Path,
   Project,
   ProviderAuthResponse,
-} from "@opencode-ai/sdk/v2/client"
+} from "@koza-ai/sdk/v2/client"
 import { showToast } from "@/utils/toast"
-import { getFilename } from "@opencode-ai/core/util/path"
+import { getFilename } from "@koza-ai/core/util/path"
 import { type Accessor, batch, createMemo, getOwner, onCleanup, onMount, untrack } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
@@ -36,12 +36,12 @@ import { createRefreshQueue } from "./global-sync/queue"
 import { directoryKey } from "./global-sync/utils"
 import { PathKey } from "@/utils/path-key"
 import { createDirSyncContext } from "./directory-sync"
-import { createSimpleContext } from "@opencode-ai/ui/context"
-import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
+import { createSimpleContext } from "@koza-ai/ui/context"
+import { NormalizedProviderListResponse } from "@koza-ai/session-ui/context"
 import { createRefCountMap } from "@/utils/refcount"
 import { useGlobal } from "./global"
 import { ServerConnection, useServer } from "./server"
-import { retry } from "@opencode-ai/core/util/retry"
+import { retry } from "@koza-ai/core/util/retry"
 import type { ServerScope } from "@/utils/server-scope"
 import { createHomeSessionIndexCache } from "./global-sync/home-session-index"
 import { persisted } from "@/utils/persist"
@@ -59,20 +59,20 @@ type GlobalStore = {
   reload: undefined | "pending" | "complete"
 }
 
-export const loadMcpQuery = (scope: ServerScope, directory: string, sdk: OpencodeClient) =>
+export const loadMcpQuery = (scope: ServerScope, directory: string, sdk: KozaClient) =>
   queryOptions({
     queryKey: [scope, directory, "mcp"] as const,
     queryFn: () => sdk.mcp.status().then((r) => r.data ?? {}),
   })
 
-export const loadMcpResourcesQuery = (scope: ServerScope, directory: string, sdk: OpencodeClient) =>
+export const loadMcpResourcesQuery = (scope: ServerScope, directory: string, sdk: KozaClient) =>
   queryOptions<Record<string, McpResource>>({
     queryKey: [scope, directory, "mcpResources"] as const,
     queryFn: () => sdk.experimental.resource.list().then((r) => r.data ?? {}),
     placeholderData: {},
   })
 
-export const loadLspQuery = (scope: ServerScope, directory: string, sdk: OpencodeClient) =>
+export const loadLspQuery = (scope: ServerScope, directory: string, sdk: KozaClient) =>
   queryOptions({
     queryKey: [scope, directory, "lsp"] as const,
     queryFn: () => sdk.lsp.status().then((r) => r.data ?? []),
@@ -80,8 +80,8 @@ export const loadLspQuery = (scope: ServerScope, directory: string, sdk: Opencod
 
 function makeQueryOptionsApi(
   scope: ServerScope,
-  serverSDK: () => OpencodeClient,
-  sdkFor: (dir: PathKey) => OpencodeClient,
+  serverSDK: () => KozaClient,
+  sdkFor: (dir: PathKey) => KozaClient,
 ) {
   return {
     globalConfig: () => loadGlobalConfigQuery(scope, serverSDK()),
@@ -105,7 +105,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   const owner = getOwner()
   if (!owner) throw new Error("ServerSync must be created within owner")
 
-  const sdkCache = new Map<string, OpencodeClient>()
+  const sdkCache = new Map<string, KozaClient>()
   const booting = new Map<string, Promise<void>>()
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()

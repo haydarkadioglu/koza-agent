@@ -1,4 +1,4 @@
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@koza-ai/core/util/encode"
 import { expect, test, type Page } from "@playwright/test"
 import { mockKozaServer } from "../utils/mock-server"
 import { installSseTransport } from "../utils/sse-transport"
@@ -182,7 +182,7 @@ async function mockServer(
     provider: {
       all: [
         {
-          id: "opencode",
+          id: "koza",
           name: "Koza",
           models: {
             "claude-opus-4-6": {
@@ -193,8 +193,8 @@ async function mockServer(
           },
         },
       ],
-      connected: ["opencode"],
-      default: { providerID: "opencode", modelID: "claude-opus-4-6" },
+      connected: ["koza"],
+      default: { providerID: "koza", modelID: "claude-opus-4-6" },
     },
     sessions: [
       {

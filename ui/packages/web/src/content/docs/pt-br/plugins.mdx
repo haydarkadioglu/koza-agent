@@ -1,9 +1,9 @@
 ---
 title: Plugins
-description: Escreva seus próprios plugins para estender o opencode.
+description: Escreva seus próprios plugins para estender o koza.
 ---
 
-Plugins permitem que você estenda o opencode conectando-se a vários eventos e personalizando o comportamento. Você pode criar plugins para adicionar novos recursos, integrar-se a serviços externos ou modificar o comportamento padrão do opencode.
+Plugins permitem que você estenda o koza conectando-se a vários eventos e personalizando o comportamento. Você pode criar plugins para adicionar novos recursos, integrar-se a serviços externos ou modificar o comportamento padrão do koza.
 
 Para exemplos, confira os [plugins](/docs/ecosystem#plugins) criados pela comunidade.
 
@@ -19,8 +19,8 @@ Existem duas maneiras de carregar plugins.
 
 Coloque arquivos JavaScript ou TypeScript no diretório de plugins.
 
-- `.opencode/plugins/` - Plugins em nível de projeto
-- `~/.config/opencode/plugins/` - Plugins globais
+- `.koza/plugins/` - Plugins em nível de projeto
+- `~/.config/koza/plugins/` - Plugins globais
 
 Os arquivos nesses diretórios são carregados automaticamente na inicialização.
 
@@ -30,10 +30,10 @@ Os arquivos nesses diretórios são carregados automaticamente na inicializaçã
 
 Especifique pacotes npm no seu arquivo de configuração.
 
-```json title="opencode.json"
+```json title="koza.json"
 {
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-helicone-session", "opencode-wakatime", "@my-org/custom-plugin"]
+  "$schema": "https://koza.ai/config.json",
+  "plugin": ["koza-helicone-session", "koza-wakatime", "@my-org/custom-plugin"]
 }
 ```
 
@@ -45,7 +45,7 @@ Navegue pelos plugins disponíveis no [ecossistema](/docs/ecosystem#plugins).
 
 ### Como os plugins são instalados
 
-**Plugins npm** são instalados automaticamente usando Bun na inicialização. Pacotes e suas dependências são armazenados em cache em `~/.cache/opencode/node_modules/`.
+**Plugins npm** são instalados automaticamente usando Bun na inicialização. Pacotes e suas dependências são armazenados em cache em `~/.cache/koza/node_modules/`.
 
 **Plugins locais** são carregados diretamente do diretório de plugins. Para usar pacotes externos, você deve criar um `package.json` dentro do seu diretório de configuração (veja [Dependências](#dependencies)), ou publicar o plugin no npm e [adicioná-lo à sua configuração](/docs/config#plugins).
 
@@ -55,10 +55,10 @@ Navegue pelos plugins disponíveis no [ecossistema](/docs/ecosystem#plugins).
 
 Os plugins são carregados de todas as fontes e todos os hooks são executados em sequência. A ordem de carregamento é:
 
-1. Configuração global (`~/.config/opencode/opencode.json`)
-2. Configuração do projeto (`opencode.json`)
-3. Diretório de plugins global (`~/.config/opencode/plugins/`)
-4. Diretório de plugins do projeto (`.opencode/plugins/`)
+1. Configuração global (`~/.config/koza/koza.json`)
+2. Configuração do projeto (`koza.json`)
+3. Diretório de plugins global (`~/.config/koza/plugins/`)
+4. Diretório de plugins do projeto (`.koza/plugins/`)
 
 Pacotes npm duplicados com o mesmo nome e versão são carregados uma vez. No entanto, um plugin local e um plugin npm com nomes semelhantes são carregados separadamente.
 
@@ -74,7 +74,7 @@ Um plugin é um **módulo JavaScript/TypeScript** que exporta uma ou mais funç�
 
 Plugins locais e ferramentas personalizadas podem usar pacotes npm externos. Adicione um `package.json` ao seu diretório de configuração com as dependências necessárias.
 
-```json title=".opencode/package.json"
+```json title=".koza/package.json"
 {
   "dependencies": {
     "shescape": "^2.1.0"
@@ -82,9 +82,9 @@ Plugins locais e ferramentas personalizadas podem usar pacotes npm externos. Adi
 }
 ```
 
-O opencode executa `bun install` na inicialização para instalar esses pacotes. Seus plugins e ferramentas podem então importá-los.
+O koza executa `bun install` na inicialização para instalar esses pacotes. Seus plugins e ferramentas podem então importá-los.
 
-```ts title=".opencode/plugins/my-plugin.ts"
+```ts title=".koza/plugins/my-plugin.ts"
 import { escape } from "shescape"
 
 export const MyPlugin = async (ctx) => {
@@ -102,7 +102,7 @@ export const MyPlugin = async (ctx) => {
 
 ### Estrutura básica
 
-```js title=".opencode/plugins/example.js"
+```js title=".koza/plugins/example.js"
 export const MyPlugin = async ({ project, client, $, directory, worktree }) => {
   console.log("Plugin initialized!")
 
@@ -117,7 +117,7 @@ A função do plugin recebe:
 - `project`: As informações do projeto atual.
 - `directory`: O diretório de trabalho atual.
 - `worktree`: O caminho do worktree do git.
-- `client`: Um cliente SDK do opencode para interagir com a AI.
+- `client`: Um cliente SDK do koza para interagir com a AI.
 - `$`: A [API shell](https://bun.com/docs/runtime/shell) do Bun para executar comandos.
 
 ---
@@ -127,7 +127,7 @@ A função do plugin recebe:
 Para plugins TypeScript, você pode importar tipos do pacote de plugin:
 
 ```ts title="my-plugin.ts" {1}
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@koza-ai/plugin"
 
 export const MyPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
   return {
@@ -210,7 +210,7 @@ Plugins podem se inscrever em eventos como visto abaixo na seção Exemplos. Aqu
 
 ## Exemplos
 
-Aqui estão alguns exemplos de plugins que você pode usar para estender o opencode.
+Aqui estão alguns exemplos de plugins que você pode usar para estender o koza.
 
 ---
 
@@ -218,13 +218,13 @@ Aqui estão alguns exemplos de plugins que você pode usar para estender o openc
 
 Envie notificações quando certos eventos ocorrerem:
 
-```js title=".opencode/plugins/notification.js"
+```js title=".koza/plugins/notification.js"
 export const NotificationPlugin = async ({ project, client, $, directory, worktree }) => {
   return {
     event: async ({ event }) => {
       // Send notification on session completion
       if (event.type === "session.idle") {
-        await $`osascript -e 'display notification "Session completed!" with title "opencode"'`
+        await $`osascript -e 'display notification "Session completed!" with title "koza"'`
       }
     },
   }
@@ -234,16 +234,16 @@ export const NotificationPlugin = async ({ project, client, $, directory, worktr
 Estamos usando `osascript` para executar AppleScript no macOS. Aqui estamos usando para enviar notificações.
 
 :::note
-Se você estiver usando o aplicativo desktop opencode, ele pode enviar notificações do sistema automaticamente quando uma resposta estiver pronta ou quando ocorrer um erro na sessão.
+Se você estiver usando o aplicativo desktop koza, ele pode enviar notificações do sistema automaticamente quando uma resposta estiver pronta ou quando ocorrer um erro na sessão.
 :::
 
 ---
 
 ### Proteção .env
 
-Impeça o opencode de ler arquivos `.env`:
+Impeça o koza de ler arquivos `.env`:
 
-```javascript title=".opencode/plugins/env-protection.js"
+```javascript title=".koza/plugins/env-protection.js"
 export const EnvProtection = async ({ project, client, $, directory, worktree }) => {
   return {
     "tool.execute.before": async (input, output) => {
@@ -261,7 +261,7 @@ export const EnvProtection = async ({ project, client, $, directory, worktree })
 
 Injete variáveis de ambiente em todas as execuções de shell (ferramentas de AI e terminais de usuário):
 
-```javascript title=".opencode/plugins/inject-env.js"
+```javascript title=".koza/plugins/inject-env.js"
 export const InjectEnvPlugin = async () => {
   return {
     "shell.env": async (input, output) => {
@@ -276,10 +276,10 @@ export const InjectEnvPlugin = async () => {
 
 ### Ferramentas personalizadas
 
-Plugins também podem adicionar ferramentas personalizadas ao opencode:
+Plugins também podem adicionar ferramentas personalizadas ao koza:
 
-```ts title=".opencode/plugins/custom-tools.ts"
-import { type Plugin, tool } from "@opencode-ai/plugin"
+```ts title=".koza/plugins/custom-tools.ts"
+import { type Plugin, tool } from "@koza-ai/plugin"
 
 export const CustomToolsPlugin: Plugin = async (ctx) => {
   return {
@@ -299,13 +299,13 @@ export const CustomToolsPlugin: Plugin = async (ctx) => {
 }
 ```
 
-O helper `tool` cria uma ferramenta personalizada que o opencode pode chamar. Ele aceita uma função de esquema Zod e retorna uma definição de ferramenta com:
+O helper `tool` cria uma ferramenta personalizada que o koza pode chamar. Ele aceita uma função de esquema Zod e retorna uma definição de ferramenta com:
 
 - `description`: O que a ferramenta faz
 - `args`: Esquema Zod para os argumentos da ferramenta
 - `execute`: Função que é executada quando a ferramenta é chamada
 
-Suas ferramentas personalizadas estarão disponíveis para o opencode junto com as ferramentas integradas.
+Suas ferramentas personalizadas estarão disponíveis para o koza junto com as ferramentas integradas.
 
 :::note
 Se uma ferramenta de plugin usar o mesmo nome que uma ferramenta integrada, a ferramenta de plugin tem precedência.
@@ -317,7 +317,7 @@ Se uma ferramenta de plugin usar o mesmo nome que uma ferramenta integrada, a fe
 
 Use `client.app.log()` em vez de `console.log` para registro estruturado:
 
-```ts title=".opencode/plugins/my-plugin.ts"
+```ts title=".koza/plugins/my-plugin.ts"
 export const MyPlugin = async ({ client }) => {
   await client.app.log({
     body: {
@@ -330,7 +330,7 @@ export const MyPlugin = async ({ client }) => {
 }
 ```
 
-Níveis: `debug`, `info`, `warn`, `error`. Veja a [documentação do SDK](https://opencode.ai/docs/sdk) para detalhes.
+Níveis: `debug`, `info`, `warn`, `error`. Veja a [documentação do SDK](https://koza.ai/docs/sdk) para detalhes.
 
 ---
 
@@ -338,8 +338,8 @@ Níveis: `debug`, `info`, `warn`, `error`. Veja a [documentação do SDK](https:
 
 Personalize o contexto incluído quando uma sessão é compactada:
 
-```ts title=".opencode/plugins/compaction.ts"
-import type { Plugin } from "@opencode-ai/plugin"
+```ts title=".koza/plugins/compaction.ts"
+import type { Plugin } from "@koza-ai/plugin"
 
 export const CompactionPlugin: Plugin = async (ctx) => {
   return {
@@ -362,8 +362,8 @@ O hook `experimental.session.compacting` é acionado antes que o LLM gere um res
 
 Você também pode substituir o prompt de compactação completamente definindo `output.prompt`:
 
-```ts title=".opencode/plugins/custom-compaction.ts"
-import type { Plugin } from "@opencode-ai/plugin"
+```ts title=".koza/plugins/custom-compaction.ts"
+import type { Plugin } from "@koza-ai/plugin"
 
 export const CustomCompactionPlugin: Plugin = async (ctx) => {
   return {

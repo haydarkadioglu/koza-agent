@@ -22,8 +22,8 @@ app.add_middleware(
 import sqlite3
 from providers.factory import get_provider
 
-def load_keys_from_opencode_db():
-    db_path = os.path.join(os.path.expanduser("~"), ".local", "share", "opencode", "opencode.db")
+def load_keys_from_koza_db():
+    db_path = os.path.join(os.path.expanduser("~"), ".local", "share", "koza", "koza.db")
     if not os.path.exists(db_path):
         return {}
     
@@ -41,7 +41,7 @@ def load_keys_from_opencode_db():
                 pass
         conn.close()
     except Exception as e:
-        print("Error reading keys from opencode.db:", e)
+        print("Error reading keys from koza.db:", e)
     return keys
 
 from config import load_config
@@ -52,7 +52,7 @@ def get_agent():
     except Exception:
         local_cfg = {"db_path": os.path.join(os.path.expanduser("~"), ".Koza", "koza.db")}
         
-    db_keys = load_keys_from_opencode_db()
+    db_keys = load_keys_from_koza_db()
     
     if "providers" not in local_cfg:
         local_cfg["providers"] = {}
@@ -64,9 +64,9 @@ def get_agent():
         "deepseek": ("deepseek", "DEEPSEEK_API_KEY")
     }
     
-    for opencode_id, (koza_id, env_var) in mappings.items():
-        if opencode_id in db_keys:
-            key = db_keys[opencode_id]
+    for koza_id, (koza_id, env_var) in mappings.items():
+        if koza_id in db_keys:
+            key = db_keys[koza_id]
             os.environ[env_var] = key
             if koza_id not in local_cfg["providers"]:
                 local_cfg["providers"][koza_id] = {}
@@ -102,7 +102,7 @@ def get_agent():
     return agent
 
 def get_active_session_directory():
-    db_path = os.path.join(os.path.expanduser("~"), ".local", "share", "opencode", "opencode.db")
+    db_path = os.path.join(os.path.expanduser("~"), ".local", "share", "koza", "koza.db")
     if not os.path.exists(db_path):
         return None
     try:
@@ -166,7 +166,7 @@ async def chat_completions(request: Request):
                 
             elif event["type"] == "tool_start":
                 # Convert tool start into a UI-friendly markdown message instead of a native tool call, 
-                # so OpenCode UI just displays it rather than trying to execute it (Koza executes it).
+                # so Koza UI just displays it rather than trying to execute it (Koza executes it).
                 msg = f"\n\n> 🛠️ **Koza Tool:** `{event['name']}`\n> ```json\n> {json.dumps(event['args'], indent=2)}\n> ```\n\n"
                 chunk = {
                     "id": f"chatcmpl-{uuid.uuid4()}",

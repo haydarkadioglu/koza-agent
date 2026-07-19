@@ -1,6 +1,6 @@
 import { createSignal, createEffect, Show, Component } from "solid-js"
 import { Portal } from "solid-js/web"
-import { IconButton } from "@opencode-ai/ui/icon-button"
+import { IconButton } from "@koza-ai/ui/icon-button"
 
 export const VoiceModeOverlay: Component<{
   active: boolean

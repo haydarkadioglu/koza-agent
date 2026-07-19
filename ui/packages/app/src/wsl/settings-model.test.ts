@@ -6,7 +6,7 @@ import {
   autoProbePlan,
   createProbeFailureGate,
   runAddableProbePlan,
-  wslOpencodeAction,
+  wslKozaAction,
   wslRuntimeRetryable,
 } from "./settings-model"
 import type { WslServersState } from "./types"
@@ -19,7 +19,7 @@ function readyState(input: Partial<WslServersState> = {}): WslServersState {
     installed: [],
     online: [],
     distroProbes: {},
-    opencodeChecks: {},
+    kozaChecks: {},
     pendingRestart: false,
     servers: [],
     job: null,
@@ -38,9 +38,9 @@ describe("WSL server settings presentation", () => {
   })
 
   test("offers install and update only when Koza needs attention", () => {
-    expect(wslOpencodeAction(undefined)).toBeUndefined()
+    expect(wslKozaAction(undefined)).toBeUndefined()
     expect(
-      wslOpencodeAction({
+      wslKozaAction({
         distro: "Debian",
         resolvedPath: null,
         version: null,
@@ -50,7 +50,7 @@ describe("WSL server settings presentation", () => {
       }),
     ).toBe("Install Koza")
     expect(
-      wslOpencodeAction({
+      wslKozaAction({
         distro: "Debian",
         resolvedPath: "/usr/local/bin/koza",
         version: "1.2.2",
@@ -60,7 +60,7 @@ describe("WSL server settings presentation", () => {
       }),
     ).toBe("Update Koza")
     expect(
-      wslOpencodeAction({
+      wslKozaAction({
         distro: "Debian",
         resolvedPath: "/usr/local/bin/koza",
         version: "1.2.3",
@@ -188,10 +188,10 @@ describe("WSL server settings presentation", () => {
         distroProbes: {
           Debian: { name: "Debian", canExecute: true, hasBash: true, hasCurl: true, error: null },
         },
-        opencodeChecks: {
+        kozaChecks: {
           Debian: {
             distro: "Debian",
-            resolvedPath: "/home/me/.opencode/bin/koza",
+            resolvedPath: "/home/me/.koza/bin/koza",
             version: null,
             expectedVersion: "1.2.3",
             matchesDesktop: null,
@@ -208,7 +208,7 @@ describe("WSL server settings presentation", () => {
     })
 
     expect(model.distroStatuses.Debian).toEqual({
-      label: { key: "wsl.onboarding.installOpencode" },
+      label: { key: "wsl.onboarding.installKoza" },
       tone: "warning",
     })
     expect(model.primaryButton.action).toBe("install-koza")

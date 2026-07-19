@@ -7,7 +7,7 @@ import {
   wslTerminalArgs,
 } from "./policy"
 import {
-  expectOpencodeVersion,
+  expectKozaVersion,
   pendingRestartAfterWslInstall,
   pollWslHealth,
   wslServerIdsToStartOnInitialize,
@@ -15,7 +15,7 @@ import {
 import { createWslServersController, type WslServerConfig } from "./servers"
 
 let persistedServers: WslServerConfig[] = []
-let releaseOpencodeResolve: (() => void) | undefined
+let releaseKozaResolve: (() => void) | undefined
 
 test("starts every configured WSL server on initialization", () => {
   expect(
@@ -27,8 +27,8 @@ test("starts every configured WSL server on initialization", () => {
 })
 
 test("rejects an update that did not install the desktop version", () => {
-  expect(() => expectOpencodeVersion("1.16.2", "1.16.2")).not.toThrow()
-  expect(() => expectOpencodeVersion("1.14.35", "1.16.2")).toThrow(
+  expect(() => expectKozaVersion("1.16.2", "1.16.2")).not.toThrow()
+  expect(() => expectKozaVersion("1.14.35", "1.16.2")).toThrow(
     "Koza update finished but Debian still reports 1.14.35; expected 1.16.2",
   )
 })
@@ -55,7 +55,7 @@ test("clears cached distro probes when removing a WSL server", () => {
       {
         Debian: {
           distro: "Debian",
-          resolvedPath: "/home/luke/.opencode/bin/koza",
+          resolvedPath: "/home/luke/.koza/bin/koza",
           version: "1.16.2",
           expectedVersion: "1.16.2",
           matchesDesktop: true,
@@ -64,7 +64,7 @@ test("clears cached distro probes when removing a WSL server", () => {
       },
       "Debian",
     ),
-  ).toEqual({ distroProbes: {}, opencodeChecks: {} })
+  ).toEqual({ distroProbes: {}, kozaChecks: {} })
 })
 
 test("opens terminals for distro names containing spaces", () => {
@@ -106,7 +106,7 @@ test("derives a required Windows restart from the post-install runtime probe", (
 
 test("ignores stale background Koza checks after removing a WSL server", async () => {
   persistedServers = []
-  releaseOpencodeResolve = undefined
+  releaseKozaResolve = undefined
   const controller = createWslServersController(
     "1.16.2",
     async () => ({
@@ -122,18 +122,18 @@ test("ignores stale background Koza checks after removing a WSL server", async (
   )
 
   await controller.addServer("Debian")
-  await waitFor(() => !!releaseOpencodeResolve)
+  await waitFor(() => !!releaseKozaResolve)
   await controller.removeServer("wsl:Debian")
-  releaseOpencodeResolve?.()
+  releaseKozaResolve?.()
   await new Promise((resolve) => setTimeout(resolve, 0))
 
   expect(controller.getState().servers).toEqual([])
-  expect(controller.getState().opencodeChecks).toEqual({})
+  expect(controller.getState().kozaChecks).toEqual({})
 })
 
 test("ignores stale startup Koza checks after removing a WSL server", async () => {
   persistedServers = [{ id: "wsl:Debian", distro: "Debian" }]
-  releaseOpencodeResolve = undefined
+  releaseKozaResolve = undefined
   const controller = createWslServersController(
     "1.16.2",
     async () => new Promise<never>(() => undefined),
@@ -141,13 +141,13 @@ test("ignores stale startup Koza checks after removing a WSL server", async () =
   )
 
   await controller.initialize()
-  await waitFor(() => !!releaseOpencodeResolve)
+  await waitFor(() => !!releaseKozaResolve)
   await controller.removeServer("wsl:Debian")
-  releaseOpencodeResolve?.()
+  releaseKozaResolve?.()
   await new Promise((resolve) => setTimeout(resolve, 0))
 
   expect(controller.getState().servers).toEqual([])
-  expect(controller.getState().opencodeChecks).toEqual({})
+  expect(controller.getState().kozaChecks).toEqual({})
 })
 
 test("probes addable distros in parallel before checking Koza", async () => {
@@ -162,9 +162,9 @@ test("probes addable distros in parallel before checking Koza", async () => {
       await new Promise<void>((resolve) => release.set(distro, resolve))
       return { name: distro, canExecute: true, hasBash: true, hasCurl: true, error: null }
     },
-    resolveOpencode: async (distro) => {
+    resolveKoza: async (distro) => {
       koza.push(distro)
-      return "/home/me/.opencode/bin/koza"
+      return "/home/me/.koza/bin/koza"
     },
   })
 
@@ -178,7 +178,7 @@ test("probes addable distros in parallel before checking Koza", async () => {
 
   expect(Object.keys(controller.getState().distroProbes)).toEqual(["Debian", "Ubuntu"])
   expect(koza).toEqual(["Debian", "Ubuntu"])
-  expect(Object.keys(controller.getState().opencodeChecks)).toEqual(["Debian", "Ubuntu"])
+  expect(Object.keys(controller.getState().kozaChecks)).toEqual(["Debian", "Ubuntu"])
 })
 
 test("does not check Koza in addable distros that cannot execute commands", async () => {
@@ -193,9 +193,9 @@ test("does not check Koza in addable distros that cannot execute commands", asyn
       hasCurl: distro === "Debian",
       error: distro === "Debian" ? null : "Open Ubuntu once to finish setup",
     }),
-    resolveOpencode: async (distro) => {
+    resolveKoza: async (distro) => {
       koza.push(distro)
-      return "/home/me/.opencode/bin/koza"
+      return "/home/me/.koza/bin/koza"
     },
   })
 
@@ -203,7 +203,7 @@ test("does not check Koza in addable distros that cannot execute commands", asyn
 
   expect(Object.keys(controller.getState().distroProbes)).toEqual(["Debian", "Ubuntu"])
   expect(koza).toEqual(["Debian"])
-  expect(Object.keys(controller.getState().opencodeChecks)).toEqual(["Debian"])
+  expect(Object.keys(controller.getState().kozaChecks)).toEqual(["Debian"])
 })
 
 async function waitFor(check: () => boolean) {
@@ -221,11 +221,11 @@ function testControllerOptions() {
       persistedServers = servers
     },
     readCommandVersion: async () => "1.16.2",
-    resolveOpencode: async () => {
+    resolveKoza: async () => {
       await new Promise<void>((resolve) => {
-        releaseOpencodeResolve = resolve
+        releaseKozaResolve = resolve
       })
-      return "/home/me/.opencode/bin/koza"
+      return "/home/me/.koza/bin/koza"
     },
   }
 }

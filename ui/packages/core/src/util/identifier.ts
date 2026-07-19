@@ -1,1 +1,1 @@
-export * as Identifier from "@opencode-ai/schema/identifier"
+export * as Identifier from "@koza-ai/schema/identifier"

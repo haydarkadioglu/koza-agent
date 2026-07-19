@@ -1,10 +1,10 @@
 import { createEffect, For, Match, on, onCleanup, onMount, Show, Switch, type Accessor, type JSX } from "solid-js"
 import { animate, type AnimationPlaybackControls } from "motion"
-import { useI18n } from "@opencode-ai/ui/context/i18n"
+import { useI18n } from "@koza-ai/ui/context/i18n"
 import { createStore } from "solid-js/store"
-import { Collapsible } from "@opencode-ai/ui/collapsible"
-import type { IconProps } from "@opencode-ai/ui/icon"
-import { TextShimmer } from "@opencode-ai/ui/text-shimmer"
+import { Collapsible } from "@koza-ai/ui/collapsible"
+import type { IconProps } from "@koza-ai/ui/icon"
+import { TextShimmer } from "@koza-ai/ui/text-shimmer"
 
 export type TriggerTitle = {
   title: string

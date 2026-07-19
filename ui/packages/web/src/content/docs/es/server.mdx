@@ -1,19 +1,19 @@
 ---
 title: Servidor
-description: Interactuar con el servidor opencode a través de HTTP.
+description: Interactuar con el servidor koza a través de HTTP.
 ---
 
 import config from "../../../../config.mjs"
 export const typesUrl = `${config.github}/blob/dev/packages/sdk/js/src/gen/types.gen.ts`
 
-El comando `opencode serve` ejecuta un servidor HTTP sin cabeza que expone un punto final OpenAPI que un cliente opencode puede usar.
+El comando `koza serve` ejecuta un servidor HTTP sin cabeza que expone un punto final OpenAPI que un cliente koza puede usar.
 
 ---
 
 ### Uso
 
 ```bash
-opencode serve [--port <number>] [--hostname <string>] [--cors <origin>]
+koza serve [--port <number>] [--hostname <string>] [--cors <origin>]
 ```
 
 #### Opciones
@@ -23,41 +23,41 @@ opencode serve [--port <number>] [--hostname <string>] [--cors <origin>]
 | `--port`        | Puerto para escuchar                                  | `4096`           |
 | `--hostname`    | Nombre de host para escuchar                          | `127.0.0.1`      |
 | `--mdns`        | Habilitar el descubrimiento de mDNS                   | `false`          |
-| `--mdns-domain` | Nombre de dominio personalizado para el servicio mDNS | `opencode.local` |
+| `--mdns-domain` | Nombre de dominio personalizado para el servicio mDNS | `koza.local` |
 | `--cors`        | Orígenes de navegador adicionales para permitir       | `[]`             |
 
 `--cors` se puede pasar varias veces:
 
 ```bash
-opencode serve --cors http://localhost:5173 --cors https://app.example.com
+koza serve --cors http://localhost:5173 --cors https://app.example.com
 ```
 
 ---
 
 ### Autenticación
 
-Configure `OPENCODE_SERVER_PASSWORD` para proteger el servidor con autenticación básica HTTP. El nombre de usuario predeterminado es `opencode`, o configure `OPENCODE_SERVER_USERNAME` para anularlo. Esto se aplica tanto a `opencode serve` como a `opencode web`.
+Configure `KOZA_SERVER_PASSWORD` para proteger el servidor con autenticación básica HTTP. El nombre de usuario predeterminado es `koza`, o configure `KOZA_SERVER_USERNAME` para anularlo. Esto se aplica tanto a `koza serve` como a `koza web`.
 
 ```bash
-OPENCODE_SERVER_PASSWORD=your-password opencode serve
+KOZA_SERVER_PASSWORD=your-password koza serve
 ```
 
 ---
 
 ### Cómo funciona
 
-Cuando ejecuta `opencode`, inicia un TUI y un servidor. Donde el TUI es el
+Cuando ejecuta `koza`, inicia un TUI y un servidor. Donde el TUI es el
 Cliente que habla con el servidor. El servidor expone una especificación OpenAPI 3.1
 punto final. Este punto final también se utiliza para generar un [SDK](/docs/sdk).
 
 :::tip
-Utilice el servidor opencode para interactuar con opencode mediante programación.
+Utilice el servidor koza para interactuar con koza mediante programación.
 :::
 
-Esta arquitectura permite que opencode admita múltiples clientes y le permite interactuar con opencode mediante programación.
+Esta arquitectura permite que koza admita múltiples clientes y le permite interactuar con koza mediante programación.
 
-Puede ejecutar `opencode serve` para iniciar un servidor independiente. Si tienes el
-opencode TUI ejecutándose, `opencode serve` iniciará un nuevo servidor.
+Puede ejecutar `koza serve` para iniciar un servidor independiente. Si tienes el
+koza TUI ejecutándose, `koza serve` iniciará un nuevo servidor.
 
 ---
 
@@ -65,7 +65,7 @@ opencode TUI ejecutándose, `opencode serve` iniciará un nuevo servidor.
 
 Cuando inicia el TUI, asigna aleatoriamente un puerto y un nombre de host. En su lugar, puede pasar `--hostname` y `--port` [banderas](/docs/cli). Luego use esto para conectarse a su servidor.
 
-El punto final [`/tui`](#tui) se puede utilizar para conducir el TUI a través del servidor. Por ejemplo, puede completar previamente o ejecutar un mensaje. Esta configuración es utilizada por los complementos OpenCode [IDE](/docs/ide).
+El punto final [`/tui`](#tui) se puede utilizar para conducir el TUI a través del servidor. Por ejemplo, puede completar previamente o ejecutar un mensaje. Esta configuración es utilizada por los complementos Koza [IDE](/docs/ide).
 
 ---
 
@@ -83,7 +83,7 @@ Por ejemplo, `http://localhost:4096/doc`. Utilice la especificación para genera
 
 ## API
 
-El servidor opencode expone las siguientes API.
+El servidor koza expone las siguientes API.
 
 ---
 

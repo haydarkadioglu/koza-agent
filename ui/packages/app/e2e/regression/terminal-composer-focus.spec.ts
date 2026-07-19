@@ -1,4 +1,4 @@
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@koza-ai/core/util/encode"
 import { expect, test, type Page } from "@playwright/test"
 import { mockKozaServer } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
@@ -25,13 +25,13 @@ test.beforeEach(async ({ page }) => {
     provider: {
       all: [
         {
-          id: "opencode",
+          id: "koza",
           name: "Koza",
           models: { test: { id: "test", name: "Test", limit: { context: 200_000 } } },
         },
       ],
-      connected: ["opencode"],
-      default: { providerID: "opencode", modelID: "test" },
+      connected: ["koza"],
+      default: { providerID: "koza", modelID: "test" },
     },
     sessions: [
       {
@@ -195,7 +195,7 @@ test("focuses a terminal created from the new-terminal button", async ({ page })
 function seedCachedTerminal(page: Page) {
   return page.addInitScript(
     ({ terminalKey, ptyID }) => {
-      localStorage.setItem("opencode.global.dat:layout", JSON.stringify({ terminal: { height: 320, opened: true } }))
+      localStorage.setItem("koza.global.dat:layout", JSON.stringify({ terminal: { height: 320, opened: true } }))
       localStorage.setItem(
         terminalKey,
         JSON.stringify({

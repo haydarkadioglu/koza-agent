@@ -22,13 +22,13 @@ test("unmounts the terminal panel while it is hidden", async ({ page }) => {
     provider: {
       all: [
         {
-          id: "opencode",
+          id: "koza",
           name: "Koza",
           models: { test: { id: "test", name: "Test", limit: { context: 200_000 } } },
         },
       ],
-      connected: ["opencode"],
-      default: { providerID: "opencode", modelID: "test" },
+      connected: ["koza"],
+      default: { providerID: "koza", modelID: "test" },
     },
     sessions: [
       {

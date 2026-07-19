@@ -267,8 +267,8 @@ _API_KEY_PROVIDER_AUX_MODELS_FALLBACK: Dict[str, str] = {
     "kimi-coding-cn": "kimi-k2-turbo-preview",
     "gmi": "google/gemini-3.1-flash-lite-preview",
     "anthropic": "claude-haiku-4-5-20251001",
-    "opencode-zen": "gemini-3-flash",
-    "opencode-go": "glm-5",
+    "koza-zen": "gemini-3-flash",
+    "koza-go": "glm-5",
     "kilocode": "google/gemini-3-flash-preview",
     "ollama-cloud": "nemotron-3-nano:30b",
     "tencent-tokenhub": "hy3-preview",
@@ -2336,7 +2336,7 @@ def _is_payment_error(exc: Exception) -> bool:
             "too many tokens per day", "daily limit",
             "tokens per day", "daily quota",
             "resource exhausted",  # Vertex AI / gRPC quota errors
-            "weekly usage limit", "weekly limit",  # OpenCode Go weekly subscription cap
+            "weekly usage limit", "weekly limit",  # Koza Go weekly subscription cap
         )):
             return True
     return False
@@ -2639,7 +2639,7 @@ def _recoverable_pool_provider(
         return "kimi-coding"
     if base_url_host_matches(base, "api.x.ai"):
         return "xai-oauth"
-    # For api_key providers not in the hardcoded list (e.g. opencode-go), match
+    # For api_key providers not in the hardcoded list (e.g. koza-go), match
     # the client base URL against all registered api_key providers so that
     # credential-pool rotation works for any provider the user configured.
     if main_runtime:

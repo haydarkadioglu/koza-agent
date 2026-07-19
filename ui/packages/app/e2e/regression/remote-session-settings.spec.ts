@@ -1,4 +1,4 @@
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@koza-ai/core/util/encode"
 import { expect, test, type Page, type Route } from "@playwright/test"
 import { installSseTransport } from "../utils/sse-transport"
 
@@ -153,8 +153,8 @@ async function configureServers(page: Page, tabs: { type: "session"; server: str
   await page.addInitScript(
     ({ serverB, tabs }) => {
       localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
-      localStorage.setItem("opencode.global.dat:server", JSON.stringify({ list: [serverB] }))
-      localStorage.setItem("opencode.window.browser.dat:tabs", JSON.stringify(tabs))
+      localStorage.setItem("koza.global.dat:server", JSON.stringify({ list: [serverB] }))
+      localStorage.setItem("koza.window.browser.dat:tabs", JSON.stringify(tabs))
     },
     { serverB, tabs },
   )

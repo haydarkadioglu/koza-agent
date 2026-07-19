@@ -1,7 +1,7 @@
 export const deepLinkEvent = "koza:deep-link"
 
 const parseUrl = (input: string) => {
-  if (!input.startsWith("opencode://")) return
+  if (!input.startsWith("koza://")) return
   if (typeof URL.canParse === "function" && !URL.canParse(input)) return
   try {
     return new URL(input)
@@ -37,14 +37,14 @@ export const collectNewSessionDeepLinks = (urls: string[]) =>
   urls.map(parseNewSessionDeepLink).filter((link): link is { directory: string; prompt?: string } => !!link)
 
 type KozaWindow = Window & {
-  __OPENCODE__?: {
+  __KOZA__?: {
     deepLinks?: string[]
   }
 }
 
 export const drainPendingDeepLinks = (target: KozaWindow) => {
-  const pending = target.__OPENCODE__?.deepLinks ?? []
+  const pending = target.__KOZA__?.deepLinks ?? []
   if (pending.length === 0) return []
-  if (target.__OPENCODE__) target.__OPENCODE__.deepLinks = []
+  if (target.__KOZA__) target.__KOZA__.deepLinks = []
   return pending
 }

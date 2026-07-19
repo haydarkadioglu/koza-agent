@@ -1,4 +1,4 @@
-import type { LspStatus, McpStatus } from "@opencode-ai/sdk/v2/client"
+import type { LspStatus, McpStatus } from "@koza-ai/sdk/v2/client"
 
 export function hasNonBlockingServiceIssue(input: {
   mcp: Array<McpStatus["status"]>

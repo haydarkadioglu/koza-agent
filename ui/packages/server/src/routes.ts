@@ -1,16 +1,16 @@
-import { Database } from "@opencode-ai/core/database/database"
-import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
-import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { EventV2 } from "@opencode-ai/core/event"
-import { Credential } from "@opencode-ai/core/credential"
-import { PermissionSaved } from "@opencode-ai/core/permission/saved"
-import { PtyTicket } from "@opencode-ai/core/pty/ticket"
-import { SessionV2 } from "@opencode-ai/core/session"
-import { SessionExecution } from "@opencode-ai/core/session/execution"
-import { LocationServiceMap } from "@opencode-ai/core/location-service-map"
-import { SessionExecutionLocal } from "@opencode-ai/core/session/execution/local"
-import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
+import { Database } from "@koza-ai/core/database/database"
+import { LayerNode } from "@koza-ai/core/effect/layer-node"
+import { httpClient } from "@koza-ai/core/effect/app-node-platform"
+import { AppNodeBuilder } from "@koza-ai/core/effect/app-node-builder"
+import { EventV2 } from "@koza-ai/core/event"
+import { Credential } from "@koza-ai/core/credential"
+import { PermissionSaved } from "@koza-ai/core/permission/saved"
+import { PtyTicket } from "@koza-ai/core/pty/ticket"
+import { SessionV2 } from "@koza-ai/core/session"
+import { SessionExecution } from "@koza-ai/core/session/execution"
+import { LocationServiceMap } from "@koza-ai/core/location-service-map"
+import { SessionExecutionLocal } from "@koza-ai/core/session/execution/local"
+import { ToolOutputStore } from "@koza-ai/core/tool-output-store"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Layer, Option } from "effect"
@@ -39,13 +39,13 @@ const applicationServices = LayerNode.group([
 export function createRoutes(password?: string) {
   return makeRoutes(
     password
-      ? ServerAuth.Config.configLayer({ username: "opencode", password: Option.some(password) })
+      ? ServerAuth.Config.configLayer({ username: "koza", password: Option.some(password) })
       : ServerAuth.Config.layer,
   )
 }
 
 export function createEmbeddedRoutes() {
-  return makeRoutes(ServerAuth.Config.configLayer({ username: "opencode", password: Option.none() }))
+  return makeRoutes(ServerAuth.Config.configLayer({ username: "koza", password: Option.none() }))
 }
 
 function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>) {

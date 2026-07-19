@@ -1,7 +1,7 @@
-export * as OpenCode from "./opencode"
+export * as Koza from "./koza"
 export * as Tool from "./tool"
 
-export { ClientError } from "@opencode-ai/client/effect"
+export { ClientError } from "@koza-ai/client/effect"
 export {
   AbsolutePath,
   Agent,
@@ -13,5 +13,5 @@ export {
   Session,
   SessionInput,
   SessionMessage,
-} from "@opencode-ai/client/effect"
-export type { OpenCodeEvent } from "@opencode-ai/client/effect"
+} from "@koza-ai/client/effect"
+export type { KozaEvent } from "@koza-ai/client/effect"

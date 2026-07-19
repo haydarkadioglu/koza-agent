@@ -1,30 +1,30 @@
 ---
 title: Dostawcy
-description: Korzystanie z dowolnego dostawcy LLM w opencode.
+description: Korzystanie z dowolnego dostawcy LLM w koza.
 ---
 
 import config from "../../../../config.mjs"
 export const console = config.console
 
-opencode używa [AI SDK](https://ai-sdk.dev/) i [Models.dev](https://models.dev) do obsługi **ponad 75 dostawców LLM** i obsługuje uruchamianie modeli lokalnych.
+koza używa [AI SDK](https://ai-sdk.dev/) i [Models.dev](https://models.dev) do obsługi **ponad 75 dostawców LLM** i obsługuje uruchamianie modeli lokalnych.
 
 Aby dodać dostawcę należy:
 
 1. Dodaj klucze API dla dostawcy za pomocą komendy `/connect`.
-2. Skonfiguruj dostawcę w konfiguracji opencode.
+2. Skonfiguruj dostawcę w konfiguracji koza.
 
 ---
 
 ### Credentials
 
 Po dodaniu kluczy API dostawcy za pomocą polecenia `/connect` są one przechowywane
-w `~/.local/share/opencode/auth.json`.
+w `~/.local/share/koza/auth.json`.
 
 ---
 
 ### Konfiguracja
 
-Możesz dostosować dostawców za pomocą sekcji `provider` w swoim opencode
+Możesz dostosować dostawców za pomocą sekcji `provider` w swoim koza
 config.
 
 ---
@@ -33,9 +33,9 @@ config.
 
 Możesz dostosować podstawowy adres URL dla dowolnego dostawcy, ustawiając opcję `baseURL`. Jest to przydatne podczas korzystania z usług proxy lub niestandardowych punktów końcowych.
 
-```json title="opencode.json" {6}
+```json title="koza.json" {6}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "anthropic": {
       "options": {
@@ -48,16 +48,16 @@ Możesz dostosować podstawowy adres URL dla dowolnego dostawcy, ustawiając opc
 
 ---
 
-## OpenCode Zen
+## Koza Zen
 
-OpenCode Zen to lista modeli dostarczonych przez zespół opencode, które zostały
-przetestowane i zweryfikowane, aby dobrze współpracować z opencode. [Dowiedz się więcej](/docs/zen).
+Koza Zen to lista modeli dostarczonych przez zespół koza, które zostały
+przetestowane i zweryfikowane, aby dobrze współpracować z koza. [Dowiedz się więcej](/docs/zen).
 
 :::tip
-Jeśli jesteś nowy, zalecamy rozpoczęcie od OpenCode Zen.
+Jeśli jesteś nowy, zalecamy rozpoczęcie od Koza Zen.
 :::
 
-1. Uruchom polecenie `/connect` w TUI, wybierz `OpenCode Zen` i przejdź do [opencode.ai/auth](https://opencode.ai/zen).
+1. Uruchom polecenie `/connect` w TUI, wybierz `Koza Zen` i przejdź do [koza.ai/auth](https://koza.ai/zen).
 
    ```txt
    /connect
@@ -80,15 +80,15 @@ Jeśli jesteś nowy, zalecamy rozpoczęcie od OpenCode Zen.
    /models
    ```
 
-Działa jak każdy inny dostawca w opencode i jest całkowicie opcjonalny w użyciu.
+Działa jak każdy inny dostawca w koza i jest całkowicie opcjonalny w użyciu.
 
 ---
 
-## OpenCode Go
+## Koza Go
 
-OpenCode Go to tani plan subskrypcji, który zapewnia niezawodny dostęp do popularnych modeli open coding dostarczanych przez zespół opencode, które zostały przetestowane i zweryfikowane pod kątem dobrej współpracy z opencode.
+Koza Go to tani plan subskrypcji, który zapewnia niezawodny dostęp do popularnych modeli open coding dostarczanych przez zespół koza, które zostały przetestowane i zweryfikowane pod kątem dobrej współpracy z koza.
 
-1. Uruchom polecenie `/connect` w TUI, wybierz `OpenCode Go` i przejdź do [opencode.ai/auth](https://opencode.ai/zen).
+1. Uruchom polecenie `/connect` w TUI, wybierz `Koza Go` i przejdź do [koza.ai/auth](https://koza.ai/zen).
 
    ```txt
    /connect
@@ -111,7 +111,7 @@ OpenCode Go to tani plan subskrypcji, który zapewnia niezawodny dostęp do popu
    /models
    ```
 
-Działa jak każdy inny dostawca w opencode i jest całkowicie opcjonalny w użyciu.
+Działa jak każdy inny dostawca w koza i jest całkowicie opcjonalny w użyciu.
 
 ---
 
@@ -155,7 +155,7 @@ Nie widzisz tutaj dostawcy? Prześlij PR.
 
 ### Amazon Bedrock
 
-Aby używać Amazon Bedrock z opencode:
+Aby używać Amazon Bedrock z koza:
 
 1. Przejdź do **Katalogu modeli** w konsoli Amazon Bedrock i poproś
    dostęp do wybranych modeli.
@@ -168,17 +168,17 @@ Aby używać Amazon Bedrock z opencode:
 
    #### Zmienne środowiskowe (Szybki start)
 
-   Ustaw jedną z tych zmiennych środowiskowych podczas uruchamiania opencode:
+   Ustaw jedną z tych zmiennych środowiskowych podczas uruchamiania koza:
 
    ```bash
    # Option 1: Using AWS access keys
-   AWS_ACCESS_KEY_ID=XXX AWS_SECRET_ACCESS_KEY=YYY opencode
+   AWS_ACCESS_KEY_ID=XXX AWS_SECRET_ACCESS_KEY=YYY koza
 
    # Option 2: Using named AWS profile
-   AWS_PROFILE=my-profile opencode
+   AWS_PROFILE=my-profile koza
 
    # Option 3: Using Bedrock bearer token
-   AWS_BEARER_TOKEN_BEDROCK=XXX opencode
+   AWS_BEARER_TOKEN_BEDROCK=XXX koza
    ```
 
    Lub dodaj je do swojego profilu bash:
@@ -190,11 +190,11 @@ Aby używać Amazon Bedrock z opencode:
 
    #### Plik konfiguracyjny (zalecane)
 
-   W przypadku konfiguracji specyficznej dla projektu lub trwałej użyj `opencode.json`:
+   W przypadku konfiguracji specyficznej dla projektu lub trwałej użyj `koza.json`:
 
-   ```json title="opencode.json"
+   ```json title="koza.json"
    {
-     "$schema": "https://opencode.ai/config.json",
+     "$schema": "https://koza.ai/config.json",
      "provider": {
        "amazon-bedrock": {
          "options": {
@@ -219,9 +219,9 @@ Aby używać Amazon Bedrock z opencode:
 
    Jeśli używasz punktów końcowych VPC dla Bedrock:
 
-   ```json title="opencode.json"
+   ```json title="koza.json"
    {
-     "$schema": "https://opencode.ai/config.json",
+     "$schema": "https://koza.ai/config.json",
      "provider": {
        "amazon-bedrock": {
          "options": {
@@ -263,9 +263,9 @@ Aby używać Amazon Bedrock z opencode:
 :::note
 W przypadku niestandardowych profili wnioskowania użyj nazwy modelu i dostawcy w kluczu i ustaw właściwość `id` na wartość arn. Zapewnia to prawidłowe buforowanie:
 
-```json title="opencode.json"
+```json title="koza.json"
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "amazon-bedrock": {
       // ...
@@ -310,7 +310,7 @@ W przypadku niestandardowych profili wnioskowania użyj nazwy modelu i dostawcy 
    ```
 
 :::info
-Korzystanie z subskrypcji Claude Pro/Max w opencode nie jest oficjalnie obsługiwane przez [Anthropic](https://anthropic.com).
+Korzystanie z subskrypcji Claude Pro/Max w koza nie jest oficjalnie obsługiwane przez [Anthropic](https://anthropic.com).
 :::
 
 ##### Użycie kluczy API
@@ -323,11 +323,11 @@ Lub jeśli masz już klucz API, możesz wybrać **Wprowadź klucz API ręcznie**
 
 ### Atomic Chat
 
-Możesz skonfigurować opencode do korzystania z modeli lokalnych przez [Atomic Chat](https://atomic.chat) — aplikację desktopową uruchamiającą lokalne LLM-y za serwerem API zgodnym z OpenAI (domyślny endpoint `http://127.0.0.1:1337/v1`).
+Możesz skonfigurować koza do korzystania z modeli lokalnych przez [Atomic Chat](https://atomic.chat) — aplikację desktopową uruchamiającą lokalne LLM-y za serwerem API zgodnym z OpenAI (domyślny endpoint `http://127.0.0.1:1337/v1`).
 
-```json title="opencode.json" "atomic-chat" {5, 6, 8, 10-14}
+```json title="koza.json" "atomic-chat" {5, 6, 8, 10-14}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "atomic-chat": {
       "npm": "@ai-sdk/openai-compatible",
@@ -372,7 +372,7 @@ Jeśli napotkasz błędy „Przykro mi, ale nie mogę pomóc w tej prośbie”, 
 2. Przejdź do [Azure AI Foundry](https://ai.azure.com/) i wdróż model.
 
    :::note
-   Aby kod opencode działał poprawnie, nazwa wdrożenia musi być zgodna z nazwą modelu.
+   Aby kod koza działał poprawnie, nazwa wdrożenia musi być zgodna z nazwą modelu.
    :::
 
 3. Uruchom polecenie `/connect` i wyszukaj **Azure**.
@@ -393,7 +393,7 @@ Jeśli napotkasz błędy „Przykro mi, ale nie mogę pomóc w tej prośbie”, 
 5. Ustaw nazwę zasobu jako zmienną środowiskową:
 
    ```bash
-   AZURE_RESOURCE_NAME=XXX opencode
+   AZURE_RESOURCE_NAME=XXX koza
    ```
 
    Lub dodaj go do swojego profilu bash:
@@ -419,7 +419,7 @@ Jeśli napotkasz błędy „Przykro mi, ale nie mogę pomóc w tej prośbie”, 
 2. Przejdź do [Azure AI Foundry](https://ai.azure.com/) i wdróż model.
 
    :::note
-   Aby kod opencode działał poprawnie, nazwa wdrożenia musi być zgodna z nazwą modelu.
+   Aby kod koza działał poprawnie, nazwa wdrożenia musi być zgodna z nazwą modelu.
    :::
 
 3. Uruchom polecenie `/connect` i wyszukaj **Azure Cognitive Services**.
@@ -440,7 +440,7 @@ Jeśli napotkasz błędy „Przykro mi, ale nie mogę pomóc w tej prośbie”, 
 5. Ustaw nazwę zasobu jako zmienną środowiskową:
 
    ```bash
-   AZURE_COGNITIVE_SERVICES_RESOURCE_NAME=XXX opencode
+   AZURE_COGNITIVE_SERVICES_RESOURCE_NAME=XXX koza
    ```
 
    Lub dodaj go do swojego profilu bash:
@@ -551,11 +551,11 @@ Cloudflare AI Gateway umożliwia dostęp do modeli z OpenAI, Anthropic, Workers 
    /models
    ```
 
-   Możesz także dodawać modele za pomocą konfiguracji opencode.
+   Możesz także dodawać modele za pomocą konfiguracji koza.
 
-   ```json title="opencode.json"
+   ```json title="koza.json"
    {
-     "$schema": "https://opencode.ai/config.json",
+     "$schema": "https://koza.ai/config.json",
      "provider": {
        "cloudflare-ai-gateway": {
          "models": {
@@ -731,7 +731,7 @@ GitLab Duo zapewnia czat agentowy oparty na sztucznej inteligencji z natywnymi m
    #### Użycie osobistego tokenu dostępu
    1. Przejdź do [Ustawienia użytkownika GitLab > Tokeny dostępu](https://gitlab.com/-/user_settings/personal_access_tokens)
    2. Click **Add new token**
-   3. Name: `OpenCode`, Scopes: `api`
+   3. Name: `Koza`, Scopes: `api`
    4. Skopiuj token (zaczyna się od `glpat-`)
    5. Wpisz go w terminalu
 
@@ -748,20 +748,20 @@ GitLab Duo zapewnia czat agentowy oparty na sztucznej inteligencji z natywnymi m
 
 :::note
 Jeśli nie chcesz, możesz także określić zmienną środowiskową „GITLAB_TOKEN”.
-to store token in opencode auth storage.
+to store token in koza auth storage.
 :::
 
 ##### Self-Hosted GitLab
 
 :::note[compliance note]
-opencode używa małego modelu do niektórych zadań AI, takich jak generowanie tytułu sesji.
-Domyślnie jest skonfigurowany do używania gpt-5-nano, hostowanego przez Zen. Aby zablokować opencode
+koza używa małego modelu do niektórych zadań AI, takich jak generowanie tytułu sesji.
+Domyślnie jest skonfigurowany do używania gpt-5-nano, hostowanego przez Zen. Aby zablokować koza
 aby używać tylko własnej instancji hostowanej przez GitLab, dodaj następujące elementy do pliku
-`opencode.json` plik. Zalecane jest również wyłączenie udostępniania sesji.
+`koza.json` plik. Zalecane jest również wyłączenie udostępniania sesji.
 
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "small_model": "gitlab/duo-chat-haiku-4-5",
   "share": "disabled"
 }
@@ -815,15 +815,15 @@ Następnie ustaw ID aplikacji jako zmienną środowiskową:
 export GITLAB_OAUTH_CLIENT_ID=your_application_id_here
 ```
 
-Więcej informacji znajdziesz na stronie [opencode-gitlab-auth](https://www.npmjs.com/package/opencode-gitlab-auth).
+Więcej informacji znajdziesz na stronie [koza-gitlab-auth](https://www.npmjs.com/package/koza-gitlab-auth).
 
 ##### Konfiguracja
 
-Customize through `opencode.json`:
+Customize through `koza.json`:
 
-```json title="opencode.json"
+```json title="koza.json"
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "gitlab": {
       "options": {
@@ -838,10 +838,10 @@ Customize through `opencode.json`:
 
 To access GitLab tools (merge requests, issues, pipelines, CI/CD, etc.):
 
-```json title="opencode.json"
+```json title="koza.json"
 {
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-gitlab-plugin"]
+  "$schema": "https://koza.ai/config.json",
+  "plugin": ["koza-gitlab-plugin"]
 }
 ```
 
@@ -851,7 +851,7 @@ Ta wtyczka zapewnia kompleksowe możliwości zarządzania repozytorium GitLab, w
 
 ### GitHub Copilot
 
-Aby korzystać z subskrypcji GitHub Copilot z kodem opencode:
+Aby korzystać z subskrypcji GitHub Copilot z kodem koza:
 
 :::note
 Niektóre modele mogą wymagać [subskrypcji Pro+](https://github.com/features/Copilot/plans), aby z nich korzystać.
@@ -887,7 +887,7 @@ Niektóre modele należy włączyć ręcznie w [ustawieniach GitHub Copilot](htt
 
 ### Google Vertex AI
 
-Aby używać Google Vertex AI z opencode:
+Aby używać Google Vertex AI z koza:
 
 1. Przejdź do **Model Garden** w Google Cloud Console i sprawdź
    modele dostępne w Twoim regionie.
@@ -903,10 +903,10 @@ Aby używać Google Vertex AI z opencode:
      - `GOOGLE_APPLICATION_CREDENTIALS`: Ścieżka do pliku klucza JSON konta usługi
      - Uwierzytelnij się za pomocą interfejsu CLI gcloud: `gcloud auth application-default login`
 
-   Ustaw je podczas uruchamiania opencode.
+   Ustaw je podczas uruchamiania koza.
 
    ```bash
-   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json GOOGLE_CLOUD_PROJECT=your-project-id opencode
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json GOOGLE_CLOUD_PROJECT=your-project-id koza
    ```
 
    Lub dodaj je do swojego profilu bash.
@@ -1016,13 +1016,13 @@ Więcej dostawców i zaawansowanych funkcji, takich jak buforowanie i ograniczan
 
 #### Opcjonalna konfiguracja
 
-Jeśli zobaczysz funkcję lub model firmy Helicone, która nie jest konfigurowana automatycznie za pomocą opencode, zawsze możesz ją skonfigurować samodzielnie.
+Jeśli zobaczysz funkcję lub model firmy Helicone, która nie jest konfigurowana automatycznie za pomocą koza, zawsze możesz ją skonfigurować samodzielnie.
 
 Oto [Katalog modeli Helicone](https://helicone.ai/models), będziesz go potrzebować, aby pobrać identyfikatory modeli, które chcesz dodać.
 
-```jsonc title="~/.config/opencode/opencode.jsonc"
+```jsonc title="~/.config/koza/koza.jsonc"
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "helicone": {
       "npm": "@ai-sdk/openai-compatible",
@@ -1048,9 +1048,9 @@ Oto [Katalog modeli Helicone](https://helicone.ai/models), będziesz go potrzebo
 
 Helicone obsługuje niestandardowe nagłówki dla funkcji takich jak buforowanie, śledzenie użytkowników i zarządzanie sesjami. Dodaj je do konfiguracji dostawcy za pomocą `options.headers`:
 
-```jsonc title="~/.config/opencode/opencode.jsonc"
+```jsonc title="~/.config/koza/koza.jsonc"
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "helicone": {
       "npm": "@ai-sdk/openai-compatible",
@@ -1059,7 +1059,7 @@ Helicone obsługuje niestandardowe nagłówki dla funkcji takich jak buforowanie
         "baseURL": "https://ai-gateway.helicone.ai",
         "headers": {
           "Helicone-Cache-Enabled": "true",
-          "Helicone-User-Id": "opencode",
+          "Helicone-User-Id": "koza",
         },
       },
     },
@@ -1069,21 +1069,21 @@ Helicone obsługuje niestandardowe nagłówki dla funkcji takich jak buforowanie
 
 ##### Śledzenie sesji
 
-Funkcja [Sesje](https://docs.helicone.ai/features/sessions) firmy Helicone umożliwia grupowanie powiązanych żądań LLM. Użyj wtyczki [opencode-helicone-session](https://github.com/H2Shami/opencode-helicone-session), aby automatycznie rejestrować każdą konwersację opencode jako sesję w Helicone.
+Funkcja [Sesje](https://docs.helicone.ai/features/sessions) firmy Helicone umożliwia grupowanie powiązanych żądań LLM. Użyj wtyczki [koza-helicone-session](https://github.com/H2Shami/koza-helicone-session), aby automatycznie rejestrować każdą konwersację koza jako sesję w Helicone.
 
 ```bash
-npm install -g opencode-helicone-session
+npm install -g koza-helicone-session
 ```
 
 Dodaj go do swojej konfiguracji.
 
-```json title="opencode.json"
+```json title="koza.json"
 {
-  "plugin": ["opencode-helicone-session"]
+  "plugin": ["koza-helicone-session"]
 }
 ```
 
-Wtyczka wstawia nagłówki `Helicone-Session-Id` i `Helicone-Session-Name` do Twoich żądań. Na stronie Sesje Helicone każda konwersacja opencode będzie wymieniona jako osobna sesja.
+Wtyczka wstawia nagłówki `Helicone-Session-Id` i `Helicone-Session-Name` do Twoich żądań. Na stronie Sesje Helicone każda konwersacja koza będzie wymieniona jako osobna sesja.
 
 ##### Najczęstsze nagłówki Helicone
 
@@ -1100,11 +1100,11 @@ Zobacz [Katalog nagłówków Helicone](https://docs.helicone.ai/helicone-headers
 
 ### llama.cpp
 
-Możesz skonfigurować opencode tak, aby korzystał z modeli lokalnych, za pomocą narzędzia llama-server [llama.cpp](https://github.com/ggml-org/llama.cpp)
+Możesz skonfigurować koza tak, aby korzystał z modeli lokalnych, za pomocą narzędzia llama-server [llama.cpp](https://github.com/ggml-org/llama.cpp)
 
-```json title="opencode.json" "llama.cpp" {5, 6, 8, 10-15}
+```json title="koza.json" "llama.cpp" {5, 6, 8, 10-15}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "llama.cpp": {
       "npm": "@ai-sdk/openai-compatible",
@@ -1167,11 +1167,11 @@ IO.NET oferuje 17 modeli zoptymalizowanych pod kątem różnych zastosowań:
 
 ### LM Studio
 
-Możesz skonfigurować opencode tak, aby korzystał z modeli lokalnych poprzez LM Studio.
+Możesz skonfigurować koza tak, aby korzystał z modeli lokalnych poprzez LM Studio.
 
-```json title="opencode.json" "lmstudio" {5, 6, 8, 10-14}
+```json title="koza.json" "lmstudio" {5, 6, 8, 10-14}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "lmstudio": {
       "npm": "@ai-sdk/openai-compatible",
@@ -1284,15 +1284,15 @@ Aby użyć Kimi K2 z Moonshot AI:
 
 ### Ollama
 
-Możesz skonfigurować opencode tak, aby korzystał z modeli lokalnych poprzez Ollamę.
+Możesz skonfigurować koza tak, aby korzystał z modeli lokalnych poprzez Ollamę.
 
 :::tip
-Ollama może automatycznie skonfigurować się pod kątem opencode. Aby uzyskać szczegółowe informacje, zobacz [dokumentację integracji Ollama](https://docs.ollama.com/integrations/opencode).
+Ollama może automatycznie skonfigurować się pod kątem koza. Aby uzyskać szczegółowe informacje, zobacz [dokumentację integracji Ollama](https://docs.ollama.com/integrations/koza).
 :::
 
-```json title="opencode.json" "ollama" {5, 6, 8, 10-14}
+```json title="koza.json" "ollama" {5, 6, 8, 10-14}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
@@ -1326,13 +1326,13 @@ Jeśli wywołania narzędzi nie działają, spróbuj zwiększyć `num_ctx` w Oll
 
 ### Ollama Cloud
 
-Aby korzystać z Ollama Cloud z opencode:
+Aby korzystać z Ollama Cloud z koza:
 
 1. Udaj się do [https://ollama.com/](https://ollama.com/) i zaloguj się lub utwórz konto.
 
 2. Przejdź do **Ustawienia** > **Klucze** i kliknij **Dodaj klucz API**, aby wygenerować nowy klucz API.
 
-3. Skopiuj klucz API do użycia w opencode.
+3. Skopiuj klucz API do użycia w koza.
 
 4. Uruchom polecenie `/connect` i wyszukaj **Ollama Cloud**.
 
@@ -1349,7 +1349,7 @@ Aby korzystać z Ollama Cloud z opencode:
    └ enter
    ```
 
-6. **Ważne**: Przed użyciem modeli chmurowych w opencode musisz pobrać informacje o modelu lokalnie:
+6. **Ważne**: Przed użyciem modeli chmurowych w koza musisz pobrać informacje o modelu lokalnie:
 
    ```bash
    ollama pull gpt-oss:20b-cloud
@@ -1396,19 +1396,19 @@ Jeśli posiadasz już klucz API, możesz wybrać opcję **Wprowadź klucz API r�
 
 ---
 
-### OpenCode Zen
+### Koza Zen
 
-OpenCode Zen to lista przetestowanych i zweryfikowanych modeli udostępniona przez zespół opencode. [Dowiedz się więcej](/docs/zen).
+Koza Zen to lista przetestowanych i zweryfikowanych modeli udostępniona przez zespół koza. [Dowiedz się więcej](/docs/zen).
 
-1. Zaloguj się do **<a href={console}>OpenCode Zen</a>** i kliknij **Utwórz klucz API**.
+1. Zaloguj się do **<a href={console}>Koza Zen</a>** i kliknij **Utwórz klucz API**.
 
-2. Uruchom polecenie `/connect` i wyszukaj **OpenCode Zen**.
+2. Uruchom polecenie `/connect` i wyszukaj **Koza Zen**.
 
    ```txt
    /connect
    ```
 
-3. Wprowadź klucz API opencode.
+3. Wprowadź klucz API koza.
 
    ```txt
    ┌ API key
@@ -1450,11 +1450,11 @@ OpenCode Zen to lista przetestowanych i zweryfikowanych modeli udostępniona prz
    /models
    ```
 
-   Możesz także dodać dodatkowe modele za pomocą konfiguracji opencode.
+   Możesz także dodać dodatkowe modele za pomocą konfiguracji koza.
 
-   ```json title="opencode.json" {6}
+   ```json title="koza.json" {6}
    {
-     "$schema": "https://opencode.ai/config.json",
+     "$schema": "https://koza.ai/config.json",
      "provider": {
        "openrouter": {
          "models": {
@@ -1465,11 +1465,11 @@ OpenCode Zen to lista przetestowanych i zweryfikowanych modeli udostępniona prz
    }
    ```
 
-5. Możesz je także dostosować za pomocą konfiguracji opencode. Oto przykład określenia dostawcy
+5. Możesz je także dostosować za pomocą konfiguracji koza. Oto przykład określenia dostawcy
 
-   ```json title="opencode.json"
+   ```json title="koza.json"
    {
-     "$schema": "https://opencode.ai/config.json",
+     "$schema": "https://koza.ai/config.json",
      "provider": {
        "openrouter": {
          "models": {
@@ -1517,7 +1517,7 @@ SAP AI Core zapewnia dostęp do ponad 40 modeli z OpenAI, Anthropic, Google, Ama
    Lub ustaw zmienną środowiskową `AICORE_SERVICE_KEY`:
 
    ```bash
-   AICORE_SERVICE_KEY='{"clientid":"...","clientsecret":"...","url":"...","serviceurls":{"AI_API_URL":"..."}}' opencode
+   AICORE_SERVICE_KEY='{"clientid":"...","clientsecret":"...","url":"...","serviceurls":{"AI_API_URL":"..."}}' koza
    ```
 
    Lub dodaj go do swojego profilu bash:
@@ -1529,7 +1529,7 @@ SAP AI Core zapewnia dostęp do ponad 40 modeli z OpenAI, Anthropic, Google, Ama
 4. Opcjonalnie ustaw identyfikator wdrożenia i grupę zasobów:
 
    ```bash
-   AICORE_DEPLOYMENT_ID=your-deployment-id AICORE_RESOURCE_GROUP=your-resource-group opencode
+   AICORE_DEPLOYMENT_ID=your-deployment-id AICORE_RESOURCE_GROUP=your-resource-group koza
    ```
 
    :::note
@@ -1606,7 +1606,7 @@ STACKIT AI Model Serving zapewnia w pełni zarządzane suwerenne środowisko hos
 
 ### Scaleway
 
-Aby używać [generatywnych interfejsów API Scaleway](https://www.scaleway.com/en/docs/generative-apis/) z opencode:
+Aby używać [generatywnych interfejsów API Scaleway](https://www.scaleway.com/en/docs/generative-apis/) z koza:
 
 1. Przejdź do [Ustawień uprawnień konsoli Scaleway](https://console.scaleway.com/iam/api-keys), aby wygenerować nowy klucz API.
 
@@ -1714,11 +1714,11 @@ Vercel AI Gateway umożliwia dostęp do modeli z OpenAI, Anthropic, Google, xAI 
    /models
    ```
 
-Możesz także dostosować modele za pomocą konfiguracji opencode. Oto przykład określenia kolejności routingu dostawcy.
+Możesz także dostosować modele za pomocą konfiguracji koza. Oto przykład określenia kolejności routingu dostawcy.
 
-```json title="opencode.json"
+```json title="koza.json"
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "vercel": {
       "models": {
@@ -1824,11 +1824,11 @@ Przydatne opcje routingu:
    /models
    ```
 
-   Możesz także dodać dodatkowe modele za pomocą konfiguracji opencode.
+   Możesz także dodać dodatkowe modele za pomocą konfiguracji koza.
 
-   ```json title="opencode.json" {6}
+   ```json title="koza.json" {6}
    {
-     "$schema": "https://opencode.ai/config.json",
+     "$schema": "https://koza.ai/config.json",
      "provider": {
        "zenmux": {
          "models": {
@@ -1846,7 +1846,7 @@ Przydatne opcje routingu:
 Aby dodać dowolnego dostawcę **kompatybilnego z OpenAI**, którego nie ma na liście w poleceniu `/connect`:
 
 :::tip
-Możesz użyć dowolnego dostawcy kompatybilnego z OpenAI z opencode. Większość nowoczesnych dostawców sztucznej inteligencji oferuje interfejsy API kompatybilne z OpenAI.
+Możesz użyć dowolnego dostawcy kompatybilnego z OpenAI z koza. Większość nowoczesnych dostawców sztucznej inteligencji oferuje interfejsy API kompatybilne z OpenAI.
 :::
 
 1. Uruchom polecenie `/connect` i przewiń w dół do **Inne**.
@@ -1885,18 +1885,18 @@ Możesz użyć dowolnego dostawcy kompatybilnego z OpenAI z opencode. Większoś
 
    ┌  Add credential
    │
-   ▲  This only stores a credential for myprovider - you will need to configure it in opencode.json, check the docs for examples.
+   ▲  This only stores a credential for myprovider - you will need to configure it in koza.json, check the docs for examples.
    │
    ◇  Enter your API key
    │  sk-...
    └
    ```
 
-4. Utwórz lub zaktualizuj plik `opencode.json` w katalogu projektu:
+4. Utwórz lub zaktualizuj plik `koza.json` w katalogu projektu:
 
-   ```json title="opencode.json" ""myprovider"" {5-15}
+   ```json title="koza.json" ""myprovider"" {5-15}
    {
-     "$schema": "https://opencode.ai/config.json",
+     "$schema": "https://koza.ai/config.json",
      "provider": {
        "myprovider": {
          "npm": "@ai-sdk/openai-compatible",
@@ -1932,9 +1932,9 @@ Możesz użyć dowolnego dostawcy kompatybilnego z OpenAI z opencode. Większoś
 
 Oto przykład ustawienia opcji `apiKey`, `headers` i modelu `limit`.
 
-```json title="opencode.json" {9,11,17-20}
+```json title="koza.json" {9,11,17-20}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "provider": {
     "myprovider": {
       "npm": "@ai-sdk/openai-compatible",
@@ -1967,7 +1967,7 @@ Szczegóły konfiguracji:
 - **limit.context**: Maksymalna liczba tokenów wejściowych akceptowanych przez model.
 - **limit.output**: Maksymalna liczba tokenów, które model może wygenerować.
 
-Pola `limit` pozwalają opencode zrozumieć, ile kontekstu pozostało. Standardowi dostawcy pobierają je automatycznie z models.dev.
+Pola `limit` pozwalają koza zrozumieć, ile kontekstu pozostało. Standardowi dostawcy pobierają je automatycznie z models.dev.
 
 ---
 
@@ -1975,12 +1975,12 @@ Pola `limit` pozwalają opencode zrozumieć, ile kontekstu pozostało. Standardo
 
 Jeśli masz problemy z konfiguracją dostawcy, sprawdź następujące elementy:
 
-1. **Sprawdź konfigurację uwierzytelniania**: Uruchom `opencode auth list`, aby sprawdzić, czy poświadczenia
+1. **Sprawdź konfigurację uwierzytelniania**: Uruchom `koza auth list`, aby sprawdzić, czy poświadczenia
    dla dostawcy są dodawane do Twojej konfiguracji.
 
    Nie dotyczy to dostawców takich jak Amazon Bedrock, którzy w procesie uwierzytelniania opierają się na zmiennych środowiskowych.
 
-2. W przypadku dostawców niestandardowych sprawdź konfigurację opencode i:
-   - Upewnij się, że identyfikator dostawcy użyty w poleceniu `/connect` jest zgodny z identyfikatorem w konfiguracji opencode.
+2. W przypadku dostawców niestandardowych sprawdź konfigurację koza i:
+   - Upewnij się, że identyfikator dostawcy użyty w poleceniu `/connect` jest zgodny z identyfikatorem w konfiguracji koza.
    - Dla dostawcy używany jest właściwy pakiet npm. Na przykład użyj `@ai-sdk/cerebras` dla Cerebras. W przypadku wszystkich innych dostawców zgodnych z OpenAI użyj `@ai-sdk/openai-compatible`.
    - Sprawdź, czy w polu `options.baseURL` użyto prawidłowego punktu końcowego API.

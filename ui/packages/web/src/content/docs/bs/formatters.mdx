@@ -1,15 +1,15 @@
 ---
 title: Formateri
-description: OpenCode koristi formatere specifične za jezik.
+description: Koza koristi formatere specifične za jezik.
 ---
 
-OpenCode automatski formatira datoteke nakon što su napisane ili uređene pomoću formatera specifičnih za jezik. Ovo osigurava da kod koji se generira prati stilove koda vašeg projekta.
+Koza automatski formatira datoteke nakon što su napisane ili uređene pomoću formatera specifičnih za jezik. Ovo osigurava da kod koji se generira prati stilove koda vašeg projekta.
 
 ---
 
 ## Ugrađeni
 
-OpenCode dolazi sa nekoliko ugrađenih formatera za popularne jezike i okvire. Ispod je lista formatera, podržanih ekstenzija datoteka i naredbi ili opcija konfiguracije koje su mu potrebne.
+Koza dolazi sa nekoliko ugrađenih formatera za popularne jezike i okvire. Ispod je lista formatera, podržanih ekstenzija datoteka i naredbi ili opcija konfiguracije koje su mu potrebne.
 | Formatter | Ekstenzije | Zahtjevi
 |-------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | gofmt | .go | `gofmt` komanda dostupna |
@@ -35,13 +35,13 @@ OpenCode dolazi sa nekoliko ugrađenih formatera za popularne jezike i okvire. I
 | shfmt | .sh, .bash | `shfmt` komanda dostupna |
 | pint | .php | `laravel/pint` zavisnost u `composer.json` || oxfmt (Eksperimentalno) | .js, .jsx, .ts, .tsx | `oxfmt` zavisnost u `package.json` i [eksperimentalna env varijabla flag](/docs/cli/#experimental) |
 | ormolu | .hs | `ormolu` komanda dostupna |
-Dakle, ako vaš projekat ima `prettier` u vašem `package.json`, OpenCode će ga automatski koristiti.
+Dakle, ako vaš projekat ima `prettier` u vašem `package.json`, Koza će ga automatski koristiti.
 
 ---
 
 ## Kako radi
 
-Kada OpenCode piše ili uređuje datoteku, on:
+Kada Koza piše ili uređuje datoteku, on:
 
 1. Provjerava ekstenziju datoteke prema svim omogućenim formaterima.
 2. Pokreće odgovarajuću naredbu za formatiranje na datoteci.
@@ -52,11 +52,11 @@ Kada OpenCode piše ili uređuje datoteku, on:
 
 ## Konfiguracija
 
-Možete prilagoditi formatere kroz `formatter` odjeljak u vašoj OpenCode konfiguraciji.
+Možete prilagoditi formatere kroz `formatter` odjeljak u vašoj Koza konfiguraciji.
 
-```json title="opencode.json"
+```json title="koza.json"
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "formatter": {}
 }
 ```
@@ -76,18 +76,18 @@ Pogledajmo neke primjere.
 
 Da onemogućite **sve** formatere globalno, postavite `formatter` na `false`:
 
-```json title="opencode.json" {3}
+```json title="koza.json" {3}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "formatter": false
 }
 ```
 
 Da onemogućite **specifični** formater, postavite `disabled` na `true`:
 
-```json title="opencode.json" {5}
+```json title="koza.json" {5}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "formatter": {
     "prettier": {
       "disabled": true
@@ -102,9 +102,9 @@ Da onemogućite **specifični** formater, postavite `disabled` na `true`:
 
 Možete nadjačati ugrađene formatere ili dodati nove navođenjem naredbe, varijabli okruženja i ekstenzija datoteke:
 
-```json title="opencode.json" {4-14}
+```json title="koza.json" {4-14}
 {
-  "$schema": "https://opencode.ai/config.json",
+  "$schema": "https://koza.ai/config.json",
   "formatter": {
     "prettier": {
       "command": ["npx", "prettier", "--write", "$FILE"],

@@ -50,7 +50,7 @@ export function registerWslIpcHandlers(controller: WslServersController) {
     controller.probeAddable(requireWslIpcStrings("distro", distros)),
   )
   ipcMain.handle("wsl-servers-install-koza", (_event: IpcMainInvokeEvent, name: string) =>
-    controller.installOpencode(requireWslIpcString("distro", name)),
+    controller.installKoza(requireWslIpcString("distro", name)),
   )
   ipcMain.handle("wsl-servers-open-terminal", (_event: IpcMainInvokeEvent, name: string) =>
     controller.openTerminal(requireWslIpcString("distro", name)),
@@ -79,7 +79,7 @@ function registerUnavailableWslIpcHandlers() {
     installed: [],
     online: [],
     distroProbes: {},
-    opencodeChecks: {},
+    kozaChecks: {},
     pendingRestart: false,
     servers: [],
     job: null,

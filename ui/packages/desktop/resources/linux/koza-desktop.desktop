@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Koza
+Exec=/opt/Koza/ai.koza.desktop %U
+Terminal=false
+Type=Application
+Icon=ai.koza.desktop
+StartupWMClass=ai.koza.desktop
+NoDisplay=true
+Comment=Open source AI coding agent
+Categories=Development;

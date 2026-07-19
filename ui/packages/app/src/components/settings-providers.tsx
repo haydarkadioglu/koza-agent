@@ -1,7 +1,7 @@
-import { Button } from "@opencode-ai/ui/button"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
-import { Tag } from "@opencode-ai/ui/tag"
+import { Button } from "@koza-ai/ui/button"
+import { useDialog } from "@koza-ai/ui/context/dialog"
+import { ProviderIcon } from "@koza-ai/ui/provider-icon"
+import { Tag } from "@koza-ai/ui/tag"
 import { showToast } from "@/utils/toast"
 import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { createMemo, type Component, For, Show } from "solid-js"
@@ -17,8 +17,8 @@ type ProviderSource = "env" | "api" | "config" | "custom"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
 
 const PROVIDER_NOTES = [
-  { match: (id: string) => id === "koza", key: "dialog.provider.opencode.note" },
-  { match: (id: string) => id === "koza-go", key: "dialog.provider.opencodeGo.tagline" },
+  { match: (id: string) => id === "koza", key: "dialog.provider.koza.note" },
+  { match: (id: string) => id === "koza-go", key: "dialog.provider.kozaGo.tagline" },
   { match: (id: string) => id === "anthropic", key: "dialog.provider.anthropic.note" },
   { match: (id: string) => id.startsWith("github-copilot"), key: "dialog.provider.copilot.note" },
   { match: (id: string) => id === "openai", key: "dialog.provider.openai.note" },

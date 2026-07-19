@@ -1,10 +1,10 @@
-import { DialogBody, DialogHeader, DialogTitle, DialogV2 } from "@opencode-ai/ui/v2/dialog-v2"
-import { Icon } from "@opencode-ai/ui/v2/icon"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
-import { Tag } from "@opencode-ai/ui/v2/badge-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useTheme } from "@opencode-ai/ui/theme"
+import { DialogBody, DialogHeader, DialogTitle, DialogV2 } from "@koza-ai/ui/v2/dialog-v2"
+import { Icon } from "@koza-ai/ui/v2/icon"
+import { ProviderIcon } from "@koza-ai/ui/provider-icon"
+import { Tag } from "@koza-ai/ui/v2/badge-v2"
+import { TooltipV2 } from "@koza-ai/ui/v2/tooltip-v2"
+import { useDialog } from "@koza-ai/ui/context/dialog"
+import { useTheme } from "@koza-ai/ui/theme"
 import { createMemo, onCleanup, onMount, type Component, For, Show } from "solid-js"
 import { useLocal } from "@/context/local"
 import { useProviders } from "@/hooks/use-providers"
@@ -149,8 +149,8 @@ export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (pro
                           <span class="truncate font-[440] text-v2-text-text-muted">
                             {language.t(
                               provider.id === "koza"
-                                ? "dialog.provider.opencode.tagline"
-                                : "dialog.provider.opencodeGo.tagline",
+                                ? "dialog.provider.koza.tagline"
+                                : "dialog.provider.kozaGo.tagline",
                             )}
                           </span>
                         </Show>

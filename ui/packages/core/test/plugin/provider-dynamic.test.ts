@@ -1,17 +1,17 @@
-import { Npm } from "@opencode-ai/core/npm"
+import { Npm } from "@koza-ai/core/npm"
 import { describe, expect } from "bun:test"
 import { Cause, Effect, Layer } from "effect"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { fileURLToPath } from "url"
-import { AISDK } from "@opencode-ai/core/aisdk"
-import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { PluginV2 } from "@opencode-ai/core/plugin"
-import { PluginHost } from "@opencode-ai/core/plugin/host"
-import { DynamicProviderPlugin } from "@opencode-ai/core/plugin/provider/dynamic"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { AISDK } from "@koza-ai/core/aisdk"
+import { AppNodeBuilder } from "@koza-ai/core/effect/app-node-builder"
+import { ModelV2 } from "@koza-ai/core/model"
+import { PluginV2 } from "@koza-ai/core/plugin"
+import { PluginHost } from "@koza-ai/core/plugin/host"
+import { DynamicProviderPlugin } from "@koza-ai/core/plugin/provider/dynamic"
+import { ProviderV2 } from "@koza-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
@@ -37,7 +37,7 @@ const addPlugin = Effect.fn(function* (npm?: Npm.Interface) {
 function tempEntrypoint(source: string) {
   return Effect.acquireRelease(
     Effect.promise(async () => {
-      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-provider-dynamic-"))
+      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "koza-provider-dynamic-"))
       const entrypoint = path.join(directory, "provider.mjs")
       await Bun.write(entrypoint, source)
       return { directory, entrypoint }

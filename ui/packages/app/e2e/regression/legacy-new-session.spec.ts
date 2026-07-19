@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@koza-ai/core/util/encode"
 import { mockKozaServer } from "../utils/mock-server"
 
 const draftID = "draft_legacy_new_session"
@@ -26,7 +26,7 @@ test("redirects a draft to the legacy new-session route", async ({ page }) => {
       localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: false } }))
       localStorage.setItem("app-version.v1", JSON.stringify({ version: "1.17.20" }))
       localStorage.setItem(
-        "opencode.window.browser.dat:tabs",
+        "koza.window.browser.dat:tabs",
         JSON.stringify([{ type: "draft", draftID, server, directory }]),
       )
     },
