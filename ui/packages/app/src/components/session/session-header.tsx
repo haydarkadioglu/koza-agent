@@ -23,6 +23,7 @@ import { useTerminal } from "@/context/terminal"
 import { focusTerminalById } from "@/pages/session/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { messageAgentColor } from "@/utils/agent"
+import { useLocal } from "@/context/local"
 import { decode64 } from "@/utils/base64"
 import { fileManagerApp } from "@/utils/file-manager"
 import { Persist, persisted } from "@/utils/persist"
@@ -146,6 +147,7 @@ export function SessionHeader() {
   const settings = useSettings()
   const sync = useSync()
   const terminal = useTerminal()
+  const local = useLocal()
   const { params, view } = useSessionLayout()
 
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
@@ -306,6 +308,13 @@ export function SessionHeader() {
                     project: name(),
                   })}
                 </span>
+                <Show when={local.model.current()}>
+                  {(m) => (
+                    <span class="text-10-regular text-text-weaker ml-2 bg-surface-panel-raised px-1.5 py-0.5 rounded-full border border-border-weak-base">
+                      {m().provider.id} / {m().id}
+                    </span>
+                  )}
+                </Show>
               </div>
 
               <Show when={hotkey()}>
