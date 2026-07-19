@@ -45,7 +45,7 @@ from skills import (
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
     config_manager, image_gen, sync, skill_ecosystem, vision, delegation, repo_manager, code_tools,
-    reminder, user_profile,
+    reminder, user_profile, brain_skill, hands_skill, flow_skill
 )
 
 
@@ -98,6 +98,9 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + smarthome.TOOL_DEFINITIONS
     + social.TOOL_DEFINITIONS
     + image_gen.TOOL_DEFINITIONS
+    + brain_skill.TOOL_DEFINITIONS
+    + hands_skill.TOOL_DEFINITIONS
+    + flow_skill.TOOL_DEFINITIONS
     + sync.TOOL_DEFINITIONS
     + vision.TOOL_DEFINITIONS
     + reminder.TOOL_DEFINITIONS
@@ -140,6 +143,9 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **smarthome.HANDLERS,
     **social.HANDLERS,
     **image_gen.HANDLERS,
+    **brain_skill.HANDLERS,
+    **hands_skill.HANDLERS,
+    **flow_skill.HANDLERS,
     **sync.HANDLERS,
     **vision.HANDLERS,
     **reminder.HANDLERS,
@@ -157,6 +163,7 @@ STATIC_SKILL_MODULES = {
     "cron": cron,
     "agents": agents,
     "creative": creative,
+    "brain_skill": brain_skill,
     "datascience": datascience,
     "devops": devops,
     "email_skill": email_skill,
