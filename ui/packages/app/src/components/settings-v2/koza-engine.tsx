@@ -18,6 +18,7 @@ export const SettingsKozaV2: Component = () => {
   const [geminiKey, setGeminiKey] = createSignal("")
   const [openaiKey, setOpenaiKey] = createSignal("")
   const [openaiBaseUrl, setOpenaiBaseUrl] = createSignal("")
+  const [ollamaBaseUrl, setOllamaBaseUrl] = createSignal("http://localhost:11434/v1")
   const [anthropicKey, setAnthropicKey] = createSignal("")
   const [anthropicBaseUrl, setAnthropicBaseUrl] = createSignal("")
   const [deepseekKey, setDeepseekKey] = createSignal("")
@@ -59,6 +60,7 @@ export const SettingsKozaV2: Component = () => {
       setGeminiKey(provs.gemini?.api_key || "")
       setOpenaiKey(provs.openai?.api_key || "")
       setOpenaiBaseUrl(provs.openai?.base_url || "")
+      setOllamaBaseUrl(provs.ollama?.base_url || "http://localhost:11434/v1")
       setAnthropicKey(provs.anthropic?.api_key || "")
       setAnthropicBaseUrl(provs.anthropic?.base_url || "")
       setDeepseekKey(provs.deepseek?.api_key || "")
@@ -103,6 +105,7 @@ export const SettingsKozaV2: Component = () => {
         providers: {
           gemini: { api_key: geminiKey() },
           openai: { api_key: openaiKey(), base_url: openaiBaseUrl() || null },
+          ollama: { base_url: ollamaBaseUrl() || null },
           anthropic: { api_key: anthropicKey(), base_url: anthropicBaseUrl() || null },
           deepseek: { api_key: deepseekKey(), base_url: deepseekBaseUrl() || null },
           github: { token: githubToken() }
@@ -260,6 +263,13 @@ export const SettingsKozaV2: Component = () => {
                   placeholder="Base URL (e.g. https://api.openai.com/v1)" 
                 />
               </div>
+            </SettingsRowV2>
+            <SettingsRowV2 title="Ollama Base URL" description="Used when provider is set to Ollama (Local). Default: http://localhost:11434/v1">
+              <TextInputV2 
+                value={ollamaBaseUrl()} 
+                onChange={setOllamaBaseUrl} 
+                placeholder="http://localhost:11434/v1" 
+              />
             </SettingsRowV2>
             <SettingsRowV2 title="Anthropic API Key" description="Anthropic Console API Key.">
               <div class="flex flex-col gap-2 w-full">
