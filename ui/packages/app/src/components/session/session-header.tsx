@@ -308,13 +308,22 @@ export function SessionHeader() {
                     project: name(),
                   })}
                 </span>
-                <Show when={local.model.current()}>
-                  {(m) => (
-                    <span class="text-10-regular text-text-weaker ml-2 bg-surface-panel-raised px-1.5 py-0.5 rounded-full border border-border-weak-base">
-                      {m().provider.id} / {m().id}
-                    </span>
-                  )}
-                </Show>
+                  <Show when={local.model.current()}>
+                    {(m) => (
+                      <div class="flex items-center gap-2">
+                        <span class="text-10-regular text-text-weaker bg-surface-panel-raised px-1.5 py-0.5 rounded-full border border-border-weak-base">
+                          {m().provider.id} / {m().id}
+                        </span>
+                        <div class="flex items-center gap-1.5 px-1.5 py-0.5 rounded-full bg-v2-background-bg-base border border-border-weak-base">
+                          <span class="relative flex h-2 w-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                          </span>
+                          <span class="text-10-regular text-text-weak">Koza Aktif</span>
+                        </div>
+                      </div>
+                    )}
+                  </Show>
               </div>
 
               <Show when={hotkey()}>

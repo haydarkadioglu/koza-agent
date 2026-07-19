@@ -83,6 +83,44 @@ export function NewSessionView(props: NewSessionViewProps) {
                 </div>
               )}
             </Show>
+            <div class="mt-8 flex flex-wrap justify-center gap-2">
+              <button
+                class="px-3 py-1.5 rounded-full text-12-medium text-text-weak bg-surface-panel-raised border border-border-weak-base hover:bg-surface-panel-raised-hover transition-colors"
+                onClick={() => {
+                  const editor = document.querySelector<HTMLElement>('[data-component="prompt-input"]')
+                  if (editor) {
+                    editor.focus()
+                    document.execCommand('insertText', false, "/hands Ekrandaki arayüzü incele ve yapabileceğim işlemleri söyle.")
+                  }
+                }}
+              >
+                🖱️ Ekranı İncele
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-full text-12-medium text-text-weak bg-surface-panel-raised border border-border-weak-base hover:bg-surface-panel-raised-hover transition-colors"
+                onClick={() => {
+                  const editor = document.querySelector<HTMLElement>('[data-component="prompt-input"]')
+                  if (editor) {
+                    editor.focus()
+                    document.execCommand('insertText', false, "/flow Proje içerisindeki eksikleri bul ve görev akışı oluştur.")
+                  }
+                }}
+              >
+                🌊 Koza Flow Başlat
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-full text-12-medium text-text-weak bg-surface-panel-raised border border-border-weak-base hover:bg-surface-panel-raised-hover transition-colors"
+                onClick={() => {
+                  const editor = document.querySelector<HTMLElement>('[data-component="prompt-input"]')
+                  if (editor) {
+                    editor.focus()
+                    document.execCommand('insertText', false, "/brain Bu proje ile ilgili önceki kayıtları getir.")
+                  }
+                }}
+              >
+                🧠 Belleği Sorgula
+              </button>
+            </div>
           </div>
         </div>
       </div>

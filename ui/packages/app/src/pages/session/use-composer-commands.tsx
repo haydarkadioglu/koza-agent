@@ -46,7 +46,43 @@ export const useComposerCommands = (input: { model?: ModelSelection } = {}) => {
     })
   }
 
+  const insertTextToComposer = (text: string) => {
+    const editor = document.querySelector<HTMLElement>('[data-component="prompt-input"]')
+    if (!editor) return
+    editor.focus()
+    const selection = window.getSelection()
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0)
+      range.deleteContents()
+      range.insertNode(document.createTextNode(text))
+      range.collapse(false)
+    }
+  }
+
+  const kozaCommand = withCategory("Koza AI Özellikleri")
+
   command.register("composer", () => [
+    kozaCommand({
+      id: "koza.hands",
+      title: "Koza Hands (Ekran Otomasyonu)",
+      description: "Bilgisayarı yönetmek ve UI üzerinde işlemler yapmak için kullanılır.",
+      slash: "hands",
+      onSelect: () => insertTextToComposer("Lütfen ekrandaki 'Giriş Yap' butonuna tıkla ve ..."),
+    }),
+    kozaCommand({
+      id: "koza.flow",
+      title: "Koza Flow (Görev Zinciri)",
+      description: "Birden fazla alt görevi (DAG) sırayla çalıştırmak için kullanılır.",
+      slash: "flow",
+      onSelect: () => insertTextToComposer("Şu karmaşık görevi akış (flow) kullanarak çöz: "),
+    }),
+    kozaCommand({
+      id: "koza.brain",
+      title: "Koza Brain (Bellek ve RAG)",
+      description: "Uzun vadeli bellekte arama yap veya bellek yönetimi sağla.",
+      slash: "brain",
+      onSelect: () => insertTextToComposer("Hafızandaki bilgilere dayanarak bana ..."),
+    }),
     modelCommand({
       id: "model.choose",
       title: language.t("command.model.choose"),
