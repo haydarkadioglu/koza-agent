@@ -41,6 +41,7 @@ import { KeybindV2 } from "@koza-ai/ui/v2/keybind-v2"
 import { MenuV2 } from "@koza-ai/ui/v2/menu-v2"
 import { TooltipV2 } from "@koza-ai/ui/v2/tooltip-v2"
 import { IconButton } from "@koza-ai/ui/icon-button"
+import { VoiceModeOverlay } from "./session/voice-mode-overlay"
 import { Select } from "@koza-ai/ui/select"
 import { useDialog } from "@koza-ai/ui/context/dialog"
 import { ModelSelectorPopover, ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
@@ -135,47 +136,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   let restoreEndOnFocus = true
   let savedCursor: number | null = null
 
-  const [isListening, setIsListening] = createSignal(false)
-  let recognition: any = null
-
-  const toggleListening = () => {
-    if (isListening()) {
-      recognition?.stop()
-      setIsListening(false)
-      return
-    }
-
-    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
-      showToast({ title: "Desteklenmiyor", description: "Tarayıcınız ses tanımayı desteklemiyor.", type: "error" })
-      return
-    }
-
-    // @ts-ignore
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    recognition = new SpeechRecognition()
-    recognition.lang = "tr-TR"
-    recognition.interimResults = true
-    recognition.continuous = true
-
-    recognition.onresult = (event: any) => {
-      let finalTranscript = ""
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript
-        }
-      }
-      if (finalTranscript && editorRef) {
-        editorRef.focus()
-        document.execCommand("insertText", false, finalTranscript + " ")
-      }
-    }
-
-    recognition.onerror = () => setIsListening(false)
-    recognition.onend = () => setIsListening(false)
-
-    setIsListening(true)
-    recognition.start()
-  }
+  const [isVoiceMode, setIsVoiceMode] = createSignal(false)
 
   const mirror = { input: false }
   const inset = 56
@@ -1476,6 +1437,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
   return (
     <div class="relative size-full flex flex-col gap-0">
+      <Show when={isVoiceMode()}>
+        <VoiceModeOverlay 
+          onClose={() => setIsVoiceMode(false)}
+          isSimulatingResponse={working() && !blank()}
+          onTranscript={(text) => {
+            if (editorRef) {
+              editorRef.focus()
+              document.execCommand("insertText", false, text + " ")
+              setTimeout(() => {
+                void handleSubmit()
+              }, 100)
+            }
+          }}
+        />
+      </Show>
       {(promptReady(), null)}
       <PromptPopover
         popover={store.popover}
@@ -1616,15 +1592,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
-              <Tooltip placement="top" value={isListening() ? "Dinleniyor..." : "Sesli Komut"}>
+              <Tooltip placement="top" value={"Voice Mode"}>
                 <IconButton
                   type="button"
                   icon="mic"
-                  variant={isListening() ? "primary" : "secondary"}
+                  variant="secondary"
                   class="size-8 transition-colors duration-200"
-                  classList={{ "bg-red-500 text-white animate-pulse": isListening() }}
-                  onClick={toggleListening}
-                  aria-label="Sesli Komut"
+                  onClick={() => setIsVoiceMode(true)}
+                  aria-label="Voice Mode"
                 />
               </Tooltip>
               <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
