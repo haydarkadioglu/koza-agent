@@ -311,6 +311,11 @@ export function SessionHeader() {
                   <Show when={local.model.current()}>
                     {(m) => (
                       <div class="flex items-center gap-2">
+                        <TooltipV2 placement="bottom" value="Çevrimdışı (Yerel Model) Kullanılabilir">
+                          <button class="flex items-center justify-center p-1 rounded-full bg-surface-panel-raised border border-border-weak-base hover:bg-surface-panel-raised-hover text-green-500 transition-colors">
+                            <Icon name="outline-desktop" size="small" />
+                          </button>
+                        </TooltipV2>
                         <select
                           class="text-10-regular text-text-weaker bg-surface-panel-raised px-1.5 py-0.5 rounded-full border border-border-weak-base outline-none cursor-pointer focus:border-border-strong"
                           onChange={(e) => document.documentElement.style.setProperty('--focus-color', e.target.value === 'Araştırmacı' ? '#a855f7' : e.target.value === 'Tasarımcı' ? '#ec4899' : '#3b82f6')}

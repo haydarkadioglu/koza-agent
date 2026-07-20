@@ -143,6 +143,26 @@ export function NewSessionView(props: NewSessionViewProps) {
                 🧠 Belleği Sorgula
               </button>
             </div>
+            
+            {/* Project Statistics UI */}
+            <div class="mt-8 w-full max-w-xl mx-auto grid grid-cols-3 gap-4 border-t border-border-weak-base pt-8">
+              <div class="flex flex-col items-center justify-center p-3 rounded-lg bg-surface-panel-raised border border-border-weak-base shadow-sm hover:scale-105 transition-transform">
+                <Icon name="check" size="medium" class="text-green-500 mb-2" />
+                <div class="text-20-medium text-text-strong">42</div>
+                <div class="text-10-medium text-text-weak uppercase tracking-wider mt-1">Görev Çözüldü</div>
+              </div>
+              <div class="flex flex-col items-center justify-center p-3 rounded-lg bg-surface-panel-raised border border-border-weak-base shadow-sm hover:scale-105 transition-transform">
+                <Icon name="outline-code" size="medium" class="text-blue-500 mb-2" />
+                <div class="text-20-medium text-text-strong">1.2K</div>
+                <div class="text-10-medium text-text-weak uppercase tracking-wider mt-1">Satır Kod</div>
+              </div>
+              <div class="flex flex-col items-center justify-center p-3 rounded-lg bg-surface-panel-raised border border-border-weak-base shadow-sm hover:scale-105 transition-transform">
+                <Icon name="clock" size="medium" class="text-purple-500 mb-2" />
+                <div class="text-20-medium text-text-strong">14s</div>
+                <div class="text-10-medium text-text-weak uppercase tracking-wider mt-1">Saat Kazanıldı</div>
+              </div>
+            </div>
+            
           </div>
         </div>
       </div>
