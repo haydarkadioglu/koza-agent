@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@koza-ai/cli",
-  "version": "1.18.3",
+  "version": "1.6.0",
   "type": "module",
   "license": "MIT",
   "bin": {

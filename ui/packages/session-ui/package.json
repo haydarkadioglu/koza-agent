@@ -1,6 +1,6 @@
 {
   "name": "@koza-ai/session-ui",
-  "version": "1.18.3",
+  "version": "1.6.0",
   "private": true,
   "type": "module",
   "license": "MIT",

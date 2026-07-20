@@ -2,7 +2,7 @@
   "name": "@koza-ai/web",
   "type": "module",
   "license": "MIT",
-  "version": "1.18.3",
+  "version": "1.6.0",
   "scripts": {
     "dev": "astro dev",
     "dev:remote": "VITE_API_URL=https://api.koza.ai astro dev",

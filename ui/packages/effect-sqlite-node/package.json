@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.18.3",
+  "version": "1.6.0",
   "name": "@koza-ai/effect-sqlite-node",
   "type": "module",
   "license": "MIT",
