@@ -1727,6 +1727,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     return isLastTextPart()
   })
   const [copied, setCopied] = createSignal(false)
+  const [speaking, setSpeaking] = createSignal(false)
 
   const handleCopy = async () => {
     const content = text()
@@ -1735,6 +1736,22 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
+  }
+
+  const handleSpeak = () => {
+    const content = text()
+    if (!content) return
+    if (speaking()) {
+      window.speechSynthesis?.cancel()
+      setSpeaking(false)
+      return
+    }
+    const utterance = new SpeechSynthesisUtterance(content)
+    utterance.lang = "tr-TR"
+    utterance.onend = () => setSpeaking(false)
+    utterance.onerror = () => setSpeaking(false)
+    setSpeaking(true)
+    window.speechSynthesis?.speak(utterance)
   }
 
   return (
@@ -1754,6 +1771,14 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
               onMouseDown={(event) => event.preventDefault()}
               onClick={handleCopy}
               aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
+            />
+            <MessageActionButton
+              icon={speaking() ? "stop" : "speaker"}
+              label={speaking() ? "Durdur" : "Sesli Oku"}
+              useV2={props.useV2Actions}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={handleSpeak}
+              aria-label={speaking() ? "Okumayı Durdur" : "Sesli Oku"}
             />
             <Show when={meta()}>
               <span data-slot="text-part-meta" class="text-12-regular text-text-weak cursor-default">

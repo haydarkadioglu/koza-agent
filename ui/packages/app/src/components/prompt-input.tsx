@@ -135,6 +135,48 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   let restoreEndOnFocus = true
   let savedCursor: number | null = null
 
+  const [isListening, setIsListening] = createSignal(false)
+  let recognition: any = null
+
+  const toggleListening = () => {
+    if (isListening()) {
+      recognition?.stop()
+      setIsListening(false)
+      return
+    }
+
+    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+      showToast({ title: "Desteklenmiyor", description: "Tarayıcınız ses tanımayı desteklemiyor.", type: "error" })
+      return
+    }
+
+    // @ts-ignore
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    recognition = new SpeechRecognition()
+    recognition.lang = "tr-TR"
+    recognition.interimResults = true
+    recognition.continuous = true
+
+    recognition.onresult = (event: any) => {
+      let finalTranscript = ""
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript
+        }
+      }
+      if (finalTranscript && editorRef) {
+        editorRef.focus()
+        document.execCommand("insertText", false, finalTranscript + " ")
+      }
+    }
+
+    recognition.onerror = () => setIsListening(false)
+    recognition.onend = () => setIsListening(false)
+
+    setIsListening(true)
+    recognition.start()
+  }
+
   const mirror = { input: false }
   const inset = 56
   const space = `${inset}px`
@@ -1574,6 +1616,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
+              <Tooltip placement="top" value={isListening() ? "Dinleniyor..." : "Sesli Komut"}>
+                <IconButton
+                  type="button"
+                  icon="mic"
+                  variant={isListening() ? "primary" : "secondary"}
+                  class="size-8 transition-colors duration-200"
+                  classList={{ "bg-red-500 text-white animate-pulse": isListening() }}
+                  onClick={toggleListening}
+                  aria-label="Sesli Komut"
+                />
+              </Tooltip>
               <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
