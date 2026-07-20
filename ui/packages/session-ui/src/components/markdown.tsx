@@ -110,7 +110,8 @@ function codeUrl(text: string) {
 
 function createCopyButton(labels: CopyLabels) {
   const host = document.createElement("div")
-  host.setAttribute("data-slot", "markdown-copy-button")
+  host.setAttribute("data-slot", "markdown-action-bar")
+  host.className = "flex gap-1"
 
   const state: Partial<CopyButtonState> = {}
   const dispose = render(() => {
@@ -118,7 +119,41 @@ function createCopyButton(labels: CopyLabels) {
     const [copied, setCopied] = createSignal(false)
     state.setLabels = setLabels
     state.setCopied = setCopied
-    return <MarkdownCopyButton labels={labelState} copied={copied} />
+    return (
+      <div class="flex gap-1 bg-surface-panel-raised rounded-md border border-border-weak-base shadow-sm">
+        <MarkdownCopyButton labels={labelState} copied={copied} />
+        <TooltipV2 placement="top" value="Terminal'de Çalıştır">
+          <IconButtonV2
+            type="button"
+            size="normal"
+            variant="ghost-muted"
+            aria-label="Terminal'de Çalıştır"
+            icon={<IconV2 name="terminal" />}
+            onClick={(e) => {
+              const code = e.currentTarget.closest('[data-component="markdown-code"]')?.querySelector("code")?.textContent;
+              if (code) {
+                window.dispatchEvent(new CustomEvent('koza:runInTerminal', { detail: code }));
+              }
+            }}
+          />
+        </TooltipV2>
+        <TooltipV2 placement="top" value="Dosyaya Uygula">
+          <IconButtonV2
+            type="button"
+            size="normal"
+            variant="ghost-muted"
+            aria-label="Dosyaya Uygula"
+            icon={<IconV2 name="outline-arrow-right" />}
+            onClick={(e) => {
+              const code = e.currentTarget.closest('[data-component="markdown-code"]')?.querySelector("code")?.textContent;
+              if (code) {
+                window.dispatchEvent(new CustomEvent('koza:applyToFile', { detail: code }));
+              }
+            }}
+          />
+        </TooltipV2>
+      </div>
+    )
   }, host)
   state.dispose = dispose
   copyButtonState.set(host, state as CopyButtonState)
@@ -134,6 +169,7 @@ function MarkdownCopyButton(props: { labels: Accessor<CopyLabels>; copied: Acces
         size="normal"
         variant="ghost-muted"
         aria-label={label()}
+        data-slot="markdown-copy-button"
         icon={
           <>
             <IconV2 name="outline-copy" data-copy-icon />

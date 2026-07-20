@@ -19,6 +19,7 @@ export function NewSessionView(props: NewSessionViewProps) {
   const sync = useSync()
   const sdk = useSDK()
   const language = useLanguage()
+  const [isDragging, setIsDragging] = createSignal(false)
 
   const sandboxes = createMemo(() => sync().project?.sandboxes ?? [])
   const options = createMemo(() => [MAIN_WORKTREE, ...sandboxes(), CREATE_WORKTREE])
@@ -48,7 +49,28 @@ export function NewSessionView(props: NewSessionViewProps) {
   }
 
   return (
-    <div class={ROOT_CLASS}>
+    <div
+      class={ROOT_CLASS + " transition-all duration-300"}
+      classList={{ "ring-4 ring-green-500/50 shadow-[0_0_40px_rgba(34,197,94,0.3)] bg-green-500/5 rounded-xl m-2": isDragging() }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setIsDragging(true)
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault()
+        setIsDragging(false)
+      }}
+      onDrop={(e) => {
+        setIsDragging(false)
+      }}
+    >
+      <Show when={isDragging()}>
+        <div class="absolute inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div class="text-3xl font-bold text-green-500/80 animate-pulse">
+            Dosyaları Buraya Bırakın
+          </div>
+        </div>
+      </Show>
       <div class="h-12 shrink-0" aria-hidden />
       <div class="flex-1 px-6 pb-30 flex items-center justify-center text-center">
         <div class="w-full max-w-200 flex flex-col items-center text-center gap-4">

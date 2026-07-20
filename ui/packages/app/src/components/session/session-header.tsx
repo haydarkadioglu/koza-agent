@@ -311,6 +311,15 @@ export function SessionHeader() {
                   <Show when={local.model.current()}>
                     {(m) => (
                       <div class="flex items-center gap-2">
+                        <select
+                          class="text-10-regular text-text-weaker bg-surface-panel-raised px-1.5 py-0.5 rounded-full border border-border-weak-base outline-none cursor-pointer focus:border-border-strong"
+                          onChange={(e) => document.documentElement.style.setProperty('--focus-color', e.target.value === 'Araştırmacı' ? '#a855f7' : e.target.value === 'Tasarımcı' ? '#ec4899' : '#3b82f6')}
+                        >
+                          <option value="Yazılımcı">👨‍💻 Yazılımcı</option>
+                          <option value="Araştırmacı">🔍 Araştırmacı</option>
+                          <option value="Tasarımcı">🎨 Tasarımcı</option>
+                          <option value="Serbest">⚡ Serbest</option>
+                        </select>
                         <span class="text-10-regular text-text-weaker bg-surface-panel-raised px-1.5 py-0.5 rounded-full border border-border-weak-base">
                           {m().provider.id} / {m().id}
                         </span>
