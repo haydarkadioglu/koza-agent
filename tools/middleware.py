@@ -16,6 +16,13 @@ class MiddlewareChain:
 
     Each middleware should have the signature:
         def middleware(agent: Any, name: str, args: dict, next_call: Callable[[dict], Any]) -> Any
+
+    Execution contract: every layer runs at most once and the terminal handler
+    runs exactly once. A middleware that raises *before* delegating vetoes the
+    call — nothing downstream runs and the exception reaches the caller, which
+    reports it as a tool error. A failure coming from the handler (or from a
+    later middleware) propagates as-is; it is never swallowed and never
+    replayed through the chain.
     """
 
     def __init__(self, middlewares: List[Callable] = None) -> None:
@@ -34,23 +41,27 @@ class MiddlewareChain:
                 return terminal_call(current_args)
 
             middleware = self.middlewares[index]
+            delegated = False
 
             def next_call(next_args: dict | None = None) -> Any:
-                nonlocal current_args
+                nonlocal delegated
+                delegated = True
                 payload = next_args if next_args is not None else current_args
                 return call_at(index + 1, payload)
 
             try:
                 return middleware(agent, name, current_args, next_call)
             except Exception as e:
-                # If a middleware fails (outside downstream execution errors), we log it and fallback
-                logger.warning(
-                    "Middleware error in %s: %s",
-                    getattr(middleware, "__name__", repr(middleware)),
-                    e
-                )
-                # Fallback to the rest of the chain with current arguments
-                return call_at(index + 1, current_args)
+                if not delegated:
+                    # The middleware itself rejected the call before reaching the
+                    # handler (SSRF guard, schema coercion): a veto, not a retry.
+                    logger.warning(
+                        "Middleware %s vetoed tool %s: %s",
+                        getattr(middleware, "__name__", repr(middleware)),
+                        name,
+                        e
+                    )
+                raise
 
         return call_at(0, args)
 
