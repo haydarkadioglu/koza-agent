@@ -17,7 +17,7 @@ from tools.registry import ALL_TOOLS, ALL_HANDLERS
 from core_context import MAX_CONTEXT_MESSAGES, TOOL_COMPACT_AFTER
 
 
-from utils.json_utils import _escape_invalid_chars_in_json_strings, _repair_tool_call_arguments
+from utils.json_utils import parse_tool_call_arguments
 
 
 
@@ -806,7 +806,7 @@ class Agent:
           {"type": "error", "message": ...}
           {"type": "interrupted"}
         """
-        import time, json as _json
+        import time
 
         if hasattr(self, "_guardrail") and self._guardrail:
             self._guardrail.reset()
@@ -884,8 +884,10 @@ class Agent:
 
         try:
             MAX_ROUNDS = 25  # safety cap — allows complex multi-step tasks
+            MAX_INVALID_JSON_RETRIES = 3
             empty_retries = 0
             length_continuation_count = 0
+            invalid_json_retries = 0
             for _round in range(MAX_ROUNDS):
                 if self._cancel.is_set():
                     yield {"type": "interrupted"}
@@ -1095,18 +1097,16 @@ class Agent:
 
                 # ── Build call list from buffered chunks ─────────────────────────
                 calls = []
+                invalid_args: dict[str, str] = {}  # tool_call_id -> reason
                 for idx, stc in sorted(_tool_buf.items()):
                     raw_args = stc["args"] or "{}"
-                    try:
-                        args_parsed = _json.loads(raw_args)
-                    except Exception:
-                        repaired = _repair_tool_call_arguments(raw_args, tool_name=stc["name"])
-                        try:
-                            args_parsed = _json.loads(repaired)
-                        except Exception:
-                            args_parsed = {}
+                    args_parsed, args_error = parse_tool_call_arguments(raw_args, tool_name=stc["name"])
+                    call_id = stc["id"] or stc["name"]
+                    if args_error:
+                        invalid_args[call_id] = args_error
+                        args_parsed = {}
                     calls.append({
-                        "id": stc["id"] or stc["name"],
+                        "id": call_id,
                         "name": stc["name"],
                         "arguments": args_parsed,
                     })
@@ -1116,6 +1116,62 @@ class Agent:
                     "content": full or None,
                     "tool_calls": calls,
                 })
+
+                # ── Unparseable arguments veto the whole round ───────────────────
+                # Running a tool on silently-emptied arguments makes it act on
+                # missing parameters; the model is told what was wrong instead
+                # and gets a bounded number of rounds to re-issue the call.
+                if invalid_args:
+                    invalid_json_retries += 1
+                    import logging
+                    _log = logging.getLogger(__name__)
+                    _first_reason = next(iter(invalid_args.values()))
+
+                    if invalid_json_retries > MAX_INVALID_JSON_RETRIES:
+                        _log.warning(
+                            f"Tool-call arguments were unparseable {invalid_json_retries} rounds in a row — "
+                            "refusing to execute them and ending the turn."
+                        )
+                        notice = (
+                            "I stopped instead of guessing: the model produced tool-call arguments that are "
+                            f"not valid JSON in {invalid_json_retries} consecutive rounds "
+                            f"({_first_reason}). Nothing was executed with empty arguments — "
+                            "please re-issue the request."
+                        )
+                        self.messages.append({"role": "assistant", "content": notice})
+                        for _tok in notice:
+                            yield {"type": "text", "token": _tok}
+                        return
+
+                    _log.warning(
+                        f"Invalid tool-call arguments (round {invalid_json_retries}/{MAX_INVALID_JSON_RETRIES}), "
+                        f"executing nothing: {_first_reason}"
+                    )
+                    for _tc in calls:
+                        if _tc["id"] in invalid_args:
+                            content = (
+                                f"Error: invalid JSON in arguments for '{_tc['name']}': "
+                                f"{invalid_args[_tc['id']]}. The tool was NOT executed. Re-issue this call "
+                                "with valid JSON; for a tool that takes no parameters use {}."
+                            )
+                        else:
+                            content = (
+                                "Skipped: another tool call in this round had invalid JSON arguments, so "
+                                "nothing was executed. Please re-issue this call after fixing the arguments."
+                            )
+                        yield {"type": "tool_done", "name": _tc["name"], "result": content, "elapsed": 0.0}
+                        self.messages.append({
+                            "role": "tool",
+                            "tool_call_id": _tc["id"],
+                            "name": _tc["name"],
+                            "content": content,
+                        })
+
+                    if self.provider.supports_thinking:
+                        yield {"type": "thinking"}
+                    continue
+
+                invalid_json_retries = 0
 
                 # ── Execute each tool call ────────────────────────────────────────
                 permanent_failure = False
