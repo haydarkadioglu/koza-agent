@@ -18,6 +18,7 @@ from core_context import MAX_CONTEXT_MESSAGES, TOOL_COMPACT_AFTER
 
 
 from utils.json_utils import parse_tool_call_arguments
+from utils.tool_ids import uniquify_tool_call_ids
 
 
 
@@ -970,18 +971,34 @@ class Agent:
                                         logging.getLogger(__name__).warning("Rate limit hit during stream, rotated to next API key.")
                                         continue
 
-                            # Auto-recover from "tool_calls must be followed by tool messages" (400)
                             _emsg_orig = str(_e)
-                            if not _stream_retried and ("tool_calls" in _emsg_orig or "400" in _emsg_orig):
-                                _stream_retried = True
+                            # Auto-recover from "tool_calls must be followed by tool messages" (400).
+                            # The substring match is broad on purpose (providers word this
+                            # differently), but this recovery is destructive — it removes the
+                            # offending round from history — so it must be earned: drop only
+                            # when something is actually dangling, and re-request only then.
+                            # Otherwise an unrelated error whose text merely contains "400"
+                            # (e.g. "... 400 requests/min", a token count) hijacked the branch,
+                            # dropped nothing, retried with no backoff, and never reached the
+                            # key-rotation / backoff recovery below.
+                            if (
+                                not _stream_retried
+                                and ("tool_calls" in _emsg_orig or "400" in _emsg_orig)
+                            ):
                                 n = self._drop_dangling_tool_calls()
                                 import logging as _logging
+                                if n:
+                                    _stream_retried = True
+                                    _logging.getLogger(__name__).warning(
+                                        f"stream_chat: 400 tool_calls error — dropped {n} dangling messages, retrying"
+                                    )
+                                    full = ""
+                                    _tool_buf = {}
+                                    continue
                                 _logging.getLogger(__name__).warning(
-                                    f"stream_chat: 400 tool_calls error — dropped {n} dangling messages, retrying"
+                                    "stream_chat: 400 tool_calls error but the history has no "
+                                    "dangling tool call to drop — not retrying"
                                 )
-                                full = ""
-                                _tool_buf = {}
-                                continue
 
                             # If rate limit or overloaded/timeout, retry with jittered backoff
                             if (is_rate_limit or is_overloaded) and _stream_call_retries < _MAX_STREAM_RETRIES:
@@ -1097,19 +1114,36 @@ class Agent:
 
                 # ── Build call list from buffered chunks ─────────────────────────
                 calls = []
-                invalid_args: dict[str, str] = {}  # tool_call_id -> reason
+                args_errors: list[str | None] = []
                 for idx, stc in sorted(_tool_buf.items()):
                     raw_args = stc["args"] or "{}"
                     args_parsed, args_error = parse_tool_call_arguments(raw_args, tool_name=stc["name"])
-                    call_id = stc["id"] or stc["name"]
-                    if args_error:
-                        invalid_args[call_id] = args_error
-                        args_parsed = {}
                     calls.append({
-                        "id": call_id,
+                        "id": stc["id"] or stc["name"],
                         "name": stc["name"],
                         "arguments": args_parsed,
                     })
+                    args_errors.append(args_error)
+
+                # A provider may reuse one id — or omit it — for several calls in
+                # a batch. The id keys every downstream result map
+                # (completed_results / blocked_results and the tool_call_id of each
+                # tool message), so a collision silently drops one tool's result and
+                # repeats its sibling's, and strict providers 400 on the duplicate.
+                # Rename duplicates deterministically (never uuid4 — these ids ride
+                # the prompt-cache prefix).
+                if uniquify_tool_call_ids(calls):
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Duplicate tool-call id(s) in one round were renamed so every "
+                        "tool result stays paired."
+                    )
+
+                invalid_args: dict[str, str] = {}  # tool_call_id -> reason
+                for call, args_error in zip(calls, args_errors):
+                    if args_error:
+                        invalid_args[call["id"]] = args_error
+                        call["arguments"] = {}
 
                 self.messages.append({
                     "role": "assistant",
