@@ -421,6 +421,14 @@ _CRED_PATTERNS = _re.compile(
 # Telegram bot token: digits:alphanumeric (e.g. 1234567890:ABCdefGHI...)
 _TG_TOKEN_RE = _re.compile(r'\b(\d{8,12}:[A-Za-z0-9_\-]{30,50})\b')
 
+# Re-prompt when a provider reports finish_reason="tool_calls" but streams no
+# tool call at all — a narration-only stall, or an interrupt mid-retry. Taking
+# the narration as the answer would end the turn with the task unstarted.
+_DROPPED_TOOLCALL_NUDGE = (
+    "Your previous turn indicated a tool call but none was included. Do not narrate a plan or "
+    "restate intent — issue the actual tool call now to continue the task."
+)
+
 
 def _select_tools(user_input: str, messages: list[dict] = None, router_groups: set[str] | None = None) -> list[dict]:
     """
@@ -889,6 +897,7 @@ class Agent:
             empty_retries = 0
             length_continuation_count = 0
             invalid_json_retries = 0
+            _dropped_toolcall_retries = 0
             for _round in range(MAX_ROUNDS):
                 if self._cancel.is_set():
                     yield {"type": "interrupted"}
@@ -1109,6 +1118,37 @@ class Agent:
 
                 # ── No tool calls → pure text response, done ─────────────────────
                 if not _tool_buf:
+                    # finish_reason="tool_calls" with nothing buffered means the
+                    # provider promised a call and streamed none: the model
+                    # narrated a plan instead of issuing it, or an interrupt cut
+                    # the retry. Delivering `full` as the answer ends the turn
+                    # with the task unstarted, so re-prompt for the actual call —
+                    # bounded to 3 consecutive stalls, after which the narration
+                    # is delivered rather than looping forever.
+                    if _finish_reason == "tool_calls" and _dropped_toolcall_retries < 3:
+                        _dropped_toolcall_retries += 1
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "finish_reason=tool_calls with no buffered call (narration only) — "
+                            f"re-prompting to emit the call ({_dropped_toolcall_retries}/3)."
+                        )
+                        # Both halves are retry scaffolding, stripped from the
+                        # final history by the loop's cleanup.
+                        self.messages.append({
+                            "role": "assistant",
+                            "content": full,
+                            "_dropped_toolcall_nudge": True,
+                        })
+                        self.messages.append({
+                            "role": "user",
+                            "content": _DROPPED_TOOLCALL_NUDGE,
+                            "_dropped_toolcall_nudge": True,
+                        })
+                        if self.provider.supports_thinking:
+                            yield {"type": "thinking"}
+                        continue
+
+                    _dropped_toolcall_retries = 0
                     self.messages.append({"role": "assistant", "content": full})
                     return
 
@@ -1206,6 +1246,9 @@ class Agent:
                     continue
 
                 invalid_json_retries = 0
+                # A batch that reached execution is real progress: the stall
+                # budget counts *consecutive* narration-only rounds, so reset it.
+                _dropped_toolcall_retries = 0
 
                 # ── Execute each tool call ────────────────────────────────────────
                 permanent_failure = False
@@ -1439,7 +1482,10 @@ class Agent:
                 except RuntimeError:
                     pass  # already released
             # Clean up empty recovery synthetic messages from self.messages
-            self.messages = [m for m in self.messages if not m.get("_empty_recovery_synthetic")]
+            self.messages = [
+                m for m in self.messages
+                if not m.get("_empty_recovery_synthetic") and not m.get("_dropped_toolcall_nudge")
+            ]
 
     def _refresh_memory_context(self, user_input: str, prompt_sections: set[str] | None = None) -> None:
         """
