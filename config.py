@@ -95,6 +95,7 @@ def default_config() -> dict:
             "auto_test":   True,    # run Test Engineer after every coding task
         },
         "tool_approval": True,      # False = auto-approve tools; True = ask for non-safe tools
+        "tool_timeout_seconds": 600,  # per-call deadline for a tool call (0 = no deadline)
         "ui": {
             "default": "plain",          # plain | tui
             "refresh_interval_ms": 1500,
