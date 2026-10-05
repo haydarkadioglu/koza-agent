@@ -382,10 +382,118 @@ class ToolLoopGuardrail:
         return result
 
 
-def _expand_tools_for_call(current_tools: list[dict], called_names: list[str]) -> list[dict]:
+# ── Tool deferral bridge (tool_search) ───────────────────────────────────────
+# The model-visible tool list is capped at MAX_SENT_TOOLS entries and the
+# keyword router sends only a narrow slice. Anything not sent is invisible to
+# the model, and _expand_tools_for_call cannot help: the model cannot call a
+# tool it never saw. The tool_search bridge closes that gap — the model
+# searches the full registry by keyword, matched tools are activated into the
+# next round's tool array, and it calls them normally. Mechanism ported from
+# Hermes' progressive tool disclosure (model_tools.py get_tool_definitions,
+# tools/tool_search.py) in koza style: one bridge tool, registry keyword search.
+
+MAX_SENT_TOOLS = 128
+
+_TOOL_SEARCH_DEF: dict = {
+    "type": "function",
+    "function": {
+        "name": "tool_search",
+        "description": (
+            "Search the full tool registry for tools that are not in your current "
+            "tool list. Returns matching tool names with descriptions; matched tools "
+            "are activated and callable in your next tool round. Use when the task "
+            "needs a capability you don't see (e.g. messaging, vision, delegation, "
+            "credentials, email, screenshot)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Space-separated keywords for the capability you need, e.g. 'send sms twilio' or 'analyze image'.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 8, max 25).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+def _strip_bridge(tools: list[dict]) -> list[dict]:
+    return [t for t in tools if _tool_name(t) != "tool_search"]
+
+
+def _apply_tool_cap(tools: list[dict]) -> list[dict]:
+    """Cap the tool array at MAX_SENT_TOOLS; when truncation would drop tools,
+    the freed slot carries the tool_search bridge so nothing becomes unreachable."""
+    tools = _strip_bridge(tools)
+    if len(tools) <= MAX_SENT_TOOLS:
+        return tools
+    return tools[: MAX_SENT_TOOLS - 1] + [_TOOL_SEARCH_DEF]
+
+
+def _ensure_bridge(tools: list[dict]) -> list[dict]:
+    """Append the tool_search bridge when at least one registered tool is not visible."""
+    visible = {_tool_name(t) for t in tools}
+    if "tool_search" in visible:
+        return tools
+    if all(_tool_name(t) in visible for t in ALL_TOOLS):
+        return tools
+    return tools + [_TOOL_SEARCH_DEF]
+
+
+_SEARCH_STOP_TOKENS = frozenset({
+    "the", "a", "an", "for", "to", "with", "and", "or", "of", "tool", "tools",
+    "me", "my", "via", "using", "use", "on", "in", "it", "is", "get",
+})
+
+
+def _search_all_tools(query: str, limit: int = 8, exclude: set[str] | None = None) -> list[tuple[str, str, int]]:
+    """Keyword search over the full registry: token overlap against tool name and
+    description, ranked best-first. Returns (name, one-line description, score)."""
+    tokens = [w for w in _re.findall(r"[a-z0-9_]+", str(query).lower())
+              if w not in _SEARCH_STOP_TOKENS and len(w) > 1]
+    if not tokens:
+        return []
+    exclude = exclude or set()
+    scored: list[tuple[str, str, int]] = []
+    for t in ALL_TOOLS:
+        name = _tool_name(t)
+        if name in exclude or name == "tool_search":
+            continue
+        spec = t.get("function", t)
+        desc = str(spec.get("description", "")).strip().split("\n")[0][:160]
+        name_l = name.lower()
+        desc_l = desc.lower()
+        score = 0
+        for w in tokens:
+            if w == name_l or w in name_l.split("_"):
+                score += 3
+            elif w in name_l:
+                score += 2
+            if w in desc_l:
+                score += 1
+        if score > 0:
+            scored.append((name, desc, score))
+    scored.sort(key=lambda x: (-x[2], x[0]))
+    try:
+        limit = max(1, min(int(limit), 25))
+    except (TypeError, ValueError):
+        limit = 8
+    return scored[:limit]
+
+
+def _expand_tools_for_call(current_tools: list[dict], called_names: list[str],
+                           extra_names: set[str] | None = None) -> list[dict]:
     """
     Dynamically expand the tool list when the model calls a tool that wasn't
-    sent in the current set. Adds the full group that contains the requested tool.
+    sent in the current set. Adds the full group that contains the requested
+    tool. `extra_names` (tool_search activations) are added as exact tools —
+    the model already picked them by name, no group pull needed.
     Called once per iteration before feeding results back to the model.
     """
     current_names = {_tool_name(t) for t in current_tools}
@@ -401,13 +509,15 @@ def _expand_tools_for_call(current_tools: list[dict], called_names: list[str]) -
         # If not in any group, add just the tool itself
         if name not in to_add and name in _TOOL_BY_NAME:
             to_add.add(name)
+    if extra_names:
+        to_add.update(n for n in extra_names if n in _TOOL_BY_NAME)
     if not to_add:
         return current_tools
     new_tools = list(current_tools)
     for n in to_add:
         if n not in current_names and n in _TOOL_BY_NAME:
             new_tools.append(_TOOL_BY_NAME[n])
-    return new_tools[:128]
+    return _apply_tool_cap(new_tools)
 
 import re as _re
 _CRED_PATTERNS = _re.compile(
@@ -575,6 +685,10 @@ class Agent:
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
         self.cfg = cfg or {}
+        # tool_search bridge state (K-06): tools the model activated this turn,
+        # and the names currently visible to the model (search exclusion set).
+        self._activated_tools: set[str] = set()
+        self._sent_tool_names: set[str] = set()
         self._session_progress: float = self.cfg.get("session_progress", 0.0)
         self._stream_lock: threading.Lock = threading.Lock()
         self.db_path = db_path
@@ -786,10 +900,10 @@ class Agent:
                     merged_tools.append(t)
             
             if not getattr(self, "cfg", {}).get("dynamic_tool_selection_cloud", False):
-                tools = merged_tools[:128]
+                tools = _apply_tool_cap(merged_tools)
             else:
                 if original_selected_names.issubset(_CORE_TOOL_NAMES):
-                    tools = merged_tools[:128]
+                    tools = _apply_tool_cap(merged_tools)
 
         if previous_tools:
             # Merge current tools (including those added by _expand_tools_for_call)
@@ -799,8 +913,12 @@ class Agent:
                 name = _tool_name(t)
                 if name not in current_names:
                     merged.append(t)
-            tools = merged[:128]
-            
+            tools = _apply_tool_cap(merged)
+
+        # Expose the tool_search bridge whenever some registered tools are not
+        # visible, so the model can reach them (K-06).
+        tools = _ensure_bridge(tools)
+        self._sent_tool_names = {_tool_name(t) for t in tools}
         return tools
 
     def _run_conversation_loop(self, user_input: str, image_path: str | None = None):
@@ -885,6 +1003,7 @@ class Agent:
         is_local = getattr(self.provider, "name", "ollama") in ("ollama", "lm_studio")
         tool_groups = set(routing_decision.tool_groups) if routing_decision else None
         tools = self._resolve_available_tools(processed_input, tool_groups, is_local)
+        self._activated_tools = set()  # bridge activations are per-turn (K-06)
 
         self._cancel.clear()
         self._busy = True
@@ -1469,8 +1588,12 @@ class Agent:
                         self.messages.append({"role": "assistant", "content": final})
                     return
 
-                # Expand tools for next round if model called something outside current set
-                tools = _expand_tools_for_call(tools, [c["name"] for c in calls])
+                # Expand tools for next round if model called something outside current set;
+                # also materialize any tool_search activations from this round.
+                tools = _expand_tools_for_call(
+                    tools, [c["name"] for c in calls],
+                    extra_names=getattr(self, "_activated_tools", None),
+                )
                 # loop → ask model again with tool results
 
         finally:
@@ -1644,6 +1767,9 @@ class Agent:
         from tools.middleware import MiddlewareChain
         from tools.registry import ALL_HANDLERS
 
+        if name == "tool_search":
+            return self._handle_tool_search(args)
+
         handler = ALL_HANDLERS.get(name)
         if not handler:
             return f"Unknown tool: {name}. Note: Many tools are disabled by default to save resources. You can check disabled skills using get_config('disabled_skills') and enable them via set_config."
@@ -1657,6 +1783,28 @@ class Agent:
             return chain.execute(self, name, args, terminal_call)
         except Exception as e:
             return f"Tool error ({name}): {e}"
+
+    def _handle_tool_search(self, args: dict) -> str:
+        """Handle the tool_search bridge call: rank registry tools against the
+        query, return names + descriptions, and activate the matches so they
+        appear in the next round's tool array (via _expand_tools_for_call)."""
+        try:
+            query = str((args or {}).get("query", "")).strip()
+            if not query:
+                return "Error: 'query' is required (space-separated keywords)."
+            matches = _search_all_tools(query, (args or {}).get("limit", 8),
+                                        exclude=getattr(self, "_sent_tool_names", None))
+            for m_name, _m_desc, _m_score in matches:
+                self._activated_tools.add(m_name)
+            if not matches:
+                return (f"No tools matched query '{query}'. Try broader keywords, "
+                        "e.g. 'message', 'image', 'email', 'schedule'.")
+            lines = [f"- {n}: {d}" for n, d, _s in matches]
+            return (f"{len(matches)} tool(s) matched '{query}'. They are now ACTIVATED and "
+                    "callable in your next tool round — call them by name with their "
+                    "arguments.\n" + "\n".join(lines))
+        except Exception as e:
+            return f"tool_search error: {e}"
 
     def reset(self):
         self.auto_save()  # save session before clearing
