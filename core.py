@@ -35,6 +35,59 @@ _PARALLEL_SAFE_TOOLS = {
 }
 
 
+# ── Per-tool execution deadline & interruptibility ───────────────────────────
+# Every tool call runs on a worker thread that the conversation loop polls in
+# short slices. Before this, a tool that never returned (a wedged subprocess, a
+# socket read with no timeout) blocked the loop forever, and interrupt() — which
+# only sets self._cancel — could not break it, because nothing was polled while
+# the tool ran. A call that overruns `tool_timeout_seconds`, or the user's
+# interrupt, is now abandoned instead of awaited (the worker is a daemon thread).
+_SEQUENTIAL_INTERRUPT_POLL_SECONDS = 0.1
+_DEFAULT_TOOL_TIMEOUT_SECONDS = 600.0
+# Tools that supervise their own liveness and legitimately block for a whole
+# long-running operation (subagent/delegation batches carry their own timeouts;
+# browser_task has per-action Playwright timeouts): no generic per-call deadline,
+# but they still run on a polled worker so an interrupt can abandon them.
+_TOOL_DEADLINE_EXEMPT_TOOLS = frozenset({
+    "delegate_task", "spawn_subagent",
+    "start_coding_session", "start_tracked_coding_task",
+    "browser_task",
+})
+
+
+def _resolve_tool_timeout(agent) -> float | None:
+    """Per-call deadline in seconds for a non-exempt tool; ``None`` disables it.
+
+    Reads ``tool_timeout_seconds`` from the agent config; ``0`` or a negative
+    value disables the deadline. A missing or invalid value falls back to
+    ``_DEFAULT_TOOL_TIMEOUT_SECONDS``.
+    """
+    cfg = getattr(agent, "cfg", None)
+    raw = _DEFAULT_TOOL_TIMEOUT_SECONDS
+    if isinstance(cfg, dict) and "tool_timeout_seconds" in cfg:
+        raw = cfg["tool_timeout_seconds"]
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        seconds = _DEFAULT_TOOL_TIMEOUT_SECONDS
+    return None if seconds <= 0 else seconds
+
+
+def _tool_timeout_message(name: str, timeout_s: float) -> str:
+    return (
+        f"Error executing tool '{name}': timed out after {timeout_s:.1f}s and was abandoned. "
+        "Do not assume its side effects happened — it may still be running in the background. "
+        "Retry with a narrower call, or raise `tool_timeout_seconds` in config.yaml."
+    )
+
+
+def _tool_interrupt_message(name: str, elapsed: float) -> str:
+    return (
+        f"Error: tool '{name}' was abandoned after {elapsed:.1f}s because the run was "
+        "interrupted by the user. Its side effects (if any) are unknown."
+    )
+
+
 # Cached at startup — re-detect only on explicit request
 _SYSTEM_CAPS: dict = {}
 
@@ -1415,79 +1468,90 @@ class Agent:
                                 except Exception:
                                     pass
                         
-                        from concurrent.futures import ThreadPoolExecutor
-                        def run_one(call):
-                            name, args = call["name"], call["arguments"]
-                            t0 = time.time()
-                            try:
-                                res = self._execute_tool(name, args)
-                            except Exception as e:
-                                import traceback
-                                res = f"Error executing tool: {e}\n{traceback.format_exc()}"
-                            t_elapsed = time.time() - t0
-                            return res, t_elapsed
-
+                        # Each parallel call runs on its own daemon worker and
+                        # reports through a queue. A wedged tool can then be
+                        # abandoned instead of blocking the batch — an executor's
+                        # ``with`` block joins its workers on exit, so one hung
+                        # call used to freeze the whole round. This loop polls for
+                        # results, interruption and the per-call deadline.
                         if non_blocked_parallel_calls:
-                            import concurrent.futures
-                            with ThreadPoolExecutor(max_workers=len(non_blocked_parallel_calls)) as executor:
-                                future_to_call = {}
-                                for idx, call in non_blocked_parallel_calls:
-                                    future_to_call[executor.submit(run_one, call)] = (idx, call)
+                            import queue as _queue
 
-                                futures = list(future_to_call.keys())
-                                completed_results = {}
+                            timeout_s = _resolve_tool_timeout(self)
+                            results_q: _queue.Queue = _queue.Queue()
+                            started_at: dict = {}
 
-                                while futures:
-                                    if self._cancel.is_set():
-                                        for f in futures:
-                                            f.cancel()
-                                        break
+                            def _worker(call, _q=results_q):
+                                name, args = call["name"], call["arguments"]
+                                t0 = time.time()
+                                try:
+                                    res = self._execute_tool(name, args)
+                                except Exception as e:
+                                    import traceback
+                                    res = f"Error executing tool: {e}\n{traceback.format_exc()}"
+                                _q.put((call["id"], res, time.time() - t0))
 
-                                    done, futures = concurrent.futures.wait(
-                                        futures, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED
+                            pending: dict = {}
+                            for idx, call in non_blocked_parallel_calls:
+                                pending[call["id"]] = call
+                                started_at[call["id"]] = time.time()
+                                threading.Thread(
+                                    target=_worker, args=(call,),
+                                    name=f"koza-tool-{call['name']}", daemon=True,
+                                ).start()
+
+                            completed_results = {}
+                            while pending:
+                                if self._cancel.is_set():
+                                    break
+                                try:
+                                    call_id, res, t_elapsed = results_q.get(
+                                        timeout=_SEQUENTIAL_INTERRUPT_POLL_SECONDS
                                     )
+                                except _queue.Empty:
+                                    call_id = None
 
-                                    for f in done:
-                                        idx, call = future_to_call[f]
-                                        name, args = call["name"], call["arguments"]
-                                        try:
-                                            res, t_elapsed = f.result()
-                                        except concurrent.futures.CancelledError:
-                                            res = "Tool execution cancelled due to user interrupt."
-                                            t_elapsed = 0.0
-                                        except Exception as e:
-                                            import traceback
-                                            res = f"Error executing tool: {e}\n{traceback.format_exc()}"
-                                            t_elapsed = 0.0
-
-                                        res = self._guardrail.after_call(name, args, res)
-                                        completed_results[call["id"]] = (res, t_elapsed)
-
-                                        if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
-                                            try:
-                                                self.tool_progress_callback("tool.completed", name, str(res)[:300], args, duration=t_elapsed)
-                                            except Exception:
-                                                pass
-
-                                for idx, call in non_blocked_parallel_calls:
-                                    call_id = call["id"]
-                                    if call_id in completed_results:
-                                        res, t_elapsed = completed_results[call_id]
-                                    else:
-                                        res = "Tool execution cancelled or skipped."
-                                        t_elapsed = 0.0
-
+                                if call_id is not None and call_id in pending:
+                                    call = pending.pop(call_id)
                                     name, args = call["name"], call["arguments"]
-                                    yield {"type": "tool_done", "name": name, "result": res, "elapsed": t_elapsed}
-                                    res_str = str(res)
-                                    self.messages.append({
-                                        "role": "tool",
-                                        "tool_call_id": call_id,
-                                        "name": name,
-                                        "content": res_str,
-                                    })
-                                    if "PERMANENT FAILURE" in res_str:
-                                        permanent_failure = True
+                                    res = self._guardrail.after_call(name, args, res)
+                                    completed_results[call_id] = (res, t_elapsed)
+                                    if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                                        try:
+                                            self.tool_progress_callback("tool.completed", name, str(res)[:300], args, duration=t_elapsed)
+                                        except Exception:
+                                            pass
+
+                                # Abandon any call that overran its deadline.
+                                if timeout_s is not None and pending:
+                                    now = time.time()
+                                    for cid in list(pending):
+                                        if now - started_at[cid] >= timeout_s:
+                                            overrun = pending.pop(cid)
+                                            completed_results[cid] = (
+                                                _tool_timeout_message(overrun["name"], timeout_s),
+                                                timeout_s,
+                                            )
+
+                            for idx, call in non_blocked_parallel_calls:
+                                call_id = call["id"]
+                                if call_id in completed_results:
+                                    res, t_elapsed = completed_results[call_id]
+                                else:
+                                    res = "Tool execution cancelled or skipped."
+                                    t_elapsed = 0.0
+
+                                name, args = call["name"], call["arguments"]
+                                yield {"type": "tool_done", "name": name, "result": res, "elapsed": t_elapsed}
+                                res_str = str(res)
+                                self.messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": call_id,
+                                    "name": name,
+                                    "content": res_str,
+                                })
+                                if "PERMANENT FAILURE" in res_str:
+                                    permanent_failure = True
                         
                         for idx, call in parallel_calls:
                             if call["id"] in blocked_results:
@@ -1550,13 +1614,9 @@ class Agent:
                                 self.tool_progress_callback("tool.started", name, preview, args)
                             except Exception:
                                 pass
-                        t0 = time.time()
-                        try:
-                            result = self._execute_tool(name, args)
-                        except Exception as e:
-                            import traceback
-                            result = f"Error executing tool: {e}\n{traceback.format_exc()}"
-                        t_elapsed = time.time() - t0
+                        # Per-call deadline + interrupt poll: a wedged tool is
+                        # abandoned instead of blocking the whole loop forever.
+                        result, t_elapsed, _outcome = self._run_tool_with_deadline(name, args)
                         
                         # Check loop guardrail after call
                         result = self._guardrail.after_call(name, args, result)
@@ -1576,6 +1636,16 @@ class Agent:
                         })
                         if "PERMANENT FAILURE" in result_str:
                             permanent_failure = True
+                        if _outcome == "interrupted":
+                            for remaining_call in calls[i + 1:]:
+                                self.messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": remaining_call["id"],
+                                    "name": remaining_call["name"],
+                                    "content": "Process interrupted by user.",
+                                })
+                            yield {"type": "interrupted"}
+                            return
 
                 if permanent_failure:
                     # Tell the model once, then stop — do not retry
@@ -1762,6 +1832,46 @@ class Agent:
                 shared_memory.credential_set(service.lower().strip(), value)
         except Exception:
             pass
+
+    def _run_tool_with_deadline(self, name: str, args: dict) -> tuple[str, float, str]:
+        """Run one tool call on a daemon worker, polled for interrupt and deadline.
+
+        Returns ``(result, elapsed, outcome)`` where ``outcome`` is ``"done"``,
+        ``"timeout"`` or ``"interrupted"``. A tool that never returns is abandoned
+        (the worker is a daemon thread and is never joined again) instead of
+        blocking the conversation loop forever.
+        """
+        import time
+
+        timeout_s = None
+        if name not in _TOOL_DEADLINE_EXEMPT_TOOLS:
+            timeout_s = _resolve_tool_timeout(self)
+
+        box: dict = {}
+        started = time.time()
+
+        def _work() -> None:
+            t0 = time.time()
+            try:
+                box["result"] = self._execute_tool(name, args)
+            except Exception as e:
+                import traceback
+                box["result"] = f"Error executing tool: {e}\n{traceback.format_exc()}"
+            box["elapsed"] = time.time() - t0
+
+        worker = threading.Thread(target=_work, name=f"koza-tool-{name}", daemon=True)
+        worker.start()
+
+        while True:
+            worker.join(_SEQUENTIAL_INTERRUPT_POLL_SECONDS)
+            if not worker.is_alive():
+                return str(box.get("result", "")), float(box.get("elapsed", 0.0)), "done"
+
+            elapsed = time.time() - started
+            if self._cancel.is_set():
+                return _tool_interrupt_message(name, elapsed), elapsed, "interrupted"
+            if timeout_s is not None and elapsed >= timeout_s:
+                return _tool_timeout_message(name, timeout_s), timeout_s, "timeout"
 
     def _execute_tool(self, name: str, args: dict) -> str:
         from tools.middleware import MiddlewareChain
