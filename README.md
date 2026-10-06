@@ -43,6 +43,22 @@ Both scripts will:
 > Windows: Installer can automatically download and install Python if missing.  
 > macOS: `brew install python@3.12` · Debian/Ubuntu: `sudo apt install python3.12`
 
+### Windows — KozaSetup.exe (graphical installer)
+
+Prefer a classic Windows installer over the PowerShell one-liner? Download **KozaSetup.exe** from the [Releases](https://github.com/haydarkadioglu/koza-agent/releases) page (look for the `setup-v0.1.0` release) and run it — no Python or git required beforehand.
+
+The installer:
+
+- Bundles an **embedded Python 3.12 runtime** inside the installer itself, so no system-wide Python is needed
+- Shows a **download progress bar** while fetching the latest Koza Agent source (`main` branch) from GitHub as a ZIP archive (no git dependency)
+- Extracts Koza Agent to `%LOCALAPPDATA%\KozaAgent\app` and the Python runtime to `%LOCALAPPDATA%\KozaAgent\runtime`
+- Installs pip and all project dependencies into that private runtime (it acts as Koza's own isolated environment)
+- Adds the Koza directories to your **user PATH** (run `koza` from any new terminal)
+- Creates **Desktop and Start Menu shortcuts** that launch Koza's CLI/UI
+- Ships an **uninstaller** that removes shortcuts, PATH entries, and all Koza files
+
+Note: because Koza lives in `%LOCALAPPDATA%\KozaAgent`, uninstalling leaves nothing behind in system directories, and no administrator rights are required.
+
 ### Docker Installation (Optional)
 
 You can also run Koza Agent in a secure, isolated Docker container:
