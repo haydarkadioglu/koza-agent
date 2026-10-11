@@ -96,6 +96,17 @@ def default_config() -> dict:
         },
         "tool_approval": True,      # False = auto-approve tools; True = ask for non-safe tools
         "tool_timeout_seconds": 600,  # per-call deadline for a tool call (0 = no deadline)
+        "tool_loop_guardrails": {   # warn -> block -> halt escalation for looping tool calls
+            "warnings_enabled": True,          # append loop warnings to tool results
+            "hard_stop_enabled": True,         # False = warn/block only, never end the turn
+            "exact_failure_warn_after": 2,     # identical failing call, warn from here
+            "exact_failure_block_after": 4,    # identical failing call, refuse from here
+            "max_blocks_before_halt": 2,       # a refused call reissued this often ends the turn
+            "same_tool_failure_warn_after": 3,   # failures of one tool (any arguments)
+            "same_tool_failure_halt_after": 8,   # ... ends the turn from here
+            "no_progress_warn_after": 3,        # identical result from a read-only call
+            "no_progress_block_after": 5,       # ... refuse from here
+        },
         "ui": {
             "default": "plain",          # plain | tui
             "refresh_interval_ms": 1500,
