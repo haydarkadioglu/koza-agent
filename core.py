@@ -312,10 +312,138 @@ def _tool_name(t: dict) -> str:
 _TOOL_BY_NAME: dict[str, dict] = {_tool_name(t): t for t in ALL_TOOLS}
 
 
+# ── Tool-loop guardrail: warn → block → halt ─────────────────────────────────
+# The guardrail tracks failing and repeating tool calls and escalates: `warn`
+# appends guidance to the result, `block` answers a call with a synthetic error
+# without running it, and `halt` ends the turn (the conversation loop polls
+# `halt_decision` after every batch and answers with a user-facing explanation).
+# Counters live on the Agent and outlive the turn — a call the guardrail blocked
+# and the model simply retries after the next user message is still a loop.
+#
+# Mechanism ported from Hermes' tool guardrails (agent/tool_guardrails.py,
+# run_agent.py:1272-1286, agent/turn_tool_round.py:176-190), re-implemented in
+# koza style: koza thresholds, koza config key, koza messages.
+_GUARDRAIL_DEFAULTS: dict = {
+    "warnings_enabled": True,
+    # False makes the guardrail advisory again: blocks are answered with an error
+    # result, but the turn is never stopped by it.
+    "hard_stop_enabled": True,
+    "exact_failure_warn_after": 2,
+    "exact_failure_block_after": 4,
+    # A blocked call that the model reissues is a loop: the 2nd block halts the turn.
+    "max_blocks_before_halt": 2,
+    "same_tool_failure_warn_after": 3,
+    "same_tool_failure_halt_after": 8,
+    "no_progress_warn_after": 3,
+    "no_progress_block_after": 5,
+}
+# Cap on distinct (tool, arguments) signatures tracked, so a long session cannot
+# grow the counters without bound.
+_GUARDRAIL_MAX_SIGNATURES = 64
+
+# koza's own synthetic failure markers (tools/middleware.py, providers, the
+# deadline helpers above). They are matched exactly, because the executor knows
+# these are failures — no prose guessing involved.
+_KOZA_TOOL_FAILURE_MARKERS = (
+    "ERROR:", "Tool error (", "Tool error:", "Unknown tool", "❌",
+    "[Tool execution cancelled", "Error executing tool",
+)
+# Last resort for a tool that reports its failure in prose only.
+_FREE_TEXT_FAILURE_HINTS = (
+    "failed", "not configured", "not installed", "required", "error:",
+    "timed out", "permission denied",
+)
+# Result paired with calls that never ran because the guardrail halted the batch.
+_GUARDRAIL_HALT_SKIP_NOTE = (
+    "Skipped: the turn was halted by the tool loop guardrail before this call ran."
+)
+
+
+def _guardrail_settings(cfg) -> dict:
+    """Guardrail thresholds from the ``tool_loop_guardrails`` config section.
+
+    Unknown keys and invalid values are ignored, so a typo in config.yaml can
+    only ever fall back to the default, never disable the guardrail silently.
+    """
+    settings = dict(_GUARDRAIL_DEFAULTS)
+    section = cfg.get("tool_loop_guardrails") if isinstance(cfg, dict) else None
+    if not isinstance(section, dict):
+        return settings
+    for key, default in _GUARDRAIL_DEFAULTS.items():
+        if key not in section:
+            continue
+        raw = section[key]
+        if isinstance(default, bool):
+            settings[key] = bool(raw)
+            continue
+        try:
+            settings[key] = max(1, int(raw))
+        except (TypeError, ValueError):
+            pass
+    return settings
+
+
+def _tool_result_looks_failed(result) -> bool:
+    """Classify a tool result when the executor did not report the outcome itself.
+
+    Callers that already know (a handler raised, a call was abandoned on its
+    deadline) pass ``failed=`` instead; this is the fallback for free-form tool
+    output.
+    """
+    text = str(result).strip()
+    if not text:
+        return False
+    if "Exit code:" in text and "Exit code: 0" not in text:
+        return True
+    if text.startswith(_KOZA_TOOL_FAILURE_MARKERS):
+        return True
+    head = text[:50].lower()
+    return any(hint in head for hint in _FREE_TEXT_FAILURE_HINTS)
+
+
+def _guardrail_halt_response(decision: "ToolGuardrailDecision") -> str:
+    """User-facing text that ends a halted turn (no internal codes in it)."""
+    tool = decision.tool_name or "the same tool"
+    return (
+        f"I stopped instead of looping: '{tool}' was called {decision.count} times without "
+        "making progress, so another attempt would only burn time and tokens. The last result "
+        "above shows what blocked it. Tell me how you would like to proceed — or how to fix "
+        "the underlying problem — and I will pick it up from there."
+    )
+
+
+class ToolGuardrailDecision:
+    """Verdict for one tool call: ``allow`` / ``warn`` / ``block`` / ``halt``."""
+
+    __slots__ = ("action", "code", "message", "tool_name", "count")
+
+    def __init__(self, action: str, code: str, message: str, tool_name: str, count: int):
+        self.action = action
+        self.code = code
+        self.message = message
+        self.tool_name = tool_name
+        self.count = count
+
+    @property
+    def should_halt(self) -> bool:
+        """Whether this verdict should stop the turn."""
+        return self.action in ("block", "halt")
+
+    def to_dict(self) -> dict:
+        """Log-safe view — no argument values, only the tool and the reason."""
+        return {
+            "action": self.action,
+            "code": self.code,
+            "tool": self.tool_name,
+            "count": self.count,
+        }
+
+
 class ToolLoopGuardrail:
     """
-    Tracks tool-call failures and repetition across a single turn/loop.
-    Provides warning or block actions to steer model out of loop state.
+    Escalating loop guard for tool calls: warn, block, then halt the turn.
+    Failure counters survive across turns (halved per new user message) so a
+    loop replayed from a later message is caught too.
     """
     IDEMPOTENT_TOOLS = frozenset({
         "read_file", "read_file_range", "search_files", "find_files", "list_dir",
@@ -324,80 +452,146 @@ class ToolLoopGuardrail:
         "email_log", "list_core_skills", "plugin_list"
     })
 
-    def __init__(self):
+    # Tools whose failures are normal work output (a red test run, an empty grep,
+    # an unreachable page): a run of *different* failing arguments is diagnosis,
+    # so they warn but never halt a turn on their own.
+    FAILURE_TOLERANT_TOOLS = frozenset({
+        "run_command", "run_script", "run_tests", "lint_code", "format_code",
+        "web_search", "fetch_url", "browser_task",
+    })
+
+    def __init__(self, settings: dict | None = None):
+        self.settings = dict(_GUARDRAIL_DEFAULTS)
+        if isinstance(settings, dict):
+            self.settings.update(
+                {k: v for k, v in settings.items() if k in _GUARDRAIL_DEFAULTS}
+            )
         self.reset()
 
     def reset(self):
+        """Drop every counter, including the cross-turn ones."""
         self._consecutive_idempotent_calls: dict[tuple[str, str], list[str]] = {}
         self._consecutive_failures: dict[tuple[str, str], int] = {}
         self._total_failures_by_tool: dict[str, int] = {}
+        self._blocks: dict[tuple[str, str], int] = {}
+        self._halt_decision: "ToolGuardrailDecision | None" = None
 
-    def before_call(self, name: str, args: dict) -> tuple[bool, str]:
+    def start_turn(self):
+        """Start a new user turn.
+
+        Failure counters persist — a blocked call the model retries in the next
+        turn is still a loop — but they decay by half so only a *dense* loop can
+        reach a halt. Per-turn state (identical-result streaks, the previous
+        turn's halt) is cleared.
+        """
+        self._consecutive_idempotent_calls = {}
+        self._halt_decision = None
+        self._total_failures_by_tool = {
+            name: count // 2 for name, count in self._total_failures_by_tool.items() if count // 2
+        }
+
+    @property
+    def halt_decision(self) -> "ToolGuardrailDecision | None":
+        """The decision that ended the turn, or ``None`` while it may continue."""
+        return self._halt_decision
+
+    @staticmethod
+    def _key(name: str, args: dict) -> tuple[str, str]:
         import json
         try:
             args_str = json.dumps(args, sort_keys=True)
         except Exception:
             args_str = str(args)
+        return (name, args_str)
 
-        key = (name, args_str)
+    def _trim_counters(self) -> None:
+        """Keep the counter dicts bounded on a long session."""
+        for store in (self._consecutive_failures, self._blocks):
+            while len(store) > _GUARDRAIL_MAX_SIGNATURES:
+                store.pop(next(iter(store)), None)
+        streaks = self._consecutive_idempotent_calls
+        while len(streaks) > _GUARDRAIL_MAX_SIGNATURES:
+            streaks.pop(next(iter(streaks)), None)
 
-        # 1. Block if the exact same tool call has failed 4 or more times
+    def _refuse(self, key: tuple[str, str], name: str, count: int, reason: str, code: str) -> str:
+        """Build the synthetic error result for a refused call.
+
+        The same call being refused again is the loop the guardrail exists to
+        stop, so when hard stops are enabled the second refusal halts the turn.
+        """
+        blocks = self._blocks.get(key, 0) + 1
+        self._blocks[key] = blocks
+        message = f"ERROR: Tool call blocked. '{name}' {reason}"
+        if self.settings["hard_stop_enabled"] and blocks >= self.settings["max_blocks_before_halt"]:
+            self._decide("halt", f"{code}_halt", message, name, count)
+        return message
+
+    def _decide(self, action: str, code: str, message: str, name: str, count: int) -> "ToolGuardrailDecision":
+        decision = ToolGuardrailDecision(action, code, message, name, count)
+        if decision.should_halt and self._halt_decision is None:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Tool loop guardrail halted the turn: %s (%s, count=%s)", name, code, count
+            )
+            self._halt_decision = decision
+        return decision
+
+    def before_call(self, name: str, args: dict) -> tuple[bool, str]:
+        key = self._key(name, args)
+        self._trim_counters()
+
+        # 1. Block if the exact same tool call has failed this many times
         exact_fail_count = self._consecutive_failures.get(key, 0)
-        if exact_fail_count >= 4:
-            msg = (
-                f"ERROR: Tool call blocked. The tool call '{name}' with arguments {args} "
+        if exact_fail_count >= self.settings["exact_failure_block_after"]:
+            return True, self._refuse(
+                key, name, exact_fail_count,
                 f"has failed {exact_fail_count} times consecutively. Stop retrying it unchanged; "
-                f"change your arguments, switch to a different tool, or report the blocker to the user."
+                f"change your arguments, switch to a different tool, or report the blocker to the user.",
+                "repeated_exact_failure",
             )
-            return True, msg
 
-        # 2. Block if we've run this same tool in general 7 times and it failed
+        # 2. Block if this tool has failed this many times, whatever the arguments
         tool_fail_count = self._total_failures_by_tool.get(name, 0)
-        if tool_fail_count >= 7:
-            msg = (
-                f"ERROR: Tool call blocked. The tool '{name}' has failed {tool_fail_count} times in this turn. "
-                f"Stop retrying this tool; change strategy entirely."
+        if tool_fail_count >= self.settings["same_tool_failure_halt_after"]:
+            return True, self._refuse(
+                key, name, tool_fail_count,
+                f"has failed {tool_fail_count} times this session. Stop retrying this tool; "
+                f"change strategy entirely.",
+                "same_tool_failure",
             )
-            return True, msg
 
-        # 3. Block if we've run this idempotent tool and got the same result 5 times consecutively
+        # 3. Block if this idempotent tool kept returning the identical result
         if name in self.IDEMPOTENT_TOOLS:
-            consec_results = self._consecutive_idempotent_calls.get(key, [])
-            if len(consec_results) >= 5:
-                msg = (
-                    f"ERROR: Tool call blocked. This read-only tool call has returned the same result "
-                    f"{len(consec_results)} times consecutively. Stop repeating it unchanged; "
-                    f"use the information already returned in previous turns or try a different query."
+            repeats = len(self._consecutive_idempotent_calls.get(key, []))
+            if repeats >= self.settings["no_progress_block_after"]:
+                return True, self._refuse(
+                    key, name, repeats,
+                    f"returned the same result {repeats} times consecutively. Stop repeating it "
+                    f"unchanged; use the information already returned or try a different query.",
+                    "idempotent_no_progress",
                 )
-                return True, msg
 
         return False, ""
 
-    def after_call(self, name: str, args: dict, result: str) -> str:
-        import json
-        try:
-            args_str = json.dumps(args, sort_keys=True)
-        except Exception:
-            args_str = str(args)
+    def after_call(self, name: str, args: dict, result: str, *, failed: bool | None = None) -> str:
+        """Observe one executed call and return its result, possibly with guidance appended.
 
-        key = (name, args_str)
-
-        is_failure = False
-        result_str = str(result).strip()
-        if result_str:
-            if "Exit code:" in result_str and "Exit code: 0" not in result_str:
-                is_failure = True
-            else:
-                lower = result_str.lower()
-                if (
-                    result_str.startswith("ERROR:")
-                    or result_str.startswith("Tool error")
-                    or result_str.startswith("Unknown tool")
-                    or result_str.startswith("❌")
-                    or result_str.startswith("[Tool execution cancelled")
-                    or any(err in lower[:50] for err in ("failed", "not configured", "not installed", "required", "error:", "timed out", "permission denied"))
-                ):
-                    is_failure = True
+        ``failed`` is the executor's own verdict when it has one (a handler raised,
+        the call was abandoned on its deadline). ``None`` means "not reported", and
+        the result text is classified instead.
+        """
+        key = self._key(name, args)
+        self._trim_counters()
+        text = str(result)
+        if self._halt_decision is not None:
+            # The turn is already over; counting further calls would only make the
+            # halt that comes with the next turn fire earlier.
+            return text
+        if failed is None:
+            is_failure = _tool_result_looks_failed(result)
+        else:
+            is_failure = bool(failed)
+        warnings = bool(self.settings["warnings_enabled"])
 
         if is_failure:
             self._consecutive_failures[key] = self._consecutive_failures.get(key, 0) + 1
@@ -405,34 +599,59 @@ class ToolLoopGuardrail:
             self._consecutive_idempotent_calls.pop(key, None)
 
             exact_fail_count = self._consecutive_failures[key]
-            if exact_fail_count >= 2:
-                warning = (
+            tool_fail_count = self._total_failures_by_tool[name]
+
+            # Same tool, different arguments, still failing: this is the expensive
+            # loop (25 rounds of it burned the turn before). Failure-tolerant tools
+            # are exempt — a run of distinct red commands is diagnosis, not a loop.
+            if (
+                self.settings["hard_stop_enabled"]
+                and name not in self.FAILURE_TOLERANT_TOOLS
+                and tool_fail_count >= self.settings["same_tool_failure_halt_after"]
+            ):
+                self._decide(
+                    "halt", "same_tool_failure_halt",
+                    f"'{name}' failed {tool_fail_count} times this session with different arguments.",
+                    name, tool_fail_count,
+                )
+                return text + (
+                    f"\n\n[Tool loop hard stop: '{name}' has failed {tool_fail_count} times this "
+                    f"session; the turn is being ended instead of retrying it again.]"
+                )
+
+            if warnings and exact_fail_count >= self.settings["exact_failure_warn_after"]:
+                return text + (
                     f"\n\n[Warning: Tool call '{name}' has failed {exact_fail_count} times consecutively "
                     f"with identical arguments. This looks like a loop; inspect the error, check your credentials "
                     f"or configurations, and modify your arguments/strategy instead of retrying unchanged.]"
                 )
-                return result + warning
+            if warnings and tool_fail_count >= self.settings["same_tool_failure_warn_after"]:
+                return text + (
+                    f"\n\n[Warning: '{name}' has failed {tool_fail_count} times this session. This looks like a "
+                    f"loop; do not retry it unchanged. Diagnose the error first, then change the arguments, "
+                    f"narrow the request, or report the blocker to the user.]"
+                )
+            return text
+
+        self._consecutive_failures.pop(key, None)
+        self._total_failures_by_tool[name] = max(0, self._total_failures_by_tool.get(name, 0) - 1)
+
+        if name in self.IDEMPOTENT_TOOLS:
+            results = self._consecutive_idempotent_calls.setdefault(key, [])
+            results.append(text.strip())
+            if len(results) > 10:
+                results.pop(0)
+
+            if warnings and len(results) >= 3 and len(set(results[-3:])) == 1:
+                return text + (
+                    f"\n\n[Warning: This read-only tool call has returned the same result {len(results)} "
+                    f"times consecutively. Use the results already returned above or change arguments "
+                    f"instead of repeating the request.]"
+                )
         else:
-            self._consecutive_failures.pop(key, None)
-            self._total_failures_by_tool[name] = max(0, self._total_failures_by_tool.get(name, 0) - 1)
+            self._consecutive_idempotent_calls.clear()
 
-            if name in self.IDEMPOTENT_TOOLS:
-                results = self._consecutive_idempotent_calls.setdefault(key, [])
-                results.append(result_str)
-                if len(results) > 10:
-                    results.pop(0)
-
-                if len(results) >= 3 and len(set(results[-3:])) == 1:
-                    warning = (
-                        f"\n\n[Warning: This read-only tool call has returned the same result {len(results)} "
-                        f"times consecutively. Use the results already returned above or change arguments "
-                        f"instead of repeating the request.]"
-                    )
-                    return result + warning
-            else:
-                self._consecutive_idempotent_calls.clear()
-
-        return result
+        return text
 
 
 # ── Tool deferral bridge (tool_search) ───────────────────────────────────────
@@ -790,8 +1009,9 @@ class Agent:
                 (ws / sub).mkdir(parents=True, exist_ok=True)
             _shell.set_cwd(str(ws))
         
-        # Tool call loop guardrail
-        self._guardrail = ToolLoopGuardrail()
+        # Tool call loop guardrail — thresholds come from the `tool_loop_guardrails`
+        # config section, and its counters live as long as this session does.
+        self._guardrail = ToolLoopGuardrail(_guardrail_settings(self.cfg))
 
     @property
     def messages(self) -> list[dict]:
@@ -989,7 +1209,9 @@ class Agent:
         import time
 
         if hasattr(self, "_guardrail") and self._guardrail:
-            self._guardrail.reset()
+            # New turn: per-turn state resets, failure counters decay but survive,
+            # so a loop replayed from a later user message is still caught.
+            self._guardrail.start_turn()
 
         self._pre_fetched_context = ""
         try:
@@ -1484,12 +1706,14 @@ class Agent:
                             def _worker(call, _q=results_q):
                                 name, args = call["name"], call["arguments"]
                                 t0 = time.time()
+                                failed = False
                                 try:
                                     res = self._execute_tool(name, args)
                                 except Exception as e:
                                     import traceback
                                     res = f"Error executing tool: {e}\n{traceback.format_exc()}"
-                                _q.put((call["id"], res, time.time() - t0))
+                                    failed = True
+                                _q.put((call["id"], res, time.time() - t0, failed))
 
                             pending: dict = {}
                             for idx, call in non_blocked_parallel_calls:
@@ -1505,16 +1729,21 @@ class Agent:
                                 if self._cancel.is_set():
                                     break
                                 try:
-                                    call_id, res, t_elapsed = results_q.get(
+                                    call_id, res, t_elapsed, _call_failed = results_q.get(
                                         timeout=_SEQUENTIAL_INTERRUPT_POLL_SECONDS
                                     )
                                 except _queue.Empty:
                                     call_id = None
+                                    _call_failed = None
 
                                 if call_id is not None and call_id in pending:
                                     call = pending.pop(call_id)
                                     name, args = call["name"], call["arguments"]
-                                    res = self._guardrail.after_call(name, args, res)
+                                    # `failed` is the worker's own verdict when the handler
+                                    # raised; None means "not reported" (classify the text).
+                                    res = self._guardrail.after_call(
+                                        name, args, res, failed=(True if _call_failed else None)
+                                    )
                                     completed_results[call_id] = (res, t_elapsed)
                                     if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
                                         try:
@@ -1528,8 +1757,15 @@ class Agent:
                                     for cid in list(pending):
                                         if now - started_at[cid] >= timeout_s:
                                             overrun = pending.pop(cid)
+                                            # Abandoned on its deadline: a failure the
+                                            # executor already knows about, so the guardrail
+                                            # counts it without guessing from the text.
+                                            timed_out = _tool_timeout_message(overrun["name"], timeout_s)
                                             completed_results[cid] = (
-                                                _tool_timeout_message(overrun["name"], timeout_s),
+                                                self._guardrail.after_call(
+                                                    overrun["name"], overrun["arguments"],
+                                                    timed_out, failed=True,
+                                                ),
                                                 timeout_s,
                                             )
 
@@ -1579,6 +1815,12 @@ class Agent:
                                 })
                             yield {"type": "interrupted"}
                             return
+                        if self._guardrail.halt_decision is not None:
+                            # The guardrail ended the turn: stop evaluating the rest of this
+                            # batch. The calls that never ran still get a result, so every
+                            # tool_call_id stays paired in the transcript.
+                            self._append_skipped_tool_results(calls[i:])
+                            break
                         name, args = call["name"], call["arguments"]
                         
                         # Check loop guardrail before call
@@ -1617,9 +1859,13 @@ class Agent:
                         # Per-call deadline + interrupt poll: a wedged tool is
                         # abandoned instead of blocking the whole loop forever.
                         result, t_elapsed, _outcome = self._run_tool_with_deadline(name, args)
-                        
-                        # Check loop guardrail after call
-                        result = self._guardrail.after_call(name, args, result)
+
+                        # Check loop guardrail after call. A call abandoned on its deadline is
+                        # a failure the executor already knows about, so it is reported as one
+                        # instead of being guessed from the result text.
+                        result = self._guardrail.after_call(
+                            name, args, result, failed=(True if _outcome == "timeout" else None)
+                        )
 
                         if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
                             try:
@@ -1646,6 +1892,18 @@ class Agent:
                                 })
                             yield {"type": "interrupted"}
                             return
+
+                # ── Guardrail halt: end the turn instead of asking the model again ──
+                # Without this the loop simply kept going to MAX_ROUNDS, paying for a
+                # round of LLM calls each time on a call the guardrail had already
+                # refused. The user gets an explanation, so a halt is never silent.
+                _halt = self._guardrail.halt_decision if getattr(self, "_guardrail", None) else None
+                if _halt is not None:
+                    final = _guardrail_halt_response(_halt)
+                    for tok in final:
+                        yield {"type": "text", "token": tok}
+                    self.messages.append({"role": "assistant", "content": final})
+                    return
 
                 if permanent_failure:
                     # Tell the model once, then stop — do not retry
@@ -1832,6 +2090,21 @@ class Agent:
                 shared_memory.credential_set(service.lower().strip(), value)
         except Exception:
             pass
+
+    def _append_skipped_tool_results(self, calls: list) -> None:
+        """Pair every call that was not run with a result.
+
+        The transcript must hold exactly one tool result per tool_call_id, so a
+        batch stopped early (guardrail halt) still has to answer the calls it
+        skipped.
+        """
+        for call in calls:
+            self.messages.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "name": call["name"],
+                "content": _GUARDRAIL_HALT_SKIP_NOTE,
+            })
 
     def _run_tool_with_deadline(self, name: str, args: dict) -> tuple[str, float, str]:
         """Run one tool call on a daemon worker, polled for interrupt and deadline.
