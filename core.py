@@ -1288,6 +1288,13 @@ class Agent:
         try:
             MAX_ROUNDS = 25  # safety cap — allows complex multi-step tasks
             MAX_INVALID_JSON_RETRIES = 3
+            # Verify-on-stop gate (K-08): watches this turn's tool calls so a
+            # turn that edited code without running any verification afterwards
+            # gets a bounded nudge instead of ending on an unverified claim.
+            # NOTE: imported lazily from utils/ — top-level `core.py` shadows the
+            # core/ package, so anything under core/ cannot be imported from here.
+            from utils.verify_on_stop import VerifyOnStopGate
+            _verify_gate = VerifyOnStopGate(getattr(self, "cfg", None))
             empty_retries = 0
             length_continuation_count = 0
             invalid_json_retries = 0
@@ -1543,6 +1550,33 @@ class Agent:
                         continue
 
                     _dropped_toolcall_retries = 0
+
+                    _verify_nudge = None
+                    try:
+                        _verify_nudge = _verify_gate.build_nudge()
+                    except Exception:
+                        _verify_nudge = None
+                    if _verify_nudge:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "Turn is ending with edited code and no verification "
+                            f"run afterwards (attempt {_verify_gate.attempts}) — "
+                            "injecting a verify-on-stop nudge instead of the answer."
+                        )
+                        self.messages.append({
+                            "role": "assistant",
+                            "content": full,
+                            "_verify_on_stop_nudge": True,
+                        })
+                        self.messages.append({
+                            "role": "user",
+                            "content": _verify_nudge,
+                            "_verify_on_stop_nudge": True,
+                        })
+                        if self.provider.supports_thinking:
+                            yield {"type": "thinking"}
+                        continue
+
                     self.messages.append({"role": "assistant", "content": full})
                     return
 
@@ -1643,6 +1677,14 @@ class Agent:
                 # A batch that reached execution is real progress: the stall
                 # budget counts *consecutive* narration-only rounds, so reset it.
                 _dropped_toolcall_retries = 0
+
+                # Verify-on-stop: record what this round touched / ran, in call
+                # order, so a later verification resets the gate for earlier edits.
+                for _obs_call in calls:
+                    try:
+                        _verify_gate.observe(_obs_call["name"], _obs_call["arguments"])
+                    except Exception:
+                        pass
 
                 # ── Execute each tool call ────────────────────────────────────────
                 permanent_failure = False
@@ -1935,7 +1977,11 @@ class Agent:
             # Clean up empty recovery synthetic messages from self.messages
             self.messages = [
                 m for m in self.messages
-                if not m.get("_empty_recovery_synthetic") and not m.get("_dropped_toolcall_nudge")
+                if (
+                    not m.get("_empty_recovery_synthetic")
+                    and not m.get("_dropped_toolcall_nudge")
+                    and not m.get("_verify_on_stop_nudge")
+                )
             ]
 
     def _refresh_memory_context(self, user_input: str, prompt_sections: set[str] | None = None) -> None:
