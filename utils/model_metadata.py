@@ -18,7 +18,8 @@ import yaml
 
 from utils import base_url_host_matches, base_url_hostname
 
-from hermes_constants import OPENROUTER_MODELS_URL
+# Public models catalogue used as a last-resort context-length source.
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ def _resolve_requests_verify() -> bool | str:
     """Resolve SSL verify setting for `requests` calls from env vars.
 
     The `requests` library only honours REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE
-    by default. Hermes also honours HERMES_CA_BUNDLE (its own convention)
+    by default. Koza also honours KOZA_CA_BUNDLE (its own convention)
     and SSL_CERT_FILE (used by the stdlib `ssl` module and by httpx), so
     that a single env var can cover both `requests` and `httpx` callsites
     inside the same process.
@@ -35,7 +36,7 @@ def _resolve_requests_verify() -> bool | str:
     Returns either a filesystem path to a CA bundle, or True to defer to
     the requests default (certifi).
     """
-    for env_var in ("HERMES_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+    for env_var in ("KOZA_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
         val = os.getenv(env_var)
         if val and os.path.isfile(val):
             return val
@@ -822,9 +823,15 @@ def _resolve_endpoint_context_length(
 
 
 def _get_context_cache_path() -> Path:
-    """Return path to the persistent context length cache file."""
-    from hermes_constants import get_hermes_home
-    return get_hermes_home() / "context_length_cache.yaml"
+    """Return path to the persistent context length cache file.
+
+    Lives next to ``config.yaml`` in koza's own configuration directory
+    rather than in a per-user data dir, so a copy of ``~/.Koza`` carries the
+    cache with it.
+    """
+    from config import CONFIG_PATH
+
+    return CONFIG_PATH.parent / "context_length_cache.yaml"
 
 
 def _load_context_cache() -> Dict[str, int]:
@@ -1748,10 +1755,18 @@ def get_model_context_length(
             save_context_length(model, base_url, ctx)
             return ctx
     if effective_provider:
-        from agent.models_dev import lookup_models_dev_context
-        ctx = lookup_models_dev_context(effective_provider, model)
-        if ctx:
-            return ctx
+        # Optional local models.dev snapshot.  koza ships without one, so the
+        # lookup is skipped unless a provider module for it appears — the
+        # provider-aware lookups above and the hardcoded family defaults below
+        # are authoritative here.
+        try:
+            from agent.models_dev import lookup_models_dev_context
+        except ImportError:
+            lookup_models_dev_context = None
+        if lookup_models_dev_context is not None:
+            ctx = lookup_models_dev_context(effective_provider, model)
+            if ctx:
+                return ctx
 
     # 6. OpenRouter live API metadata — provider-unaware fallback.
     # Only consulted when the provider is unknown (no effective_provider),

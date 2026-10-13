@@ -1070,6 +1070,80 @@ class Agent:
         if hasattr(self, "_ctx"):
             self._ctx.maybe_build_rolling_summary()
 
+    def _provider_runtime(self) -> dict:
+        """Describe the active provider: model, name, base_url and api_key.
+
+        Providers wrap an OpenAI-compatible client (``_client``) and carry the
+        configured model (``_model``); anything a provider does not expose
+        falls back to ``self.cfg`` so auxiliary calls still have something to
+        talk to.
+        """
+        provider = getattr(self, "provider", None)
+        client = getattr(provider, "_client", None)
+        cfg = getattr(self, "cfg", None) or {}
+        name = getattr(provider, "name", "") or str(cfg.get("provider") or "")
+        provider_cfg = (cfg.get("providers") or {}).get(name) or {}
+        model = (getattr(provider, "_model", "")
+                 or cfg.get("model")
+                 or provider_cfg.get("model")
+                 or "")
+        return {
+            "model": str(model),
+            "provider": str(name),
+            "base_url": str(getattr(client, "base_url", "")
+                            or provider_cfg.get("base_url") or ""),
+            "api_key": str(getattr(client, "api_key", "")
+                           or provider_cfg.get("api_key") or ""),
+        }
+
+    def _maybe_compress_context(self) -> None:
+        """Summarise middle turns when the conversation nears the context window.
+
+        Settings live under ``context_compression`` in config.yaml:
+        ``enabled``, ``threshold_percent``, ``summary_model`` and
+        ``timeout_seconds``.  Fail-open by design — a broken provider or an
+        unusable summary leaves the history untouched and only logs why, so
+        compression can never take a turn down with it.
+        """
+        try:
+            cfg = getattr(self, "cfg", None) or {}
+            section = cfg.get("context_compression") or {}
+            if not isinstance(section, dict) or section.get("enabled") is False:
+                return
+
+            from utils.context_compressor import ContextCompressor
+            from utils.model_metadata import (
+                MINIMUM_CONTEXT_LENGTH,
+                estimate_messages_tokens_rough,
+            )
+
+            # Cheap precondition: the compressor threshold is floored at
+            # MINIMUM_CONTEXT_LENGTH, so a short conversation can never trigger
+            # a compression.  Returning here keeps the compressor's
+            # context-length probe off the hot path of every ordinary turn.
+            rough_tokens = estimate_messages_tokens_rough(self.messages)
+            if rough_tokens < MINIMUM_CONTEXT_LENGTH:
+                return
+
+            runtime = self._provider_runtime()
+            compressor = ContextCompressor(
+                model=runtime["model"] or "gpt-4o",
+                provider=runtime["provider"],
+                base_url=runtime["base_url"],
+                api_key=runtime["api_key"],
+                threshold_percent=float(section.get("threshold_percent") or 0.50),
+                summary_model_override=str(section.get("summary_model") or "") or None,
+                quiet_mode=True,
+            )
+            rough_tokens = estimate_messages_tokens_rough(self.messages)
+            if compressor.should_compress(rough_tokens):
+                self.messages = compressor.compress(
+                    self.messages, current_tokens=rough_tokens
+                )
+        except Exception as _compress_err:
+            import logging
+            logging.getLogger(__name__).warning("Context compressor skipped: %s", _compress_err)
+
     def _trim_messages(self) -> list[dict]:
         if hasattr(self, "_ctx"):
             return self._ctx.trim(getattr(self.provider, "supports_vision", False))
@@ -1258,22 +1332,10 @@ class Agent:
             user_msg = {"role": "user", "content": processed_input}
 
         self.messages.append(user_msg)
-        
-        # Apply intelligent Context Compressor
-        try:
-            from core.context_compressor import ContextCompressor
-            compressor = ContextCompressor(
-                model=getattr(self.provider, "_model", getattr(self.provider, "model", "gpt-4o")),
-                provider=self.provider.name,
-                api_key=getattr(self.provider, "_client", type("Mock", (), {"api_key": ""})).api_key,
-                quiet_mode=True
-            )
-            rough_tokens = len(str(self.messages)) // 4
-            if compressor.should_compress(rough_tokens):
-                self.messages = compressor.compress(self.messages, current_tokens=rough_tokens)
-        except Exception as _compress_err:
-            import logging
-            logging.getLogger(__name__).warning(f"Context compressor skipped: {_compress_err}")
+
+        # Apply intelligent Context Compressor (K-11): summarise middle turns
+        # once the conversation approaches the model's context window.
+        self._maybe_compress_context()
 
         is_local = getattr(self.provider, "name", "ollama") in ("ollama", "lm_studio")
         tool_groups = set(routing_decision.tool_groups) if routing_decision else None

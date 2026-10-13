@@ -1,6 +1,6 @@
 """Automatic context window compression for long conversations.
 
-Self-contained class with its own OpenAI client for summarization.
+Self-contained class that talks to koza's own provider for summarization.
 Uses auxiliary model (cheap/fast) to summarize middle turns while
 protecting head and tail context.
 
@@ -23,8 +23,8 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from utils.auxiliary_client import call_llm, _is_connection_error
-from core.context_engine import ContextEngine
+from utils.auxiliary_llm import call_llm, is_connection_error
+from utils.context_engine import ContextEngine
 from utils.model_metadata import (
     MINIMUM_CONTEXT_LENGTH,
     get_model_context_length,
@@ -1388,7 +1388,7 @@ The user has requested that this compaction PRIORITISE preserving all informatio
                 },
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": int(summary_budget * 1.3),
-                # timeout resolved from auxiliary.compression.timeout config by call_llm
+                # timeout resolved from context_compression.timeout_seconds by call_llm
             }
             if self.summary_model:
                 call_kwargs["model"] = self.summary_model
@@ -1451,7 +1451,7 @@ The user has requested that this compaction PRIORITISE preserving all informatio
             # transient network events; treat them like a timeout so we fall
             # back to the main model instead of entering a 60-second cooldown.
             # See issue #18458.
-            _is_streaming_closed = _is_connection_error(e)
+            _is_streaming_closed = is_connection_error(e)
             if _is_json_decode and not _is_model_not_found and not _is_timeout:
                 logger.error(
                     "Context compression failed: auxiliary LLM returned a "
