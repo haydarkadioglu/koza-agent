@@ -485,24 +485,14 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
 }
 
 
-def build_system_prompt(user_input: str = "", extra_context: str = "", channel: str = "cli", sections: set[str] | list[str] | None = None) -> str:
-    """
-    Build the system prompt by combining CORE_PROMPT with only the sections
-    relevant to the user's message. Falls back to all sections if input is empty.
+def match_sections(user_input: str = "", sections: set[str] | list[str] | None = None,
+                   channel: str = "cli") -> set[str]:
+    """Return the prompt section names a message triggers.
 
-    Args:
-        user_input:     The user's latest message (used for keyword matching).
-        extra_context:  Working memory / cwd context injected by the agent.
-        channel:        'cli', 'telegram', 'discord', etc.
-        sections:       Optional set/list of pre-classified section names to include.
+    Split out of build_system_prompt so the agent can decide *which* sections a
+    turn needs without rendering the whole prompt — the rendered prompt can then
+    be cached by the returned section set.
     """
-    # Load CORE_PROMPT dynamically from markdown with fallback
-    try:
-        from prompt_loader import PromptLoader
-        core_prompt = PromptLoader().load("core/system.md")
-    except Exception:
-        core_prompt = CORE_PROMPT
-
     lower = user_input.lower()
     matched: set[str] = set()
     if sections:
@@ -528,9 +518,115 @@ def build_system_prompt(user_input: str = "", extra_context: str = "", channel: 
     if channel == "telegram":
         matched.discard("telegram")
 
-    # Load matched sections dynamically with fallback
+    return matched
+
+
+def prompt_files_signature() -> tuple:
+    """Fingerprint of the on-disk prompt files (name, size, mtime).
+
+    Prompt caching requires a byte-identical system prompt; Koza edits its own
+    prompt files at runtime and expects the change to land on the next turn, so
+    a cached prompt is keyed on this instead of being cached forever.
+    """
+    from pathlib import Path
+    root = Path(__file__).parent / "prompts"
+    entries = []
+    try:
+        for path in sorted(root.rglob("*.md")):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            entries.append((str(path.relative_to(root)), st.st_size, st.st_mtime_ns))
+    except OSError:
+        return ()
+    return tuple(entries)
+
+
+def build_volatile_context() -> str:
+    """Everything in the system prompt that changes between turns.
+
+    User profile, vault notes and credentials/integration status all mutate at
+    runtime, so they must not live in the cached system message. The agent
+    injects this block as a transient per-turn message instead.
+    """
+    blocks = []
+
+    # User Profile Rules & Notes injection
+    try:
+        from skills.user_profile import get_user_context
+        user_profile_context = get_user_context()
+        if user_profile_context:
+            blocks.append(user_profile_context)
+    except Exception:
+        pass
+
+    # Dynamic Credentials & Integrations Status
+    status_lines = []
+    try:
+        from config import load_config
+        cfg = load_config()
+    except Exception:
+        cfg = {}
+
+    email_cfg = cfg.get("email", {})
+    email_user = email_cfg.get("username", "")
+    has_email = bool(email_user and email_cfg.get("password", ""))
+    status_lines.append(f"- Email sending/reading: {'READY' if has_email else 'NOT CONFIGURED'}" + (f" (Username: {email_user})" if email_user else ""))
+
+    tg_cfg = cfg.get("messaging", {}).get("telegram", {})
+    has_telegram = bool(tg_cfg.get("token") and tg_cfg.get("chat_id"))
+    status_lines.append(f"- Telegram integration: {'READY' if has_telegram else 'NOT CONFIGURED'}")
+
+    discord_cfg = cfg.get("messaging", {}).get("discord", {})
+    has_discord = bool(discord_cfg.get("token") or discord_cfg.get("webhook_url"))
+    status_lines.append(f"- Discord integration: {'READY' if has_discord else 'NOT CONFIGURED'}")
+
+    twilio_cfg = cfg.get("messaging", {}).get("twilio", {})
+    has_twilio = bool(twilio_cfg.get("account_sid") and twilio_cfg.get("auth_token"))
+    status_lines.append(f"- Twilio/SMS: {'READY' if has_twilio else 'NOT CONFIGURED'}")
+
+    import os
+    gh_cfg = cfg.get("providers", {}).get("github", {})
+    has_github = bool(gh_cfg.get("token") or os.getenv("GITHUB_TOKEN"))
+    status_lines.append(f"- GitHub tools: {'READY' if has_github else 'NOT CONFIGURED'}")
+
+    blocks.append("## Active Credentials & Integrations Status\n" + "\n".join(status_lines))
+
+    return "\n\n".join(blocks)
+
+
+def build_system_prompt(user_input: str = "", extra_context: str = "", channel: str = "cli",
+                        sections: set[str] | list[str] | None = None,
+                        include_volatile: bool = True) -> str:
+    """
+    Build the system prompt by combining CORE_PROMPT with only the sections
+    relevant to the user's message. Falls back to all sections if input is empty.
+
+    Args:
+        user_input:       The user's latest message (used for keyword matching).
+        extra_context:    Working memory / cwd context injected by the agent.
+        channel:          'cli', 'telegram', 'discord', etc.
+        sections:         Optional set/list of pre-classified section names to include.
+        include_volatile: Append the per-turn volatile tail (user profile,
+                          credentials status). Pass False for a prompt that can
+                          be cached byte-for-byte across turns; the caller is
+                          then responsible for injecting `build_volatile_context()`.
+    """
+    # Load CORE_PROMPT dynamically from markdown with fallback
+    try:
+        from prompt_loader import PromptLoader
+        core_prompt = PromptLoader().load("core/system.md")
+    except Exception:
+        core_prompt = CORE_PROMPT
+
+    matched = match_sections(user_input, sections, channel)
+
+    # Load matched sections dynamically with fallback.
+    # Sorted: a set's iteration order is not stable across processes, and the
+    # prompt is now cached byte-for-byte (K-12).
     sections = ""
-    for s in matched:
+    for s in sorted(matched):
         section_content = None
         try:
             from prompt_loader import PromptLoader
@@ -596,47 +692,10 @@ You are a background task agent. Execute the given goal directly.
     if extra_context:
         base = base + "\n\n" + extra_context
 
-    # User Profile Rules & Notes injection
-    try:
-        from skills.user_profile import get_user_context
-        user_profile_context = get_user_context()
-        if user_profile_context:
-            base = base + "\n\n" + user_profile_context
-    except Exception:
-        pass
-
-    # Dynamic Credentials & Integrations Status
-    status_lines = []
-    try:
-        from config import load_config
-        cfg = load_config()
-    except Exception:
-        cfg = {}
-        
-    email_cfg = cfg.get("email", {})
-    email_user = email_cfg.get("username", "")
-    has_email = bool(email_user and email_cfg.get("password", ""))
-    status_lines.append(f"- Email sending/reading: {'READY' if has_email else 'NOT CONFIGURED'}" + (f" (Username: {email_user})" if email_user else ""))
-    
-    tg_cfg = cfg.get("messaging", {}).get("telegram", {})
-    has_telegram = bool(tg_cfg.get("token") and tg_cfg.get("chat_id"))
-    status_lines.append(f"- Telegram integration: {'READY' if has_telegram else 'NOT CONFIGURED'}")
-    
-    discord_cfg = cfg.get("messaging", {}).get("discord", {})
-    has_discord = bool(discord_cfg.get("token") or discord_cfg.get("webhook_url"))
-    status_lines.append(f"- Discord integration: {'READY' if has_discord else 'NOT CONFIGURED'}")
-    
-    twilio_cfg = cfg.get("messaging", {}).get("twilio", {})
-    has_twilio = bool(twilio_cfg.get("account_sid") and twilio_cfg.get("auth_token"))
-    status_lines.append(f"- Twilio/SMS: {'READY' if has_twilio else 'NOT CONFIGURED'}")
-    
-    import os
-    gh_cfg = cfg.get("providers", {}).get("github", {})
-    has_github = bool(gh_cfg.get("token") or os.getenv("GITHUB_TOKEN"))
-    status_lines.append(f"- GitHub tools: {'READY' if has_github else 'NOT CONFIGURED'}")
-    
-    status_block = "## Active Credentials & Integrations Status\n" + "\n".join(status_lines)
-    base = base + "\n\n" + status_block
+    if include_volatile:
+        volatile = build_volatile_context()
+        if volatile:
+            base = base + "\n\n" + volatile
 
     return base
 
