@@ -159,6 +159,33 @@ def get_safe_window(messages: list[dict], max_messages: int) -> list[dict]:
     return system_msgs + kept_messages
 
 
+def copy_window(messages: list[dict]) -> list[dict]:
+    """Copy a window of messages so a later pass can edit it freely.
+
+    ``trim()`` is a *projection* of the stored history: it truncates long tool
+    results and merges consecutive user turns. Editing the caller's dicts would
+    rewrite the stored conversation permanently, so every dict handed to the
+    trimming passes is copied first. Nested ``content`` (vision parts) and
+    ``tool_calls`` lists are copied too, because those passes replace their items.
+    """
+    copied: list[dict] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            copied.append(m)
+            continue
+        copy = dict(m)
+        content = copy.get("content")
+        if isinstance(content, list):
+            copy["content"] = [dict(p) if isinstance(p, dict) else p for p in content]
+        tool_calls = copy.get("tool_calls")
+        if isinstance(tool_calls, list):
+            copy["tool_calls"] = [
+                dict(tc) if isinstance(tc, dict) else tc for tc in tool_calls
+            ]
+        copied.append(copy)
+    return copied
+
+
 class ContextWindow:
     """Manages the agent message list and context window constraints.
 
@@ -395,8 +422,16 @@ class ContextWindow:
     # ── Trimming ──────────────────────────────────────────────────────────────
 
     def trim(self, provider_supports_vision: bool = False) -> list[dict]:
-        """Return a trimmed, normalized window of messages for an LLM call."""
+        """Return a trimmed, normalized window of messages for an LLM call.
+
+        Read-only with respect to ``self.messages``: the window is copied before
+        any pass edits it, so truncation and turn-merging stay per-call.
+        """
         window = get_safe_window(self.messages, MAX_CONTEXT_MESSAGES)
+
+        # The passes below edit message dicts (truncate tool results, merge user
+        # turns). Work on copies — the stored history must survive a trim.
+        window = copy_window(window)
 
         # Pass 0: compact old tool pairs
         window = self._compact_tool_messages(window)
@@ -533,11 +568,14 @@ class ContextWindow:
                 prev_content = prev.get("content", "")
                 new_content = msg.get("content", "")
                 if isinstance(prev_content, str) and isinstance(new_content, str):
-                    prev["content"] = (
-                        (prev_content + "\n\n" + new_content)
-                        if prev_content and new_content
-                        else (prev_content or new_content)
-                    )
+                    merged[-1] = {
+                        **prev,
+                        "content": (
+                            (prev_content + "\n\n" + new_content)
+                            if prev_content and new_content
+                            else (prev_content or new_content)
+                        ),
+                    }
                     continue
             merged.append(msg)
 
