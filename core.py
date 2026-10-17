@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Core agent loop — tool-calling orchestration."""
+import hashlib
 import shutil
 import sys
 import threading
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from providers.base import LLMProvider
 from prompt import build_system_prompt, build_volatile_context, match_sections, prompt_files_signature
@@ -20,10 +21,10 @@ from core_context import MAX_CONTEXT_MESSAGES, TOOL_COMPACT_AFTER
 from utils.json_utils import parse_tool_call_arguments
 from utils.token_accounting import TokenLedger
 from utils.tool_ids import uniquify_tool_call_ids
-
-
-
 from utils.system_utils import _detect_capabilities
+
+if TYPE_CHECKING:
+    from utils.context_compressor import ContextCompressor
 
 
 
@@ -979,6 +980,7 @@ class Agent:
         self._cancel: threading.Event = threading.Event()
         self._busy: bool = False
         self.cfg = cfg or {}
+        self._compressor_cache: tuple[tuple, "ContextCompressor"] | None = None  # noqa: UP037
         # tool_search bridge state (K-06): tools the model activated this turn,
         # and the names currently visible to the model (search exclusion set).
         self._activated_tools: set[str] = set()
@@ -1151,7 +1153,6 @@ class Agent:
             if not isinstance(section, dict) or section.get("enabled") is False:
                 return
 
-            from utils.context_compressor import ContextCompressor
             from utils.model_metadata import (
                 MINIMUM_CONTEXT_LENGTH,
                 estimate_messages_tokens_rough,
@@ -1171,15 +1172,7 @@ class Agent:
                 return
 
             runtime = self._provider_runtime()
-            compressor = ContextCompressor(
-                model=runtime["model"] or "gpt-4o",
-                provider=runtime["provider"],
-                base_url=runtime["base_url"],
-                api_key=runtime["api_key"],
-                threshold_percent=float(section.get("threshold_percent") or 0.50),
-                summary_model_override=str(section.get("summary_model") or "") or None,
-                quiet_mode=True,
-            )
+            compressor = self._context_compressor(runtime, section)
             tokens = self._token_ledger_for_turn().prompt_tokens(
                 self.messages, estimate_messages_tokens_rough
             )
@@ -1193,6 +1186,40 @@ class Agent:
         except Exception as _compress_err:
             import logging
             logging.getLogger(__name__).warning("Context compressor skipped: %s", _compress_err)
+
+    def _context_compressor(self, runtime: dict, section: dict) -> "ContextCompressor":
+        """Return a compressor reused for the current provider and settings."""
+        from utils.context_compressor import ContextCompressor
+
+        model = runtime["model"] or "gpt-4o"
+        threshold_percent = float(section.get("threshold_percent") or 0.50)
+        summary_model_override = str(section.get("summary_model") or "") or None
+        api_key_fingerprint = hashlib.sha256(
+            runtime["api_key"].encode("utf-8")
+        ).hexdigest()[:16]
+        key = (
+            model,
+            runtime["provider"],
+            runtime["base_url"],
+            api_key_fingerprint,
+            threshold_percent,
+            summary_model_override,
+        )
+        cached = getattr(self, "_compressor_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        compressor = ContextCompressor(
+            model=model,
+            provider=runtime["provider"],
+            base_url=runtime["base_url"],
+            api_key=runtime["api_key"],
+            threshold_percent=threshold_percent,
+            summary_model_override=summary_model_override,
+            quiet_mode=True,
+        )
+        self._compressor_cache = (key, compressor)
+        return compressor
 
     def _trim_messages(self) -> list[dict]:
         if hasattr(self, "_ctx"):
@@ -2504,6 +2531,7 @@ class Agent:
             return f"tool_search error: {e}"
 
     def reset(self):
+        self._compressor_cache = None
         self.auto_save()  # save session before clearing
         self._active_session_id = None  # reset active session ID
         # K-13: a new conversation starts from a freshly selected tool set.
