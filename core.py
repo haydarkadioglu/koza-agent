@@ -3,7 +3,7 @@
 import shutil
 import sys
 import threading
-from typing import Callable
+from typing import Any, Callable
 
 from providers.base import LLMProvider
 from prompt import build_system_prompt, build_volatile_context, match_sections, prompt_files_signature
