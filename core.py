@@ -6,7 +6,7 @@ import threading
 from typing import Callable
 
 from providers.base import LLMProvider
-from prompt import build_system_prompt
+from prompt import build_system_prompt, build_volatile_context, match_sections, prompt_files_signature
 from skills import (
     kanban, cron, session_memory, messaging, shared_memory, working_memory,
     email_skill, media, smarthome, social, productivity, notes, github_skill,
@@ -946,9 +946,15 @@ class Agent:
         self.provider = provider
         self.on_token = on_token
         self.channel: str = channel  # persist for use in _refresh_memory_context
+        # K-12: the system message is rendered once per (channel, sections, prompt
+        # files, cwd) signature and reused byte-for-byte, so the provider's prefix
+        # cache (see providers/prompt_caching.py) can actually hit. Per-turn
+        # volatile context goes through _pending_dynamic_context instead.
+        self._system_prompt_cache: dict = {}
+        self._pending_dynamic_context: str = ""
         # Context window manages message list, compaction, trimming, rolling summary
         self._ctx = ContextWindow(provider)
-        self._ctx.messages = [{"role": "system", "content": build_system_prompt(channel=channel)}]
+        self._ctx.messages = [{"role": "system", "content": self._static_system_prompt(None)}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
         # Progress callback: callable(event_type, name, preview, args, **kwargs)
@@ -1336,6 +1342,11 @@ class Agent:
         # Apply intelligent Context Compressor (K-11): summarise middle turns
         # once the conversation approaches the model's context window.
         self._maybe_compress_context()
+
+        # K-12: this turn's volatile context (working memory, memories, profile,
+        # credentials status) rides as one transient message right before the
+        # user message, so the system message stays cacheable.
+        self._inject_dynamic_context()
 
         is_local = getattr(self.provider, "name", "ollama") in ("ollama", "lm_studio")
         tool_groups = set(routing_decision.tool_groups) if routing_decision else None
@@ -2043,8 +2054,130 @@ class Agent:
                     not m.get("_empty_recovery_synthetic")
                     and not m.get("_dropped_toolcall_nudge")
                     and not m.get("_verify_on_stop_nudge")
+                    and not m.get("_dynamic_context")
                 )
             ]
+
+    def _static_system_prompt(self, sections: set[str] | None) -> str:
+        """Render the cacheable part of the system prompt (K-12).
+
+        Byte-identical for a given (channel, sections, prompt files, cwd)
+        signature, so the provider's prefix cache can actually hit. The cache is
+        keyed on the prompt files' fingerprint because Koza edits its own prompt
+        files at runtime and expects the change to land on the next turn.
+        """
+        try:
+            from skills.shell import get_cwd
+            cwd = get_cwd()
+        except Exception:
+            cwd = ""
+        key = (self.channel, frozenset(sections or ()), cwd, prompt_files_signature())
+        cache = getattr(self, "_system_prompt_cache", None)
+        if cache is None:
+            cache = self._system_prompt_cache = {}
+        text = cache.get(key)
+        if text is None:
+            text = build_system_prompt(
+                "", "", channel=self.channel,
+                sections=set(sections) if sections else None,
+                include_volatile=False,
+            )
+            text += self._environment_block(cwd)
+            if len(cache) >= 6:  # bounded — the section set varies per turn (K-13)
+                cache.clear()
+            cache[key] = text
+        return text
+
+    def _environment_block(self, cwd: str | None = None) -> str:
+        """Home/cwd/workspace lines plus the detected system capabilities."""
+        from pathlib import Path as _Path
+        import os as _os
+        if cwd is None:
+            try:
+                from skills.shell import get_cwd
+                cwd = get_cwd()
+            except Exception:
+                cwd = ""
+        home_dir = str(_Path.home())
+        block = (
+            f"\n\n**User home directory:** `{home_dir}`"
+            f"\n**Current working directory:** `{cwd}`"
+            f"\n**Workspace:** `{_os.path.join(home_dir, '.Koza', 'workspace')}`"
+            f"\nWhen the user says 'home dizini' or 'home folder' they mean `{home_dir}` — NOT the workspace or project root."
+        )
+        # ── Inject detected system capabilities ───────────────────────────
+        if _SYSTEM_CAPS:
+            available = []
+            unavailable = []
+            if _SYSTEM_CAPS.get("playwright"):
+                available.append("Playwright visible browser automation (browser_task) and headless render (js_render=True)")
+            else:
+                unavailable.append("Playwright browser automation (browser_task/js_render=True will fail — skip it)")
+            if _SYSTEM_CAPS.get("docker"):
+                available.append("Docker")
+            else:
+                unavailable.append("Docker (not installed)")
+            if _SYSTEM_CAPS.get("ffmpeg"):
+                available.append("ffmpeg (video/audio processing)")
+            else:
+                unavailable.append("ffmpeg (not installed — avoid audio/video conversion)")
+            if _SYSTEM_CAPS.get("git"):
+                available.append("git")
+            else:
+                unavailable.append("git (not installed)")
+            if _SYSTEM_CAPS.get("in_container"):
+                available.append("Container environment (limited filesystem access)")
+            cap_lines = ""
+            if available:
+                cap_lines += "\n**Available:** " + ", ".join(available)
+            if unavailable:
+                cap_lines += "\n**NOT available on this system:** " + ", ".join(unavailable)
+            if cap_lines:
+                block += f"\n\n## System Capabilities{cap_lines}"
+        return block
+
+    def _build_dynamic_context(self, user_input: str) -> str:
+        """Assemble the per-turn context that must not live in the system message (K-12).
+
+        Working memory, relevant permanent memories, the rolling summary, the user
+        profile and the credentials status all mutate during a session, so they are
+        injected as one transient message instead of being spliced into messages[0].
+        """
+        parts: list[str] = []
+        try:
+            volatile = build_volatile_context()
+            if volatile:
+                parts.append(volatile)
+        except Exception:
+            pass
+        try:
+            wm_ctx = working_memory.wm_get_context()
+            if wm_ctx:
+                parts.append(wm_ctx)
+        except Exception:
+            pass
+        try:
+            summary = self._context_summary
+            if summary:
+                parts.append(
+                    "## Earlier Conversation Summary\n"
+                    "(This happened before the current context window)\n"
+                    f"{summary}"
+                )
+        except Exception:
+            pass
+        try:
+            pm_ctx = shared_memory.get_relevant_context(user_input, limit=8)
+            if pm_ctx:
+                parts.append(pm_ctx)
+        except Exception:
+            pass
+        if not parts:
+            return ""
+        return (
+            "[koza-context] Machine-generated background for the request below "
+            "(not user input — do not reply to it).\n\n" + "\n\n".join(parts)
+        )
 
     def _refresh_memory_context(self, user_input: str, prompt_sections: set[str] | None = None) -> None:
         """
@@ -2053,72 +2186,45 @@ class Agent:
         - Permanent memory → top relevant entries (query-filtered)
         - Rolling summary  → if conversation history was truncated
         Credentials are NOT injected here — agent calls credential_get() on demand.
+
+        The system message itself is re-rendered only when its signature changes,
+        so it stays byte-identical between turns (K-12). Everything volatile is
+        staged in `_pending_dynamic_context` for `_inject_dynamic_context()`.
         """
         self._maybe_build_rolling_summary()
         self._auto_save_credentials(user_input)
 
         try:
-            from skills.shell import get_cwd as _get_cwd
-            from pathlib import Path as _Path
-            import os as _os
-            wm_ctx = working_memory.wm_get_context()
-            new_system = build_system_prompt(user_input, wm_ctx or "", channel=self.channel, sections=prompt_sections)
-            home_dir = str(_Path.home())
-            cwd = _get_cwd()
-            new_system += (
-                f"\n\n**User home directory:** `{home_dir}`"
-                f"\n**Current working directory:** `{cwd}`"
-                f"\n**Workspace:** `{_os.path.join(home_dir, '.Koza', 'workspace')}`"
-                f"\nWhen the user says 'home dizini' or 'home folder' they mean `{home_dir}` — NOT the workspace or project root."
-            )
-            # ── Inject detected system capabilities ───────────────────────────
-            if _SYSTEM_CAPS:
-                available = []
-                unavailable = []
-                if _SYSTEM_CAPS.get("playwright"):
-                    available.append("Playwright visible browser automation (browser_task) and headless render (js_render=True)")
-                else:
-                    unavailable.append("Playwright browser automation (browser_task/js_render=True will fail — skip it)")
-                if _SYSTEM_CAPS.get("docker"):
-                    available.append("Docker")
-                else:
-                    unavailable.append("Docker (not installed)")
-                if _SYSTEM_CAPS.get("ffmpeg"):
-                    available.append("ffmpeg (video/audio processing)")
-                else:
-                    unavailable.append("ffmpeg (not installed — avoid audio/video conversion)")
-                if _SYSTEM_CAPS.get("git"):
-                    available.append("git")
-                else:
-                    unavailable.append("git (not installed)")
-                if _SYSTEM_CAPS.get("in_container"):
-                    available.append("Container environment (limited filesystem access)")
-                cap_lines = ""
-                if available:
-                    cap_lines += "\n**Available:** " + ", ".join(available)
-                if unavailable:
-                    cap_lines += "\n**NOT available on this system:** " + ", ".join(unavailable)
-                if cap_lines:
-                    new_system += f"\n\n## System Capabilities{cap_lines}"
-            # ── Inject rolling summary of older conversations ─────────────────
-            if self._context_summary:
-                new_system += (
-                    f"\n\n## Earlier Conversation Summary\n"
-                    f"(This happened before the current context window)\n"
-                    f"{self._context_summary}"
-                )
-            # ── Auto-inject relevant permanent memories ───────────────────────
-            try:
-                pm_ctx = shared_memory.get_relevant_context(user_input, limit=8)
-                if pm_ctx:
-                    new_system += f"\n\n{pm_ctx}"
-            except Exception:
-                pass
-            if self.messages and self.messages[0]["role"] == "system":
-                self.messages[0]["content"] = new_system
+            sections = match_sections(user_input, prompt_sections, self.channel)
+            static = self._static_system_prompt(sections)
+            if self.messages and self.messages[0].get("role") == "system" \
+                    and self.messages[0].get("content") != static:
+                self.messages[0]["content"] = static
+            self._pending_dynamic_context = self._build_dynamic_context(user_input)
             working_memory.wm_add(summary=user_input[:120], event_type="user")
         except Exception:
             pass
+
+    def _inject_dynamic_context(self) -> None:
+        """Place this turn's volatile context as one transient message (K-12).
+
+        It sits immediately before the turn's user message, so the cached prefix
+        (system message + history) is untouched, and it is tagged so the
+        conversation loop strips it again in its `finally`.
+        """
+        text = getattr(self, "_pending_dynamic_context", "")
+        self._pending_dynamic_context = ""
+        self.messages = [m for m in self.messages if not m.get("_dynamic_context")]
+        if not text:
+            return
+        idx = len(self.messages)
+        if idx and self.messages[idx - 1].get("role") == "user":
+            idx -= 1
+        self.messages.insert(idx, {
+            "role": "user",
+            "content": text,
+            "_dynamic_context": True,
+        })
 
     def _auto_save_credentials(self, user_input: str) -> None:
         """Detect and auto-save any credentials/tokens mentioned in user message."""
@@ -2300,7 +2406,8 @@ class Agent:
     def reset(self):
         self.auto_save()  # save session before clearing
         self._active_session_id = None  # reset active session ID
-        self.messages = [{"role": "system", "content": build_system_prompt(channel=self.channel)}]
+        self.messages = [{"role": "system", "content": self._static_system_prompt(None)}]
+        self._pending_dynamic_context = ""
         self._context_summary = ""
         working_memory.wm_clear()  # wipe short-term memory on reset
         self._session_progress = 0.0
