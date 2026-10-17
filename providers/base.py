@@ -6,6 +6,28 @@ from abc import ABC, abstractmethod
 from typing import Any, Generator
 
 
+def create_openai_stream(client: Any, kwargs: dict) -> Any:
+    """Open a streaming completion that also reports token usage.
+
+    OpenAI-compatible endpoints only emit a ``usage`` chunk when the request
+    asks for it via ``stream_options.include_usage`` (K-15).  A few
+    compatible-but-older servers reject the unknown field with a 400, so the
+    request is retried once without it — token accounting degrades to the
+    rough estimate there, but the turn still runs.
+    """
+    streaming_kwargs = dict(kwargs)
+    stream_options = dict(streaming_kwargs.get("stream_options") or {})
+    stream_options.setdefault("include_usage", True)
+    streaming_kwargs["stream_options"] = stream_options
+    try:
+        return client.chat.completions.create(**streaming_kwargs)
+    except Exception as exc:  # only a stream_options rejection is retried
+        if "stream_options" not in str(exc).lower():
+            raise
+        return client.chat.completions.create(**kwargs)
+
+
+
 class LLMProvider(ABC):
     """Abstract base class for all LLM providers."""
 

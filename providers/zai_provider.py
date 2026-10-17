@@ -1,7 +1,8 @@
 """Z.ai (Zhipu AI) provider — OpenAI-compatible API."""
 from openai import OpenAI
 from typing import Generator
-from .base import LLMProvider
+from .base import LLMProvider, create_openai_stream
+from utils.token_accounting import usage_event
 
 
 class ZAIProvider(LLMProvider):
@@ -36,16 +37,22 @@ class ZAIProvider(LLMProvider):
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str | dict, None, None]:
         import json
         kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages), "stream": True}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        resp = self._client.chat.completions.create(**kwargs)
+        resp = create_openai_stream(self._client, kwargs)
         tool_chunks: dict[int, dict] = {}
         text_buf = ""
+        _usage = None
         for chunk in resp:
+            _chunk_usage = getattr(chunk, "usage", None)
+            if _chunk_usage:
+                _usage = _chunk_usage
+            if not getattr(chunk, "choices", None):
+                continue
             choice = chunk.choices[0]
             delta = choice.delta
             if delta.tool_calls:
@@ -81,6 +88,10 @@ class ZAIProvider(LLMProvider):
                     yield text_buf[i:i+8]
             else:
                 yield text_buf
+
+        _usage_event = usage_event(_usage)
+        if _usage_event:
+            yield _usage_event
 
     def list_models(self) -> list[str]:
         try:
