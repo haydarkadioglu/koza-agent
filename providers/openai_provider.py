@@ -2,7 +2,8 @@
 from typing import Generator
 import json
 from openai import OpenAI
-from .base import LLMProvider
+from .base import LLMProvider, create_openai_stream
+from utils.token_accounting import usage_event
 
 
 class OpenAIProvider(LLMProvider):
@@ -55,12 +56,18 @@ class OpenAIProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        resp = self._client.chat.completions.create(**kwargs)
+        resp = create_openai_stream(self._client, kwargs)
 
         tool_chunks: dict[int, dict] = {}
         _finish_reason = None
 
+        _usage = None
         for chunk in resp:
+            _chunk_usage = getattr(chunk, "usage", None)
+            if _chunk_usage:
+                _usage = _chunk_usage
+            if not getattr(chunk, "choices", None):
+                continue
             if cancel_event and cancel_event.is_set():
                 resp.close()
                 return
@@ -105,6 +112,10 @@ class OpenAIProvider(LLMProvider):
                     "name": stc["name"],
                     "args_chunk": json.dumps(args_parsed),
                 }
+
+        _usage_event = usage_event(_usage)
+        if _usage_event:
+            yield _usage_event
 
     def list_models(self) -> list[str]:
         try:

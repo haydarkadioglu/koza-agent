@@ -1,7 +1,8 @@
 """DeepSeek provider (OpenAI-compatible API)."""
 from openai import OpenAI
 from typing import Generator
-from .base import LLMProvider
+from .base import LLMProvider, create_openai_stream
+from utils.token_accounting import usage_event
 
 
 class DeepSeekProvider(LLMProvider):
@@ -36,13 +37,13 @@ class DeepSeekProvider(LLMProvider):
             ]
         return {"content": msg.content, "tool_calls": tool_calls}
 
-    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str, None, None]:
+    def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str | dict, None, None]:
         import json, re
         kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages), "stream": True}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        resp = self._client.chat.completions.create(**kwargs)
+        resp = create_openai_stream(self._client, kwargs)
 
         # ── DSML detection helpers ────────────────────────────────────────────
         # DeepSeek occasionally bleeds DSML XML into the text stream instead of
@@ -66,6 +67,7 @@ class DeepSeekProvider(LLMProvider):
 
         tool_chunks: dict[int, dict] = {}
         _finish_reason = None
+        _usage = None
         text_buf  = ""   # accumulates ALL emitted text (for DSML post-check)
         pending   = ""   # look-ahead buffer for DSML detection
         # Max chars to hold in pending before we give up and treat as plain text
@@ -83,6 +85,9 @@ class DeepSeekProvider(LLMProvider):
                 if hasattr(resp, "close"):
                     resp.close()
                 break
+            _chunk_usage = getattr(chunk, "usage", None)
+            if _chunk_usage:
+                _usage = _chunk_usage
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
@@ -206,6 +211,10 @@ class DeepSeekProvider(LLMProvider):
 
         if _finish_reason:
             yield {"__finish_reason__": _finish_reason}
+
+        _usage_event = usage_event(_usage)
+        if _usage_event:
+            yield _usage_event
 
     def list_models(self) -> list[str]:
         try:
