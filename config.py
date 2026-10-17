@@ -111,6 +111,12 @@ def default_config() -> dict:
             "default": "plain",          # plain | tui
             "refresh_interval_ms": 1500,
         },
+        "context_compression": {    # summarise old turns when the context window fills
+            "enabled": True,        # False = never auto-compress (manual /compress still works)
+            "threshold_percent": 0.50,  # compress at this fraction of the model context window
+            "summary_model": "",    # model for the summary; "" = reuse the main model
+            "timeout_seconds": 60,  # deadline for one summarisation call
+        },
         "self_improvement": {
             "enabled": True,
         },
