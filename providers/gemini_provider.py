@@ -93,6 +93,7 @@ class GeminiProvider(LLMProvider):
             self._ag_client = _OAI(base_url=base_url, api_key="antigravity")
 
         elif auth_mode in ("adc", "gcloud", "google_cli", "gemini_cli"):
+            from google import genai
             try:
                 self._client = self._build_genai_client_from_adc()
             except Exception:
