@@ -1,39 +1,199 @@
 """Web skill — search DuckDuckGo and fetch URLs."""
-import urllib.parse
-import urllib.request
 import html
+import http.client
+import ipaddress
 import re
+import socket
+import ssl
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
 import requests
-import ipaddress
-import socket
+
+_ALLOWED_SCHEMES = ("http", "https")
+_LOCAL_HOSTNAMES = {
+    "localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback",
+    "0.0.0.0", "::", "::1", "127.0.0.1",
+}
+_MAX_REDIRECTS = 5
+
+
+class BlockedTargetError(ValueError):
+    """Raised when an outbound connection target violates the SSRF policy."""
+
+
+def _is_blocked_ip(ip_str: str) -> bool:
+    """True when the address is not a public unicast destination."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except (TypeError, ValueError):
+        return True
+
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+
+    # Keep explicit checks alongside is_global for Python-version consistency.
+    return (
+        not ip.is_global
+        or ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def _blocked_target_message(host: str) -> str:
+    return (
+        "SSRF violation: target host resolves only to "
+        f"private/loopback/invalid addresses: {host}"
+    )
+
+
+def _validated_addresses(host: str, port: int) -> list[tuple[int, tuple]]:
+    """Resolve and validate all addresses at connect time."""
+    message = _blocked_target_message(host)
+    if host.lower() in _LOCAL_HOSTNAMES:
+        raise BlockedTargetError(message)
+
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        addresses = []
+        for info in infos:
+            family, sockaddr = info[0], info[4]
+            if sockaddr and not _is_blocked_ip(sockaddr[0]):
+                addresses.append((family, sockaddr))
+    except BlockedTargetError:
+        raise
+    except (OSError, IndexError, TypeError, ValueError) as exc:
+        raise BlockedTargetError(message) from exc
+
+    if not addresses:
+        raise BlockedTargetError(message)
+    return addresses
+
 
 def is_safe_url(url: str) -> bool:
     """SSRF Guard: Resolve and validate target host IP to prevent private/loopback connections."""
     try:
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in ("http", "https"):
+        if parsed.scheme not in _ALLOWED_SCHEMES:
             return False
         host = parsed.hostname
-        if not host:
+        if not host or host.lower() in _LOCAL_HOSTNAMES:
             return False
-        if host.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-            return False
-        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
-        for info in infos:
-            ip_str = info[4][0]
-            ip = ipaddress.ip_address(ip_str)
-            if (ip.is_private or 
-                ip.is_loopback or 
-                ip.is_link_local or 
-                ip.is_reserved or 
-                ip.is_multicast or 
-                ip.is_unspecified):
-                return False
-        return True
+        port = parsed.port
+        if port is None:
+            port = 443 if parsed.scheme == "https" else 80
+        infos = socket.getaddrinfo(host, port)
+        return bool(infos) and all(not _is_blocked_ip(info[4][0]) for info in infos)
     except Exception:
         return False
+
+
+def _proxy_hosts() -> set[str]:
+    """Hosts of proxies configured in the environment (``HTTP(S)_PROXY``)."""
+    hosts = set()
+    for value in urllib.request.getproxies().values():
+        candidate = value if "://" in value else f"http://{value}"
+        hostname = urllib.parse.urlparse(candidate).hostname
+        if hostname:
+            hosts.add(hostname.lower())
+    return hosts
+
+
+class _PinnedConnectionMixin:
+    """Dial exactly the address the policy validated, so DNS cannot be rebound mid-flight."""
+
+    host: str
+    port: int
+    timeout: float | None
+    source_address: tuple[str, int] | None
+
+    def _dial_through_proxy(self) -> bool:
+        """A configured proxy is the trusted egress; its own address is not the SSRF target.
+
+        The destination URL is validated by ``is_safe_url`` (initial request and every
+        redirect hop); the proxy resolves the destination itself, so pinning would only
+        block a local proxy such as a ``127.0.0.1`` tunnel.
+        """
+        return self.host.lower() in _proxy_hosts()
+
+    def _create_pinned_socket(self):
+        addresses = _validated_addresses(self.host, self.port)
+        last_error = None
+        for _family, sockaddr in addresses:
+            try:
+                return socket.create_connection(sockaddr, self.timeout, self.source_address)
+            except OSError as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise BlockedTargetError(_blocked_target_message(self.host))
+
+
+class _PinnedHTTPConnection(_PinnedConnectionMixin, http.client.HTTPConnection):
+    def connect(self):
+        if self._dial_through_proxy():
+            super().connect()
+            return
+        self.sock = self._create_pinned_socket()
+
+
+class _PinnedHTTPSConnection(_PinnedConnectionMixin, http.client.HTTPSConnection):
+    def connect(self):
+        if self._dial_through_proxy():
+            # Proxy path: the base implementation handles CONNECT tunnels.
+            super().connect()
+            return
+        sock = self._create_pinned_socket()
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    max_redirections = _MAX_REDIRECTS
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urljoin(req.full_url, str(newurl or ""))
+        if not is_safe_url(target):
+            raise urllib.error.HTTPError(
+                target,
+                code,
+                f"SSRF violation: redirect to a blocked target ({target})",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, target)
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    _context: ssl.SSLContext  # set by urllib.request.HTTPSHandler.__init__
+
+    def https_open(self, req):
+        # ``_check_hostname`` no longer exists on 3.14 (it is folded into the context),
+        # so forward the context only — it still carries certificate + hostname checks.
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
+
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(
+        _SafeRedirectHandler,
+        _PinnedHTTPHandler,
+        _PinnedHTTPSHandler,
+    )
+
+
+_SAFE_OPENER = _build_opener()
+
 
 TOOL_DEFINITIONS = [
     {
@@ -294,7 +454,7 @@ def fetch_url(url: str, max_chars: int = 4000, js_render: bool = False) -> str:
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         })
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with _SAFE_OPENER.open(req, timeout=15) as resp:
             content_type = resp.headers.get("Content-Type", "")
             raw = resp.read().decode("utf-8", errors="replace")
 
@@ -325,6 +485,7 @@ def _fetch_with_browser(url: str, max_chars: int = 4000) -> str:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             page = browser.new_page()
+            # Redirects are re-checked only on the static path; Playwright routing is out of scope and unavailable for local testing.
             page.goto(url, timeout=20000, wait_until="networkidle")
             # Wait a bit for dynamic content to load
             page.wait_for_timeout(1500)
