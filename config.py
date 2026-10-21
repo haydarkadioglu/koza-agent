@@ -1,8 +1,11 @@
 """Koza Agent — Configuration management."""
 import os
 from pathlib import Path
+
 import yaml
 from dotenv import load_dotenv
+
+from utils.secure_files import atomic_write_private, harden_permissions
 
 load_dotenv()
 # Also load from central Koza configuration directory (.env holds credentials)
@@ -128,6 +131,7 @@ def default_config() -> dict:
 def load_config() -> dict:
     cfg = default_config()
     if CONFIG_PATH.exists():
+        harden_permissions(CONFIG_PATH, 0o600)
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 loaded = yaml.safe_load(f) or {}
@@ -208,9 +212,10 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True)
+    atomic_write_private(
+        CONFIG_PATH,
+        yaml.safe_dump(cfg, default_flow_style=False, allow_unicode=True),
+    )
 
 
 def config_exists() -> bool:
