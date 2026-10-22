@@ -60,7 +60,6 @@ logs/
 # Temp
 tmp/
 temp/
-tests/
 .kiro/
 old/
 koza-installer/
