@@ -3,7 +3,7 @@
 import shutil
 import sys
 import threading
-from typing import Callable
+from typing import Any, Callable
 
 from providers.base import LLMProvider
 from prompt import build_system_prompt, build_volatile_context, match_sections, prompt_files_signature
@@ -786,10 +786,22 @@ def _expand_tools_for_call(current_tools: list[dict], called_names: list[str],
     if not to_add:
         return current_tools
     new_tools = list(current_tools)
-    for n in to_add:
+    # Registry order, not set-iteration order: the same set of activations must
+    # produce the same array every run, or the provider prefix cache misses (K-13).
+    for n in _canonical_tool_order(to_add):
         if n not in current_names and n in _TOOL_BY_NAME:
             new_tools.append(_TOOL_BY_NAME[n])
     return _apply_tool_cap(new_tools)
+
+
+def _canonical_tool_order(names) -> list[str]:
+    """Sort tool names by their position in the registry (stable across runs).
+
+    Names that are not in ALL_TOOLS (the tool_search bridge, plugin tools that
+    were just unregistered) sort last, alphabetically.
+    """
+    index = {_tool_name(t): i for i, t in enumerate(ALL_TOOLS)}
+    return sorted(names, key=lambda n: (index.get(n, len(index)), str(n)))
 
 import re as _re
 _CRED_PATTERNS = _re.compile(
@@ -967,6 +979,11 @@ class Agent:
         # and the names currently visible to the model (search exclusion set).
         self._activated_tools: set[str] = set()
         self._sent_tool_names: set[str] = set()
+        # K-13: first-seen order of the tools sent in this conversation. The tool
+        # array only ever grows (append-only) for as long as the conversation
+        # lives, so the provider's cached prefix — which starts at the tool
+        # schema — stays valid instead of being re-rendered every turn.
+        self._session_tool_order: list[str] = []
         self._session_progress: float = self.cfg.get("session_progress", 0.0)
         self._stream_lock: threading.Lock = threading.Lock()
         self.db_path = db_path
@@ -1271,8 +1288,56 @@ class Agent:
         # Expose the tool_search bridge whenever some registered tools are not
         # visible, so the model can reach them (K-06).
         tools = _ensure_bridge(tools)
+        # K-13: never narrow the schema mid-conversation.
+        tools = self._stabilize_tool_set(tools)
         self._sent_tool_names = {_tool_name(t) for t in tools}
         return tools
+
+    def _stabilize_tool_set(self, tools: list[dict]) -> list[dict]:
+        """Keep the conversation's tool array stable and append-only (K-13).
+
+        The selection narrows to the keyword-matched slice on a turn that matches
+        nothing and widens again on the next turn that does, so the tool schema
+        was rewritten mid-conversation. Providers cache on an exact prefix that
+        starts at the tool array, so every flip re-rendered it and the turn paid
+        a full cache miss.
+
+        A tool that has already been sent in this conversation therefore stays
+        visible for the rest of it: the first-seen order is preserved (so a tool
+        keeps its position, the array only extended), newly selected tools are
+        appended in registry order, and only tools that actually left the registry
+        (a disabled skill, a removed plugin) drop out. The cap still applies —
+        anything dropped stays reachable through the tool_search bridge.
+        """
+        order = getattr(self, "_session_tool_order", None)
+        if order is None:
+            order = self._session_tool_order = []
+        live = {_tool_name(t): t for t in ALL_TOOLS}
+        # Defs that are sent but not in the registry (tool_search bridge, plugin
+        # tools) must survive the membership filter.
+        for t in tools:
+            name = _tool_name(t)
+            if name and name not in live:
+                live[name] = t
+        seen = set(order)
+        for t in tools:
+            name = _tool_name(t)
+            if name and name not in seen:
+                seen.add(name)
+                order.append(name)
+        for name in [n for n in order if n not in live]:
+            order.remove(name)
+        if len(order) > MAX_SENT_TOOLS:
+            # Drop the oldest additions that are neither core tools nor part of
+            # this turn's selection; the bridge keeps them reachable.
+            keep = _CORE_TOOL_NAMES | {_tool_name(t) for t in tools}
+            for name in list(order):
+                if len(order) <= MAX_SENT_TOOLS:
+                    break
+                if name not in keep:
+                    order.remove(name)
+        stable = [live[n] for n in order]
+        return stable or tools
 
     def _run_conversation_loop(self, user_input: str, image_path: str | None = None):
         """
@@ -2406,6 +2471,8 @@ class Agent:
     def reset(self):
         self.auto_save()  # save session before clearing
         self._active_session_id = None  # reset active session ID
+        # K-13: a new conversation starts from a freshly selected tool set.
+        self._session_tool_order = []
         self.messages = [{"role": "system", "content": self._static_system_prompt(None)}]
         self._pending_dynamic_context = ""
         self._context_summary = ""
