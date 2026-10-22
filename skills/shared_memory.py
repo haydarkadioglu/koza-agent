@@ -4,11 +4,13 @@ All agents (parent + sub-agents, any session) share the same SQLite table
 in koza.db. Sub-agents automatically load relevant memories into their
 context when spawned.
 """
+import re
 import sqlite3
 import time
-import re
 from contextlib import contextmanager
 from pathlib import Path
+
+from utils.secure_files import atomic_write_private
 
 _db_path: str = ""
 
@@ -284,12 +286,11 @@ def _read_env() -> dict[str, tuple[str, str]]:
 def _write_env(data: dict[str, tuple[str, str]]) -> None:
     """Write {ENV_KEY: (value, notes)} to ~/.Koza/.env"""
     p = _env_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
     lines = []
     for key in sorted(data):
         value, notes = data[key]
         lines.append(f"{key}={value}  # {notes}" if notes else f"{key}={value}")
-    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_private(p, "\n".join(lines) + "\n", 0o600)
 
 
 def credential_set(service: str, token: str, notes: str = "") -> str:
