@@ -18,6 +18,7 @@ from core_context import MAX_CONTEXT_MESSAGES, TOOL_COMPACT_AFTER
 
 
 from utils.json_utils import parse_tool_call_arguments
+from utils.token_accounting import TokenLedger
 from utils.tool_ids import uniquify_tool_call_ids
 
 
@@ -966,6 +967,9 @@ class Agent:
         self._pending_dynamic_context: str = ""
         # Context window manages message list, compaction, trimming, rolling summary
         self._ctx = ContextWindow(provider)
+        # K-15: per-conversation record of the token counts providers actually
+        # report, so the compression preflight stops running on a character guess.
+        self._token_ledger = TokenLedger()
         self._ctx.messages = [{"role": "system", "content": self._static_system_prompt(None)}]
         # Permission hook: callable(name, args) -> bool  (None = allow all)
         self.permission_callback: Callable[[str, dict], bool] | None = None
@@ -1119,6 +1123,19 @@ class Agent:
                            or provider_cfg.get("api_key") or ""),
         }
 
+    def _token_ledger_for_turn(self) -> TokenLedger:
+        """Return this conversation's token ledger, creating it on first use.
+
+        ``Agent`` is also built via ``Agent.__new__`` in tests and embedders, so
+        the ledger must never turn a missing attribute into an exception inside
+        the stream loop — that would be caught as a provider error (K-15).
+        """
+        ledger = getattr(self, "_token_ledger", None)
+        if ledger is None:
+            ledger = TokenLedger()
+            self._token_ledger = ledger
+        return ledger
+
     def _maybe_compress_context(self) -> None:
         """Summarise middle turns when the conversation nears the context window.
 
@@ -1144,8 +1161,13 @@ class Agent:
             # MINIMUM_CONTEXT_LENGTH, so a short conversation can never trigger
             # a compression.  Returning here keeps the compressor's
             # context-length probe off the hot path of every ordinary turn.
-            rough_tokens = estimate_messages_tokens_rough(self.messages)
-            if rough_tokens < MINIMUM_CONTEXT_LENGTH:
+            # K-15: prefer the exact prompt size the provider reported for the
+            # last request; fall back to the character estimate only when no
+            # response has carried usage yet.
+            tokens = self._token_ledger_for_turn().prompt_tokens(
+                self.messages, estimate_messages_tokens_rough
+            )
+            if tokens < MINIMUM_CONTEXT_LENGTH:
                 return
 
             runtime = self._provider_runtime()
@@ -1158,11 +1180,16 @@ class Agent:
                 summary_model_override=str(section.get("summary_model") or "") or None,
                 quiet_mode=True,
             )
-            rough_tokens = estimate_messages_tokens_rough(self.messages)
-            if compressor.should_compress(rough_tokens):
+            tokens = self._token_ledger_for_turn().prompt_tokens(
+                self.messages, estimate_messages_tokens_rough
+            )
+            if compressor.should_compress(tokens):
                 self.messages = compressor.compress(
-                    self.messages, current_tokens=rough_tokens
+                    self.messages, current_tokens=tokens
                 )
+                # The history was rewritten, so the recorded measurement no
+                # longer points at a valid boundary; the next response refreshes it.
+                self._token_ledger_for_turn().measured_at = None
         except Exception as _compress_err:
             import logging
             logging.getLogger(__name__).warning("Context compressor skipped: %s", _compress_err)
@@ -1467,6 +1494,7 @@ class Agent:
                     try:
                         if hasattr(self, "_stream_think_scrubber"):
                             self._stream_think_scrubber.reset()
+                        self._token_ledger_for_turn().mark_request(len(self.messages))
                         for item in self.provider.stream_chat(self._trim_messages(), tools=tools, cancel_event=self._cancel):
                             if self._cancel.is_set():
                                 yield {"type": "interrupted"}
@@ -1480,6 +1508,13 @@ class Agent:
                                 if item.get("id"):
                                     _tool_buf[idx]["id"] = item["id"]
                                 _tool_buf[idx]["args"] += item.get("args_chunk", "")
+                            elif isinstance(item, dict) and item.get("__usage__"):
+                                # K-15: exact provider accounting for this request.
+                                self._token_ledger_for_turn().record(
+                                    item["__usage__"],
+                                    message_count=len(self.messages),
+                                    model=str(getattr(self.provider, "model", "") or ""),
+                                )
                             elif isinstance(item, dict) and item.get("__finish_reason__"):
                                 _finish_reason = item["__finish_reason__"]
                             else:
@@ -2476,6 +2511,7 @@ class Agent:
         self.messages = [{"role": "system", "content": self._static_system_prompt(None)}]
         self._pending_dynamic_context = ""
         self._context_summary = ""
+        self._token_ledger_for_turn().reset()  # K-15: new conversation, no measurements yet
         working_memory.wm_clear()  # wipe short-term memory on reset
         self._session_progress = 0.0
         if hasattr(self, "cfg") and self.cfg is not None:
