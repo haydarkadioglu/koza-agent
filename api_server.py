@@ -1,23 +1,76 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 import json
 import uuid
 import os
+import hmac
+import re
 
 from core import Agent
-from providers.anthropic_provider import AnthropicProvider
+from utils.config_secrets import load_or_create_token, redact_config, strip_masked
 
 app = FastAPI(title="Koza API Server")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?|null|file://.*)$",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_ALLOWED_ORIGIN = re.compile(
+    r"^(https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?|null|file://.*)$",
+    re.IGNORECASE,
+)
+
+
+def _is_allowed_host(host_header: str | None) -> bool:
+    if not host_header:
+        return False
+    host_header = host_header.strip()
+    if host_header.startswith("["):
+        closing_bracket = host_header.find("]")
+        if closing_bracket < 0:
+            return False
+        host = host_header[:closing_bracket + 1].lower()
+        suffix = host_header[closing_bracket + 1:]
+        return host == "[::1]" and (not suffix or re.fullmatch(r":\d+", suffix) is not None)
+    if host_header.count(":") > 1:
+        return False
+    host, separator, port = host_header.partition(":")
+    if separator and not port.isdigit():
+        return False
+    return host.lower() in {"localhost", "127.0.0.1"}
+
+
+@app.middleware("http")
+async def local_client_guard(request: Request, call_next):
+    if not _is_allowed_host(request.headers.get("host")):
+        return JSONResponse(status_code=403, content={"detail": "Untrusted Host header"})
+
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin is not None and _ALLOWED_ORIGIN.fullmatch(origin) is None:
+            return JSONResponse(status_code=403, content={"detail": "Cross-origin request rejected"})
+
+        config = load_config()
+        api_server_config = config.get("api_server", {})
+        if isinstance(api_server_config, dict) and api_server_config.get("require_token") is True:
+            supplied_token = request.headers.get("x-koza-token")
+            authorization = request.headers.get("authorization", "")
+            expected_token = load_or_create_token()
+            candidates = [supplied_token]
+            if authorization.lower().startswith("bearer "):
+                candidates.append(authorization[7:])
+            if not any(
+                candidate is not None and hmac.compare_digest(candidate, expected_token)
+                for candidate in candidates
+            ):
+                return JSONResponse(status_code=401, content={"detail": "Invalid or missing API token"})
+
+    return await call_next(request)
 
 import sqlite3
 from providers.factory import get_provider
@@ -148,8 +201,6 @@ async def chat_completions(request: Request):
     agent.messages = [m for m in messages if m.get("role") != "user" or m != messages[-1]]
 
     async def event_generator():
-        call_id = f"call_{uuid.uuid4().hex[:8]}"
-        
         for event in agent.stream_chat(user_input):
             if event["type"] == "text":
                 chunk = {
@@ -240,7 +291,7 @@ async def chat_completions(request: Request):
 
 
 from pydantic import BaseModel
-from config import load_config, save_config
+from config import save_config
 
 class ConfigUpdateRequest(BaseModel):
     provider: str | None = None
@@ -272,45 +323,46 @@ class MCPCreateRequest(BaseModel):
 @app.get("/api/config")
 async def get_config_endpoint():
     cfg = load_config()
-    return cfg
+    return redact_config(cfg)
 
 @app.post("/api/config")
 async def update_config_endpoint(req: ConfigUpdateRequest):
+    req_dump = strip_masked(req.model_dump(exclude_none=True))
     cfg = load_config()
-    if req.provider is not None:
-        cfg["provider"] = req.provider
-    if req.model is not None:
-        cfg["model"] = req.model
-    if req.fallback_provider is not None:
-        cfg["fallback_provider"] = req.fallback_provider
-    if req.fallback_model is not None:
-        cfg["fallback_model"] = req.fallback_model
-    if req.media_provider is not None:
-        cfg["media_provider"] = req.media_provider
-    if req.providers is not None:
+    if "provider" in req_dump:
+        cfg["provider"] = req_dump["provider"]
+    if "model" in req_dump:
+        cfg["model"] = req_dump["model"]
+    if "fallback_provider" in req_dump:
+        cfg["fallback_provider"] = req_dump["fallback_provider"]
+    if "fallback_model" in req_dump:
+        cfg["fallback_model"] = req_dump["fallback_model"]
+    if "media_provider" in req_dump:
+        cfg["media_provider"] = req_dump["media_provider"]
+    if "providers" in req_dump:
         provs = cfg.setdefault("providers", {})
-        for k, v in req.providers.items():
+        for k, v in req_dump["providers"].items():
             if isinstance(v, dict):
                 provs.setdefault(k, {}).update(v)
             else:
                 provs[k] = v
-    if req.messaging is not None:
+    if "messaging" in req_dump:
         msg_cfg = cfg.setdefault("messaging", {})
-        for k, v in req.messaging.items():
+        for k, v in req_dump["messaging"].items():
             if isinstance(v, dict):
                 msg_cfg.setdefault(k, {}).update(v)
             else:
                 msg_cfg[k] = v
-    if req.email is not None:
-        cfg.setdefault("email", {}).update(req.email)
-    if req.voice is not None:
-        cfg.setdefault("voice", {}).update(req.voice)
-    if req.multi_host is not None:
-        cfg.setdefault("multi_host", {}).update(req.multi_host)
-    if req.tool_approval is not None:
-        cfg["tool_approval"] = req.tool_approval
-    if req.allowed_tools is not None:
-        cfg["allowed_tools"] = req.allowed_tools
+    if "email" in req_dump:
+        cfg.setdefault("email", {}).update(req_dump["email"])
+    if "voice" in req_dump:
+        cfg.setdefault("voice", {}).update(req_dump["voice"])
+    if "multi_host" in req_dump:
+        cfg.setdefault("multi_host", {}).update(req_dump["multi_host"])
+    if "tool_approval" in req_dump:
+        cfg["tool_approval"] = req_dump["tool_approval"]
+    if "allowed_tools" in req_dump:
+        cfg["allowed_tools"] = req_dump["allowed_tools"]
     save_config(cfg)
     return {"status": "ok"}
 
@@ -440,7 +492,7 @@ async def trigger_cron_endpoint(job_id: int):
 @app.get("/api/mcp")
 async def get_mcp_endpoint():
     cfg = load_config()
-    return cfg.get("mcp_servers", {})
+    return redact_config(cfg.get("mcp_servers", {}))
 
 @app.post("/api/mcp")
 async def create_mcp_endpoint(req: MCPCreateRequest):
