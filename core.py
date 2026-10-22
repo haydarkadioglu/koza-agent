@@ -981,6 +981,8 @@ class Agent:
         self._busy: bool = False
         self.cfg = cfg or {}
         self._compressor_cache: tuple[tuple, "ContextCompressor"] | None = None  # noqa: UP037
+        from utils.untrusted_content import UntrustedContentPolicy
+        self._untrusted_policy = UntrustedContentPolicy.from_config(self.cfg)
         # tool_search bridge state (K-06): tools the model activated this turn,
         # and the names currently visible to the model (search exclusion set).
         self._activated_tools: set[str] = set()
@@ -1406,6 +1408,12 @@ class Agent:
           {"type": "interrupted"}
         """
         import time
+
+        if not hasattr(self, "_untrusted_policy"):
+            from utils.untrusted_content import UntrustedContentPolicy
+            self._untrusted_policy = UntrustedContentPolicy.from_config(
+                getattr(self, "cfg", {})
+            )
 
         if hasattr(self, "_guardrail") and self._guardrail:
             # New turn: per-turn state resets, failure counters decay but survive,
@@ -2026,7 +2034,8 @@ class Agent:
                                     "role": "tool",
                                     "tool_call_id": call_id,
                                     "name": name,
-                                    "content": res_str,
+                                    # Mark external output as data, neutralized so pages cannot close the block.
+                                    "content": self._untrusted_policy.wrap(name, res_str),
                                 })
                                 if "PERMANENT FAILURE" in res_str:
                                     permanent_failure = True
@@ -2120,7 +2129,8 @@ class Agent:
                             "role": "tool",
                             "tool_call_id": call["id"],
                             "name": name,
-                            "content": result_str,
+                            # Mark external output as data, neutralized so pages cannot close the block.
+                            "content": self._untrusted_policy.wrap(name, result_str),
                         })
                         if "PERMANENT FAILURE" in result_str:
                             permanent_failure = True

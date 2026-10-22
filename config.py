@@ -99,6 +99,15 @@ def default_config() -> dict:
         },
         "tool_approval": True,      # False = auto-approve tools; True = ask for non-safe tools
         "tool_timeout_seconds": 600,  # per-call deadline for a tool call (0 = no deadline)
+        "security": {
+            # Wrap results of network-facing tools in an untrusted-data block so fetched
+            # pages and MCP servers cannot issue instructions to the model.
+            "wrap_untrusted_tool_results": True,
+            "untrusted_tool_names": ["web_search", "fetch_url", "browser_task",
+                                     "mcp_call_tool", "mcp_list_tools", "webhook_listen"],
+            "untrusted_tool_prefixes": ["browser_", "mcp_"],
+            "untrusted_min_chars": 32,
+        },
         "tool_loop_guardrails": {   # warn -> block -> halt escalation for looping tool calls
             "warnings_enabled": True,          # append loop warnings to tool results
             "hard_stop_enabled": True,         # False = warn/block only, never end the turn
