@@ -129,6 +129,11 @@ def default_config() -> dict:
             "summary_model": "",    # model for the summary; "" = reuse the main model
             "timeout_seconds": 60,  # deadline for one summarisation call
         },
+        "context_overflow": {      # what to do when the provider rejects a request as too large
+            "enabled": True,       # False = surface the provider error and end the turn
+            "max_retries": 1,      # how many shortened retries before giving up
+            "keep_recent_messages": 12,  # verbatim tail preserved when older turns are dropped
+        },
         "self_improvement": {
             "enabled": True,
         },
