@@ -1499,6 +1499,7 @@ class Agent:
             length_continuation_count = 0
             invalid_json_retries = 0
             _dropped_toolcall_retries = 0
+            _overflow_policy = None
             for _round in range(MAX_ROUNDS):
                 if self._cancel.is_set():
                     yield {"type": "interrupted"}
@@ -1523,6 +1524,7 @@ class Agent:
                 _stream_retried = False
                 _stream_key_retries = 0
                 _stream_call_retries = 0
+                _overflow_retries = 0
                 _MAX_STREAM_RETRIES = 3
                 _finish_reason = None
                 while True:
@@ -1574,6 +1576,7 @@ class Agent:
                         is_rate_limit = (err.reason == FailoverReason.rate_limit)
                         is_billing = (err.reason == FailoverReason.billing)
                         is_overloaded = (err.reason in (FailoverReason.overloaded, FailoverReason.server_error, FailoverReason.timeout))
+                        is_overflow = err.reason == FailoverReason.context_overflow
                         
                         # Only retry if we have not successfully yielded any tokens yet to prevent duplicate/corrupted output
                         if not full and not _tool_buf:
@@ -1617,6 +1620,97 @@ class Agent:
                                     "stream_chat: 400 tool_calls error but the history has no "
                                     "dangling tool call to drop — not retrying"
                                 )
+
+                            if is_overflow:
+                                from utils.overflow_recovery import (
+                                    OverflowRecoveryPolicy,
+                                    shrink_messages,
+                                )
+
+                                if _overflow_policy is None:
+                                    _overflow_policy = OverflowRecoveryPolicy.from_config(
+                                        getattr(self, "cfg", None)
+                                    )
+                                if (
+                                    _overflow_policy.enabled
+                                    and _overflow_retries
+                                    >= _overflow_policy.max_retries
+                                ):
+                                    yield {
+                                        "type": "error",
+                                        "message": (
+                                            "The conversation no longer fits the model's "
+                                            "context window even after shortening it. "
+                                            "Start a new chat, or raise "
+                                            "context_compression.threshold_percent.\n"
+                                            f"{_e}"
+                                        ),
+                                    }
+                                    return
+
+                                if (
+                                    _overflow_policy.enabled
+                                    and _overflow_retries
+                                    < _overflow_policy.max_retries
+                                ):
+                                    def _text_size(messages):
+                                        size = 0
+                                        for message in messages:
+                                            if not isinstance(message, dict):
+                                                continue
+                                            content = message.get("content")
+                                            if isinstance(content, str):
+                                                size += len(content)
+                                            elif isinstance(content, list):
+                                                size += sum(
+                                                    len(str(part.get("text", "")))
+                                                    for part in content
+                                                    if isinstance(part, dict)
+                                                )
+                                        return size
+
+                                    size_before_compression = _text_size(self.messages)
+                                    compressor = getattr(
+                                        self, "_maybe_compress_context", None
+                                    )
+                                    if callable(compressor):
+                                        try:
+                                            compressor()
+                                        except Exception as _compress_err:
+                                            import logging
+                                            logging.getLogger(__name__).warning(
+                                                "Context compression skipped during overflow recovery: %s",
+                                                _compress_err,
+                                            )
+                                    compression_changed = (
+                                        _text_size(self.messages)
+                                        < size_before_compression
+                                    )
+                                    self.messages, changed = shrink_messages(
+                                        self.messages,
+                                        keep_recent_messages=(
+                                            _overflow_policy.keep_recent_messages
+                                        ),
+                                    )
+                                    if changed or compression_changed:
+                                        import logging
+                                        logging.getLogger(__name__).warning(
+                                            "Provider context limit exceeded; shortened conversation and retrying."
+                                        )
+                                        yield {
+                                            "type": "status",
+                                            "persona": "System",
+                                            "message": (
+                                                "The conversation was shortened to fit "
+                                                "the context window, and the request is "
+                                                "being retried."
+                                            ),
+                                        }
+                                        self._token_ledger_for_turn().measured_at = None
+                                        full = ""
+                                        _tool_buf = {}
+                                        _overflow_retries += 1
+                                        continue
 
                             # If rate limit or overloaded/timeout, retry with jittered backoff
                             if (is_rate_limit or is_overloaded) and _stream_call_retries < _MAX_STREAM_RETRIES:
