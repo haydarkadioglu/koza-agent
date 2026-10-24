@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+
 
 class FailoverReason(enum.Enum):
     auth = "auth"                        # Authentication failure
@@ -17,13 +17,13 @@ class FailoverReason(enum.Enum):
 @dataclass
 class ClassifiedError:
     reason: FailoverReason
-    status_code: Optional[int] = None
-    provider: Optional[str] = None
-    model: Optional[str] = None
+    status_code: int | None = None
+    provider: str | None = None
+    model: str | None = None
     message: str = ""
     retryable: bool = True
 
-def _extract_status_code(error: Exception) -> Optional[int]:
+def _extract_status_code(error: Exception) -> int | None:
     current = error
     for _ in range(5):
         code = getattr(current, "status_code", None)
@@ -48,8 +48,8 @@ def _extract_error_body(error: Exception) -> dict:
             json_body = response.json()
             if isinstance(json_body, dict):
                 return json_body
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            return {}
     return {}
 
 def _extract_message(error: Exception, body: dict) -> str:
@@ -70,6 +70,7 @@ def classify_api_error(
     """Classifies LLM provider/API errors to determine recovery and retry behavior.
 
     Adopts the Hermes structured classification taxonomy.
+    Context overflow is not retryable as-is; recovery must shorten history.
     """
     status_code = _extract_status_code(error)
     error_type = type(error).__name__
@@ -134,13 +135,17 @@ def classify_api_error(
 
     # 3. Context overflow patterns
     context_patterns = [
+        "context length",
         "context length exceeded",
         "context_length_exceeded",
         "maximum context length",
-        "too many tokens",
-        "max_tokens",
-        "length of the prompt",
         "context window",
+        "too many tokens",
+        "prompt is too long",
+        "input is too long",
+        "reduce the length",
+        "string_above_max_length",
+        "length of the prompt",
     ]
     if any(p in msg for p in context_patterns):
         return ClassifiedError(
@@ -170,7 +175,6 @@ def classify_api_error(
             message=msg,
             retryable=True,
         )
-
     # 5. Server error patterns
     if status_code in (500, 502, 504) or "500" in msg or "502" in msg or "504" in msg:
         return ClassifiedError(
@@ -228,4 +232,16 @@ def classify_api_error(
         model=model,
         message=msg,
         retryable=True,
+    )
+
+
+def is_context_overflow(
+    error: Exception,
+    *,
+    provider: str = "",
+    model: str = "",
+) -> bool:
+    """Return whether a provider error indicates that its context limit was exceeded."""
+    return classify_api_error(error, provider=provider, model=model).reason == (
+        FailoverReason.context_overflow
     )
