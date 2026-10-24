@@ -5,6 +5,7 @@ from .base import LLMProvider
 def _build_provider(name: str, cfg: dict, model: str) -> LLMProvider:
     pcfg = cfg.get("providers", {}).get(name, {})
     pcfg = {**pcfg, "model": model or pcfg.get("model", "")}
+    pcfg.setdefault("key_rotation", cfg.get("key_rotation"))
     if name == "openai":
         from .openai_provider import OpenAIProvider
         return OpenAIProvider(pcfg)
@@ -76,4 +77,3 @@ def get_provider(cfg: dict) -> LLMProvider:
 
     from .base import SanitizingProviderWrapper
     return SanitizingProviderWrapper(provider)
-

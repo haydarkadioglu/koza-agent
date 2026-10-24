@@ -16,10 +16,26 @@ class FallbackProvider(LLMProvider):
         self.primary = primary
         self.fallback = fallback
 
-    def rotate_key(self) -> bool:
+    def rotate_key(self, reason: str = "") -> bool:
         if hasattr(self.primary, "rotate_key"):
-            return self.primary.rotate_key()
+            try:
+                return self.primary.rotate_key(reason)
+            except TypeError:
+                return self.primary.rotate_key()
         return False
+
+    def report_key_failure(
+        self,
+        reason: str,
+        status_code: int | None = None,
+    ) -> None:
+        if hasattr(self.primary, "report_key_failure"):
+            self.primary.report_key_failure(reason, status_code)
+
+    def key_health(self) -> list[dict]:
+        if hasattr(self.primary, "key_health"):
+            return self.primary.key_health()
+        return []
 
     # ── LLMProvider interface ─────────────────────────────────────────────────
 

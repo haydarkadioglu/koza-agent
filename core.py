@@ -19,9 +19,10 @@ from core_context import MAX_CONTEXT_MESSAGES, TOOL_COMPACT_AFTER
 
 
 from utils.json_utils import parse_tool_call_arguments
+from utils.key_health import should_rotate
+from utils.system_utils import _detect_capabilities
 from utils.token_accounting import TokenLedger
 from utils.tool_ids import uniquify_tool_call_ids
-from utils.system_utils import _detect_capabilities
 
 if TYPE_CHECKING:
     from utils.context_compressor import ContextCompressor
@@ -92,6 +93,7 @@ def _tool_interrupt_message(name: str, elapsed: float) -> str:
 
 # Cached at startup — re-detect only on explicit request
 _SYSTEM_CAPS: dict = {}
+_STREAM_KEY_RETRY_LIMIT = 5
 
 # ── Tool selection helpers ────────────────────────────────────────────────────
 # Keywords that hint at which tool categories are needed.
@@ -1571,8 +1573,10 @@ class Agent:
                                 yield {"type": "text", "token": tail}
                         break  # stream finished successfully
                     except Exception as _e:
-                        from providers.error_classifier import classify_api_error, FailoverReason
+                        from providers.error_classifier import FailoverReason, classify_api_error
                         err = classify_api_error(_e, provider=getattr(self.provider, "name", ""), model=getattr(self.provider, "_model", ""))
+                        reason = getattr(err.reason, "value", str(err.reason))
+                        is_auth = (err.reason == FailoverReason.auth)
                         is_rate_limit = (err.reason == FailoverReason.rate_limit)
                         is_billing = (err.reason == FailoverReason.billing)
                         is_overloaded = (err.reason in (FailoverReason.overloaded, FailoverReason.server_error, FailoverReason.timeout))
@@ -1580,17 +1584,54 @@ class Agent:
                         
                         # Only retry if we have not successfully yielded any tokens yet to prevent duplicate/corrupted output
                         if not full and not _tool_buf:
-                            if (is_rate_limit or is_billing) and _stream_key_retries < 5:
-                                if hasattr(self.provider, "rotate_key"):
-                                    # Prevent MagicMock from falsely returning a truthy mock object
-                                    from unittest.mock import Mock
-                                    if not isinstance(self.provider.rotate_key, Mock) and self.provider.rotate_key():
+                            if should_rotate(reason, _stream_key_retries, _STREAM_KEY_RETRY_LIMIT):
+                                # Prevent MagicMock from falsely returning a truthy mock object.
+                                from unittest.mock import Mock
+                                if (
+                                    hasattr(self.provider, "rotate_key")
+                                    and not isinstance(self.provider.rotate_key, Mock)
+                                ):
+                                    rotate_key = self.provider.rotate_key
+                                    try:
+                                        rotated = rotate_key(reason)
+                                    except TypeError:
+                                        rotated = rotate_key()
+                                    if rotated:
                                         _stream_key_retries += 1
                                         full = ""
                                         _tool_buf = {}
                                         import logging
-                                        logging.getLogger(__name__).warning("Rate limit hit during stream, rotated to next API key.")
+                                        if is_auth:
+                                            logging.getLogger(__name__).warning(
+                                                "Authentication failed for the active API key; disabling it and rotating."
+                                            )
+                                        elif is_billing:
+                                            logging.getLogger(__name__).warning(
+                                                "Billing/quota exhausted; benching the active API key and rotating."
+                                            )
+                                        else:
+                                            logging.getLogger(__name__).warning(
+                                                "Rate limit hit during stream, rotated to next API key."
+                                            )
                                         continue
+                                    if hasattr(self.provider, "key_health"):
+                                        try:
+                                            health = self.provider.key_health()
+                                        except Exception as _health_error:  # noqa: BLE001
+                                            import logging
+                                            logging.getLogger(__name__).debug(
+                                                "Could not inspect API key health: %s",
+                                                _health_error,
+                                            )
+                                        else:
+                                            if health and all(
+                                                key.get("status") == "disabled"
+                                                for key in health
+                                            ):
+                                                import logging
+                                                logging.getLogger(__name__).warning(
+                                                    "No usable API key left: all configured keys are disabled."
+                                                )
 
                             _emsg_orig = str(_e)
                             # Auto-recover from "tool_calls must be followed by tool messages" (400).
