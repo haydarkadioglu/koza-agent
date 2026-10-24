@@ -20,6 +20,12 @@ def default_config() -> dict:
         "model": "",
         "fallback_provider": "",
         "fallback_model": "",
+        "key_rotation": {
+            "auth_disables_key": True,
+            "billing_cooldown_seconds": 1800,
+            "rate_limit_cooldown_seconds": 60,
+            "default_cooldown_seconds": 300,
+        },
         "providers": {
             "openai":      {"api_key": "", "base_url": "https://api.openai.com/v1"},
             "anthropic":   {"api_key": "", "base_url": "https://api.anthropic.com"},

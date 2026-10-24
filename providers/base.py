@@ -5,6 +5,8 @@ import threading
 from abc import ABC, abstractmethod
 from typing import Any, Generator
 
+from utils.key_health import KeyPool, KeyRotationPolicy
+
 
 def create_openai_stream(client: Any, kwargs: dict) -> Any:
     """Open a streaming completion that also reports token usage.
@@ -138,27 +140,49 @@ class LLMProvider(ABC):
         return getattr(self, "_model", "")
 
     def _get_api_key(self, cfg: dict, key_name: str = "api_key") -> str:
-        if not hasattr(self, "_api_keys"):
+        if not hasattr(self, "_key_pool"):
             raw_key = cfg.get(key_name) or cfg.get("token") or ""
             if isinstance(raw_key, list):
-                self._api_keys = [str(k).strip() for k in raw_key if k]
+                keys = [str(k).strip() for k in raw_key if k]
             elif isinstance(raw_key, str) and "," in raw_key:
-                self._api_keys = [str(k).strip() for k in raw_key.split(",") if k]
+                keys = [str(k).strip() for k in raw_key.split(",") if k]
             elif raw_key:
-                self._api_keys = [str(raw_key).strip()]
+                keys = [str(raw_key).strip()]
             else:
-                self._api_keys = []
-            self._api_key_index = 0
-        if not self._api_keys:
-            return ""
-        return self._api_keys[self._api_key_index]
+                keys = []
+            self._key_pool = KeyPool(
+                keys,
+                KeyRotationPolicy.from_config(cfg.get("key_rotation")),
+            )
+        return self._key_pool.current_key
 
-    def rotate_key(self) -> bool:
-        if not hasattr(self, "_api_keys") or len(self._api_keys) <= 1:
+    def rotate_key(self, reason: str = "") -> bool:
+        if not hasattr(self, "_key_pool"):
             return False
-        self._api_key_index = (self._api_key_index + 1) % len(self._api_keys)
-        self._update_client_key()
-        return True
+        rotated = self._key_pool.rotate(reason)
+        if rotated:
+            self._update_client_key()
+            import logging
+            logging.getLogger(__name__).debug(
+                "Rotated API key (%s): %d/%d keys available.",
+                reason,
+                self._key_pool.available_count(),
+                len(self._key_pool),
+            )
+        return rotated
+
+    def report_key_failure(
+        self,
+        reason: str,
+        status_code: int | None = None,
+    ) -> None:
+        if hasattr(self, "_key_pool"):
+            self._key_pool.mark_failure(reason, status_code)
+
+    def key_health(self) -> list[dict]:
+        if not hasattr(self, "_key_pool"):
+            return []
+        return self._key_pool.snapshot()
 
     def _update_client_key(self) -> None:
         pass
@@ -353,8 +377,24 @@ class SanitizingProviderWrapper(LLMProvider):
     def model(self) -> str:
         return self._provider.model
 
-    def rotate_key(self) -> bool:
-        return self._provider.rotate_key()
+    def rotate_key(self, reason: str = "") -> bool:
+        try:
+            return self._provider.rotate_key(reason)
+        except TypeError:
+            return self._provider.rotate_key()
+
+    def report_key_failure(
+        self,
+        reason: str,
+        status_code: int | None = None,
+    ) -> None:
+        if hasattr(self._provider, "report_key_failure"):
+            self._provider.report_key_failure(reason, status_code)
+
+    def key_health(self) -> list[dict]:
+        if hasattr(self._provider, "key_health"):
+            return self._provider.key_health()
+        return []
 
     @property
     def supports_thinking(self) -> bool:
