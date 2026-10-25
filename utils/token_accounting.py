@@ -124,6 +124,16 @@ class TokenLedger:
         self.measured_at: int | None = None
         self.samples = 0
         self.last_model = ""
+        # K-27: cumulative totals for the whole conversation.
+        self.session_prompt_tokens = 0
+        self.session_completion_tokens = 0
+        self.session_total_tokens = 0
+        self.session_cache_read_tokens = 0
+        self.session_cache_write_tokens = 0
+        self.session_requests = 0
+        self.session_priced_requests = 0
+        self.session_cost = 0.0
+        self.last_cost: float | None = None
 
     def mark_request(self, message_count: int) -> None:
         """Remember how much history was sent (used when no usage arrives)."""
@@ -134,8 +144,14 @@ class TokenLedger:
         usage: Any,
         message_count: int | None = None,
         model: str = "",
+        price: Any = None,
     ) -> bool:
-        """Record one provider response. Returns True when real numbers landed."""
+        """Record one provider response. Returns True when real numbers landed.
+
+        ``price`` is an optional ``utils.cost_accounting.ModelPrice``; without
+        one the response still counts towards the session totals but its cost
+        stays unknown (``last_cost is None``).
+        """
         normalized = normalize_usage(usage)
         if not normalized:
             return False
@@ -150,7 +166,31 @@ class TokenLedger:
         self.last_model = model or self.last_model
         self.samples += 1
         self._pending_mark = None
+        self._accumulate(normalized, price)
         return True
+
+    def _accumulate(self, normalized: dict[str, int], price: Any) -> None:
+        self.session_prompt_tokens += normalized["prompt_tokens"]
+        self.session_completion_tokens += normalized["completion_tokens"]
+        self.session_total_tokens += normalized["total_tokens"]
+        self.session_cache_read_tokens += normalized["cache_read_tokens"]
+        self.session_cache_write_tokens += normalized["cache_write_tokens"]
+        self.session_requests += 1
+        self.last_cost = None
+        if price is None:
+            return
+        try:
+            from utils.cost_accounting import estimate_cost
+
+            cost = estimate_cost(normalized, price)
+        except Exception:  # accounting must never break a turn
+            import logging
+            logging.getLogger(__name__).debug("cost estimate failed", exc_info=True)
+            cost = None
+        if cost is not None:
+            self.last_cost = cost
+            self.session_cost += cost
+            self.session_priced_requests += 1
 
     @property
     def has_real_usage(self) -> bool:
@@ -187,4 +227,34 @@ class TokenLedger:
             "total_tokens": self.last_total_tokens,
             "samples": self.samples,
             "model": self.last_model,
+        }
+
+    def usage_report(self) -> dict[str, Any]:
+        """Last-response and cumulative session usage, plus estimated cost.
+
+        ``cost_known`` is False until at least one response had a price, so
+        callers can print "cost unknown" instead of a misleading ``0``.
+        """
+        return {
+            "last": {
+                "prompt_tokens": self.last_prompt_tokens,
+                "completion_tokens": self.last_completion_tokens,
+                "total_tokens": self.last_total_tokens,
+                "cache_read_tokens": self.cache_read_tokens,
+                "cache_write_tokens": self.cache_write_tokens,
+                "reasoning_tokens": self.reasoning_tokens,
+                "cost": self.last_cost,
+            },
+            "session": {
+                "prompt_tokens": self.session_prompt_tokens,
+                "completion_tokens": self.session_completion_tokens,
+                "total_tokens": self.session_total_tokens,
+                "cache_read_tokens": self.session_cache_read_tokens,
+                "cache_write_tokens": self.session_cache_write_tokens,
+                "requests": self.session_requests,
+                "cost": self.session_cost,
+                "priced_requests": self.session_priced_requests,
+            },
+            "model": self.last_model,
+            "cost_known": self.session_priced_requests > 0,
         }

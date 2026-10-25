@@ -26,6 +26,14 @@ def default_config() -> dict:
             "rate_limit_cooldown_seconds": 60,
             "default_cooldown_seconds": 300,
         },
+        # K-27: usage/cost accounting. "prices" overrides map a model id to
+        # USD per 1M tokens: {"input": 3.0, "output": 15.0, "cache_read": 0.3,
+        # "cache_write": 3.75} or a two-number list [input, output].
+        "cost_tracking": {
+            "enabled": True,
+            "currency": "USD",
+            "prices": {},   # optional per-model overrides, USD per 1M tokens
+        },
         "providers": {
             "openai":      {"api_key": "", "base_url": "https://api.openai.com/v1"},
             "anthropic":   {"api_key": "", "base_url": "https://api.anthropic.com"},

@@ -655,6 +655,16 @@ def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any
         return _model_metadata_cache or {}
 
 
+def cached_model_metadata() -> Dict[str, Dict[str, Any]]:  # noqa: UP006 — module typing style
+    """Return the in-memory model metadata cache without any network call.
+
+    Accounting paths (K-27) price a model with this so a lookup can never add
+    an HTTP request to a running turn; an empty cache simply means "no catalog
+    price", and the caller falls back to its own table.
+    """
+    return dict(_model_metadata_cache)
+
+
 def fetch_endpoint_model_metadata(
     base_url: str,
     api_key: str = "",
