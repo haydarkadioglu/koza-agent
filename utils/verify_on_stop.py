@@ -17,7 +17,7 @@ import re
 
 # Tools that can change code on disk.
 _MUTATING_TOOLS = frozenset({
-    "write_file", "patch_file", "create_project", "extract_project",
+    "write_file", "patch_file", "koza_edit", "create_project", "extract_project",
     "run_script", "format_code",
 })
 

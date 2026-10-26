@@ -204,7 +204,8 @@ Rules:
 - Before final response, run a self-audit against the minimum output checklist. If any item is missing, edit the files and verify again before answering.
 - Search the web only for needed live facts, references, or assets. A search result is not the final answer for a build request; the final artifact must be files/code.
 - Read the existing codebase before editing. Use `search_files` (regex grep) to find functions, imports, and patterns.
-- Use `patch_file` for targeted edits instead of rewriting entire files.
+- Use `koza_edit` for targeted edits instead of rewriting entire files: it tolerates indentation/whitespace drift in the anchor and takes several hunks in one all-or-nothing call.
+- `patch_file` remains for a single exact replacement.
 - Use `format_code` to auto-format (black for Python, prettier for JS/TS).
 - Use `lint_code` for quick syntax/style checks.
 - Use `run_tests` to verify changes. Auto-detects pytest/jest.

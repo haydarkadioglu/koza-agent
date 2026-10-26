@@ -55,6 +55,7 @@ class StreamRenderer:
         "create_file": "Creating file", "delete_file": "Deleting file",
         "move_file": "Moving file", "copy_file": "Copying file",
         "append_file": "Appending to file", "patch_file": "Patching file",
+        "koza_edit": "Editing file",
         "search_files": "Searching files", "find_files": "Finding files",
         "run_bash": "Running bash", "execute": "Executing command",
         "run_script": "Running script", "run_code": "Running code",

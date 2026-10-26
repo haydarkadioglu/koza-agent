@@ -64,7 +64,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "web":        ["web_search", "fetch_url", "browser_task"],
     "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot",
                    "create_project", "list_projects", "extract_project",
-                   "patch_file", "search_files", "format_code", "lint_code", "run_tests", "read_file_range"],
+                   "patch_file", "koza_edit", "search_files", "format_code", "lint_code", "run_tests", "read_file_range"],
     "kanban":     ["create_task", "create_task_plan", "list_tasks", "move_task", "update_task", "delete_task"],
     "cron":       ["create_cron", "create_once_cron", "list_crons", "delete_cron"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
