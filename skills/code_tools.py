@@ -3,12 +3,14 @@ Code Tools — patch, search, format, lint, and test utilities for coding workfl
 
 Extends Koza's basic code execution with professional-grade code manipulation:
 - patch_file: find-and-replace specific text in existing files
+- koza_edit: multi-hunk, whitespace-tolerant find-and-replace (all-or-nothing)
 - search_files: regex/grep search across project files
 - format_code: auto-format Python (black) and JS/TS (prettier)
 - lint_code: syntax and style checks
 - run_tests: run test suites with output capture
 - read_file_range: read specific line ranges from files
 """
+import difflib
 import json
 import os
 import re
@@ -135,6 +137,104 @@ def patch_file(path: str, old_string: str, new_string: str, count: int = 1) -> s
         )
     except Exception as e:
         return f"❌ Error: {e}"
+
+
+# ─── Tool: koza_edit ──────────────────────────────────────────────────────────
+
+_EDIT_DIFF_MAX_LINES = 40
+
+
+def koza_edit(path: str, edits: list[dict], dry_run: bool = False) -> str:
+    """Apply one or more find-and-replace hunks to a file, all-or-nothing.
+
+    Each hunk is matched with the fuzzy strategy chain in utils.fuzzy_edit, so
+    indentation or whitespace drift in the anchor does not cause a miss.
+    Hunks are applied in order in memory; the file is written once, and only
+    if every hunk succeeded.
+
+    Args:
+        path: File path.
+        edits: List of {"old_string", "new_string", "replace_all"?} dicts.
+        dry_run: If True, return the preview diff without writing.
+
+    Returns:
+        Summary with a diff preview, or the failing hunk and its error.
+    """
+    from utils.fuzzy_edit import apply_edit
+
+    if isinstance(edits, str):
+        try:
+            edits = json.loads(edits)
+        except ValueError:
+            pass
+    if not isinstance(edits, list) or not edits:
+        return "❌ edits must be a non-empty list of {old_string, new_string} objects"
+    for i, e in enumerate(edits, 1):
+        if not isinstance(e, dict):
+            return f"❌ Edit failed at hunk {i}: each hunk must be an object with old_string and new_string\n   No changes written."
+        if not isinstance(e.get("old_string"), str) or not isinstance(e.get("new_string"), str):
+            return f"❌ Edit failed at hunk {i}: old_string and new_string are required strings\n   No changes written."
+
+    try:
+        p = _resolve(path)
+        if not p.exists():
+            return f"❌ File not found: {p}"
+        if not p.is_file():
+            return f"❌ Not a regular file: {p}"
+
+        raw = p.read_bytes()
+        try:
+            original = raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            return (f"❌ {p.name} is not valid UTF-8 (byte {e.start}); koza_edit only edits "
+                    "UTF-8 text files. No changes written.")
+
+        # Edit CRLF files as LF so anchors and replacements line up, then restore.
+        crlf = "\r\n" in original and "\n" not in original.replace("\r\n", "")
+        content = original.replace("\r\n", "\n") if crlf else original
+
+        notes = []
+        total = 0
+        for i, e in enumerate(edits, 1):
+            res = apply_edit(content, e["old_string"], e["new_string"], bool(e.get("replace_all", False)))
+            if not res.ok:
+                return f"❌ Edit failed at hunk {i}: {res.error}\n   No changes written."
+            content = res.content
+            total += res.replacements
+            if res.strategy != "exact":
+                notes.append(f"  hunk {i}: {res.strategy}")
+
+        if crlf:
+            content = content.replace("\n", "\r\n")
+        if content == original:
+            return f"❌ Edits to {p.name} cancel out; nothing would change.\n   No changes written."
+
+        diff = [
+            line.rstrip("\r\n")
+            for line in difflib.unified_diff(
+                original.splitlines(keepends=True), content.splitlines(keepends=True),
+                fromfile=f"a/{p.name}", tofile=f"b/{p.name}", n=2,
+            )
+        ]
+        if len(diff) > _EDIT_DIFF_MAX_LINES:
+            extra = len(diff) - _EDIT_DIFF_MAX_LINES
+            diff = diff[:_EDIT_DIFF_MAX_LINES] + [f"... ({extra} more diff lines)"]
+
+        if dry_run:
+            header = f"✅ Dry run for {p.name}: {len(edits)} hunk(s), {total} replacement(s) — no changes written"
+        else:
+            p.write_bytes(content.encode("utf-8"))
+            header = f"✅ Edited {p.name}: {len(edits)} hunk(s), {total} replacement(s)"
+
+        return "\n".join([header, f"   Path: {p}", *diff, *notes])
+    except OSError as e:
+        return f"❌ Error: {e}"
+
+
+def _as_bool(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
 
 
 # ─── Tool: search_files ───────────────────────────────────────────────────────
@@ -398,6 +498,31 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "koza_edit",
+        "description": "Edit a file with one or more find-and-replace hunks in a single call. Tolerates indentation/whitespace drift, escaped \\n and typographic quotes/dashes in old_string; refuses ambiguous matches. All-or-nothing: if any hunk fails, nothing is written. Shows a diff.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to edit"},
+                "edits": {
+                    "type": "array",
+                    "description": "Hunks applied in order; a later hunk sees the text produced by earlier ones.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_string": {"type": "string", "description": "Text to find. Must match one place unless replace_all is true."},
+                            "new_string": {"type": "string", "description": "Replacement text"},
+                            "replace_all": {"type": "boolean", "default": False, "description": "Replace every exact occurrence"},
+                        },
+                        "required": ["old_string", "new_string"],
+                    },
+                },
+                "dry_run": {"type": "boolean", "default": False, "description": "Preview the diff without writing"},
+            },
+            "required": ["path", "edits"],
+        },
+    },
+    {
         "name": "search_files",
         "description": "Search for a regex pattern across files. Like grep but searches entire codebase. Use to find function definitions, imports, or any text pattern.",
         "parameters": {
@@ -464,6 +589,7 @@ TOOL_DEFINITIONS = [
 
 HANDLERS: dict = {
     "patch_file":      lambda path, old_string, new_string, count=1: patch_file(path, old_string, new_string, int(count)),
+    "koza_edit":       lambda path, edits, dry_run=False: koza_edit(path, edits, _as_bool(dry_run)),
     "search_files":    lambda pattern, path=".", file_glob="", context=0, output_mode="content": search_files(pattern, path, file_glob, int(context), output_mode),
     "format_code":     lambda path, check_only=False: format_code(path, check_only),
     "lint_code":       lambda path: lint_code(path),
