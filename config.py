@@ -148,6 +148,11 @@ def default_config() -> dict:
             "max_retries": 1,      # how many shortened retries before giving up
             "keep_recent_messages": 12,  # verbatim tail preserved when older turns are dropped
         },
+        "clarify": {                 # mid-turn structured questions to the user
+            "enabled": True,         # False = ask_user always reports "undelivered"
+            "timeout_seconds": 300,  # how long one ask_user call waits for the answer
+            "allow_other": True,     # surfaces may offer a free-text "Other" answer
+        },
         "self_improvement": {
             "enabled": True,
         },

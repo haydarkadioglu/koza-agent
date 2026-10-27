@@ -518,6 +518,20 @@ async def _process_message(update, context, agent_factory: Callable,
         )
     agent = _get_or_create_agent(chat_id, agent_factory, permission_cb=permission_cb)
 
+    # ── ask_user: route mid-turn questions to this chat (K-35) ───────────────
+    # The handler is not cleared after the turn: a later turn replaces it, and
+    # clearing it here would race the tool thread still waiting on an answer.
+    if bot_loop:
+        try:
+            from bots.telegram_clarify import make_clarify_handler
+            from utils.clarify import GATEWAY
+            GATEWAY.set_handler(
+                make_clarify_handler(chat_id, context.bot, bot_loop, kb_manager),
+                owner=f"telegram:{chat_id}",
+            )
+        except Exception:
+            logger.debug("ask_user Telegram handler not installed", exc_info=True)
+
     # ── LLM-driven background delegation (Telegram only) ─────────────────────
     # If the router decides this is a long-running task, spawn a sub-agent
     # in the background and notify the user when it completes.
@@ -919,6 +933,27 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
                 return
 
             parts = data.split(":", 2)
+
+            # Handle ask_user buttons (format: "clarify:<reqid>:<qid>:<index|skip>")
+            if data.startswith("clarify:"):
+                try:
+                    from bots.telegram_clarify import resolve_from_callback
+                    _, _req_id, _qid, _choice = data.split(":", 3)
+                    confirmation = resolve_from_callback(_req_id, _qid, _choice)
+                except Exception:
+                    logger.debug("clarify callback failed", exc_info=True)
+                    confirmation = None
+                if confirmation is None:
+                    try:
+                        await query.edit_message_text("⏰ This question has expired.")
+                    except Exception:
+                        pass
+                    return
+                try:
+                    await query.edit_message_text(confirmation)
+                except Exception:
+                    logger.debug("clarify callback edit failed", exc_info=True)
+                return
 
             # Handle choice buttons (format: "choice::{selected_option}")
             if data.startswith("choice::"):
