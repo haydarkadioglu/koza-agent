@@ -985,6 +985,10 @@ class Agent:
         self._compressor_cache: tuple[tuple, "ContextCompressor"] | None = None  # noqa: UP037
         from utils.untrusted_content import UntrustedContentPolicy
         self._untrusted_policy = UntrustedContentPolicy.from_config(self.cfg)
+        # K-27: cost accounting policy and per-model price cache.
+        from utils.cost_accounting import CostPolicy
+        self._cost_policy = CostPolicy.from_config(self.cfg)
+        self._price_cache: dict = {}
         # tool_search bridge state (K-06): tools the model activated this turn,
         # and the names currently visible to the model (search exclusion set).
         self._activated_tools: set[str] = set()
@@ -1141,6 +1145,86 @@ class Agent:
             ledger = TokenLedger()
             self._token_ledger = ledger
         return ledger
+
+    def _cost_policy_for_turn(self):
+        """Return the cost policy, building it for ``Agent.__new__`` agents (K-27)."""
+        policy = getattr(self, "_cost_policy", None)
+        if policy is None:
+            from utils.cost_accounting import CostPolicy
+            policy = CostPolicy.from_config(getattr(self, "cfg", None) or {})
+            self._cost_policy = policy
+        return policy
+
+    def _price_for_model(self, model: str):
+        """Resolve (and cache per model id) the price used for cost estimates.
+
+        Fail-open: any error reads as "cost unknown" (``None``).
+        """
+        if not model:
+            return None
+        try:
+            policy = self._cost_policy_for_turn()
+            if not policy.enabled:
+                return None
+            cache = getattr(self, "_price_cache", None)
+            if cache is None:
+                cache = {}
+                self._price_cache = cache
+            if model in cache:
+                return cache[model]
+            from utils.cost_accounting import resolve_price
+
+            def _catalog(model_id: str):
+                # Cache-only lookup: the in-memory OpenRouter catalog, never a
+                # fetch, so pricing cannot add an HTTP request to a live turn.
+                from utils.model_metadata import cached_model_metadata
+                metadata = cached_model_metadata() or {}
+                return metadata.get(model_id) or metadata.get(model_id.rsplit("/", 1)[-1])
+
+            price = resolve_price(model, policy, catalog=_catalog)
+            cache[model] = price
+            return price
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("price lookup failed for %s", model, exc_info=True)
+            return None
+
+    def _log_turn_usage(self, turn_start: dict | None) -> None:
+        """Log one debug line with this turn's and the session's usage (K-27)."""
+        try:
+            policy = self._cost_policy_for_turn()
+            if not policy.enabled:
+                return
+            session = self._token_ledger_for_turn().usage_report()["session"]
+            start = turn_start or {}
+            turn = {key: session[key] - start.get(key, 0) for key in session}
+            if not turn.get("requests"):
+                return
+            from utils.cost_accounting import format_cost
+
+            def _cost(totals: dict) -> str:
+                if not totals.get("priced_requests"):
+                    return "cost unknown"
+                return "~" + format_cost(totals.get("cost", 0.0), policy.currency)
+
+            line = (
+                f"usage: {turn['prompt_tokens']:,} in / {turn['completion_tokens']:,} out"
+                + (f" ({turn['cache_read_tokens']:,} cached)" if turn["cache_read_tokens"] else "")
+                + f" · {_cost(turn)} this turn · {_cost(session)} session"
+            )
+            import logging
+            logging.getLogger(__name__).debug(line)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("turn usage log failed", exc_info=True)
+
+    def usage_report(self) -> dict:
+        """Token usage and estimated cost for this conversation (K-27)."""
+        report = self._token_ledger_for_turn().usage_report()
+        if not report.get("model"):
+            provider = getattr(self, "provider", None)
+            report["model"] = str(getattr(provider, "model", "") or "") if provider is not None else ""
+        return report
 
     def _maybe_compress_context(self) -> None:
         """Summarise middle turns when the conversation nears the context window.
@@ -1488,6 +1572,12 @@ class Agent:
             self._stream_lock.acquire()
 
         try:
+            _usage_at_turn_start = dict(self._token_ledger_for_turn().usage_report()["session"])
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("usage snapshot failed", exc_info=True)
+            _usage_at_turn_start = None
+        try:
             MAX_ROUNDS = 25  # safety cap — allows complex multi-step tasks
             MAX_INVALID_JSON_RETRIES = 3
             # Verify-on-stop gate (K-08): watches this turn's tool calls so a
@@ -1549,10 +1639,13 @@ class Agent:
                                 _tool_buf[idx]["args"] += item.get("args_chunk", "")
                             elif isinstance(item, dict) and item.get("__usage__"):
                                 # K-15: exact provider accounting for this request.
+                                # K-27: priced so the session cost accumulates.
+                                _usage_model = str(getattr(self.provider, "model", "") or "")
                                 self._token_ledger_for_turn().record(
                                     item["__usage__"],
                                     message_count=len(self.messages),
-                                    model=str(getattr(self.provider, "model", "") or ""),
+                                    model=_usage_model,
+                                    price=self._price_for_model(_usage_model),
                                 )
                             elif isinstance(item, dict) and item.get("__finish_reason__"):
                                 _finish_reason = item["__finish_reason__"]
@@ -2312,6 +2405,7 @@ class Agent:
                 # loop → ask model again with tool results
 
         finally:
+            self._log_turn_usage(_usage_at_turn_start)
             self._busy = False
             self._cancel.clear()
             if hasattr(self, "_stream_lock") and self._stream_lock.locked():
