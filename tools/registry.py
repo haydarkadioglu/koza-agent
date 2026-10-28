@@ -45,7 +45,7 @@ from skills import (
     productivity, research, security, smarthome, social,
     session_memory, messaging, shared_memory, working_memory,
     config_manager, image_gen, sync, skill_ecosystem, vision, delegation, repo_manager, code_tools,
-    reminder, user_profile, brain_skill, hands_skill, flow_skill
+    reminder, user_profile, brain_skill, hands_skill, flow_skill, clarify
 )
 
 
@@ -105,6 +105,7 @@ _STATIC_TOOLS: list[dict] = _normalize(
     + vision.TOOL_DEFINITIONS
     + reminder.TOOL_DEFINITIONS
     + user_profile.TOOL_DEFINITIONS
+    + clarify.TOOL_DEFINITIONS
 )
 
 _STATIC_HANDLERS: dict[str, Callable] = {
@@ -150,6 +151,7 @@ _STATIC_HANDLERS: dict[str, Callable] = {
     **vision.HANDLERS,
     **reminder.HANDLERS,
     **user_profile.HANDLERS,
+    **clarify.HANDLERS,
 }
 
 STATIC_SKILL_MODULES = {
@@ -193,6 +195,7 @@ STATIC_SKILL_MODULES = {
     "code_tools": code_tools,
     "reminder": reminder,
     "user_profile": user_profile,
+    "clarify": clarify,
 }
 
 _REGISTRY_INITIALIZED = True

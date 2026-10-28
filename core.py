@@ -305,6 +305,7 @@ _CORE_TOOL_NAMES: set[str] = {
     "get_config", "set_config",
     "wm_list", "wm_get", "wm_add",
     "enable_core_skill", "disable_core_skill", "list_core_skills",
+    "ask_user",
 }
 
 def _tool_name(t: dict) -> str:
