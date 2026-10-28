@@ -199,6 +199,13 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
 
     agent.permission_callback = make_permission_callback(cfg)
 
+    try:
+        from cli.clarify_cli import install_clarify_handler
+        install_clarify_handler()
+    except Exception:
+        import logging as _logging
+        _logging.getLogger(__name__).debug("ask_user CLI handler not installed", exc_info=True)
+
     def _on_tool_progress(event_type: str, name: str, preview: str = "", args: dict = None, **kwargs):
         renderer = _ui_renderer[0]
         if renderer is not None:
