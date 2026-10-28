@@ -54,7 +54,12 @@ def default_config() -> dict:
             "lm_studio":   {"base_url": "http://localhost:1234/v1"},
         },
         "messaging": {
-            "telegram":  {"token": "", "chat_id": ""},
+            "telegram":  {
+                "token": "", "chat_id": "",
+                # Voice notes arriving on Telegram are transcribed with the configured
+                # voice.stt provider before the agent sees them.
+                "voice_notes": {"enabled": True, "max_seconds": 300, "timeout_seconds": 120},
+            },
             "discord":   {"webhook_url": "", "token": "", "channel_id": ""},
             "whatsapp":  {"account_sid": "", "auth_token": "", "from": "whatsapp:+14155238886", "to": ""},
             "twilio": {
