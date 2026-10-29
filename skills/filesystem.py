@@ -20,7 +20,8 @@ TOOL_DEFINITIONS = [
             "name": "read_file",
             "description": (
                 "Read the contents of a file. "
-                "PDF files are automatically extracted to text with pypdf. "
+                "PDF files are automatically extracted to text with pypdf; "
+                "DOCX, XLSX, PPTX, ODT and EPUB documents are extracted to plain text. "
                 "Use absolute paths (e.g. /home/user/file.txt or C:/Users/user/file.txt). "
                 "Use '~' to refer to the user's home directory (e.g. ~/file.txt). "
                 "Relative paths resolve from the current working directory (NOT home)."
@@ -28,6 +29,23 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string", "description": "Absolute or relative file path. Use ~ for home directory."}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document",
+            "description": (
+                "Extract the text of a Word (.docx), Excel (.xlsx), PowerPoint (.pptx), "
+                "OpenDocument Text (.odt) or EPUB (.epub) file. "
+                "Spreadsheets are rendered as tab-separated rows per sheet, slides under '# Slide N' headers, "
+                "tables as 'cell | cell' rows. For PDF files use read_file instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Absolute or relative document path. Use ~ for home directory."}},
                 "required": ["path"],
             },
         },
@@ -133,13 +151,55 @@ def _read_pdf(path: Path) -> str:
         return f"ERROR reading PDF: {e}"
 
 
+def _read_document(path: Path) -> str:
+    """Extract text from a DOCX/XLSX/PPTX/ODT/EPUB file (stdlib zip + XML parsing)."""
+    kind = path.suffix.lstrip(".").upper() or "document"
+    try:
+        from utils.document_extract import (
+            DocumentExtractionError,
+            extract_document,
+            extract_document_kind,
+        )
+    except Exception as e:  # noqa: BLE001
+        return f"ERROR reading document: {e}"
+
+    try:
+        kind = extract_document_kind(path)
+        body = extract_document(path)
+        return f"{kind}: {path}\n\n{body}"
+    except DocumentExtractionError as e:
+        return f"ERROR reading {kind}: {e}"
+    except Exception as e:  # noqa: BLE001
+        return f"ERROR reading document: {e}"
+
+
 def read_file(path: str) -> str:
     try:
+        from utils.document_extract import is_supported_document
+
         p = _resolve(path)
         if p.suffix.lower() == ".pdf":
             return _read_pdf(p)
+        if is_supported_document(p):
+            return _read_document(p)
         return p.read_text(encoding="utf-8")
     except Exception as e:
+        return f"ERROR: {e}"
+
+
+def read_document(path: str) -> str:
+    try:
+        from utils.document_extract import SUPPORTED_EXTENSIONS, is_supported_document
+
+        p = _resolve(path)
+        if not is_supported_document(p):
+            supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            return (
+                f"ERROR: unsupported document type '{p.suffix.lower() or '(none)'}'; "
+                f"read_document handles {supported} (use read_file for PDF and plain-text files)"
+            )
+        return _read_document(p)
+    except Exception as e:  # noqa: BLE001
         return f"ERROR: {e}"
 
 
@@ -193,6 +253,7 @@ def delete_file(path: str, recursive: bool = False) -> str:
 
 HANDLERS = {
     "read_file": read_file,
+    "read_document": read_document,
     "write_file": write_file,
     "list_dir": list_dir,
     "create_dir": create_dir,

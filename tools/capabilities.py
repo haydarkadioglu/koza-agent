@@ -9,7 +9,7 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
     "browser": ["fetch_url", "web_search", "browser_task"],
 
     # Local filesystem operations
-    "files": ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
+    "files": ["read_file", "read_document", "write_file", "list_dir", "create_dir", "delete_file"],
 
     # Code execution
     "code": ["run_python", "run_node", "run_command", "run_script", "start_tracked_coding_task",

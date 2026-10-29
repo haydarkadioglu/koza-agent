@@ -46,7 +46,7 @@ _PARALLEL_SAFE_TOOLS = {
     "web_search", "fetch_url",
     "memory_recall", "memory_store",
     "get_config", "set_config",
-    "read_file", "list_dir",
+    "read_file", "read_document", "list_dir",
     "wm_list", "wm_get", "wm_add"
 }
 
@@ -59,7 +59,7 @@ _SYSTEM_CAPS: dict = {}
 # If the user message matches none, we send ALL_TOOLS (safe fallback).
 
 _TOOL_GROUPS: dict[str, list[str]] = {
-    "file":       ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
+    "file":       ["read_file", "read_document", "write_file", "list_dir", "create_dir", "delete_file"],
     "shell":      ["run_command"],
     "web":        ["web_search", "fetch_url", "browser_task"],
     "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot",

@@ -36,6 +36,7 @@ class StreamRenderer:
         "browser_task": "Using browser",
         "run_command": "Running command", "run_python": "Running Python",
         "run_node": "Running Node.js", "read_file": "Reading file",
+        "read_document": "Reading document",
         "write_file": "Writing file", "list_dir": "Listing directory",
         "send_message": "Sending message", "telegram_send": "Sending Telegram",
         "discord_send": "Sending Discord", "whatsapp_send": "Sending WhatsApp",
