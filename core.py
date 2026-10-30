@@ -33,7 +33,7 @@ _PARALLEL_SAFE_TOOLS = {
     "web_search", "fetch_url",
     "memory_recall", "memory_store",
     "get_config", "set_config",
-    "read_file", "list_dir",
+    "read_file", "read_document", "list_dir",
     "wm_list", "wm_get", "wm_add"
 }
 
@@ -100,7 +100,7 @@ _STREAM_KEY_RETRY_LIMIT = 5
 # If the user message matches none, we send ALL_TOOLS (safe fallback).
 
 _TOOL_GROUPS: dict[str, list[str]] = {
-    "file":       ["read_file", "write_file", "list_dir", "create_dir", "delete_file"],
+    "file":       ["read_file", "read_document", "write_file", "list_dir", "create_dir", "delete_file"],
     "shell":      ["run_command"],
     "web":        ["web_search", "fetch_url", "browser_task"],
     "code":       ["run_python", "run_node", "run_script", "run_jupyter_cell", "pandas_query", "matplotlib_plot",
@@ -451,7 +451,7 @@ class ToolLoopGuardrail:
     loop replayed from a later message is caught too.
     """
     IDEMPOTENT_TOOLS = frozenset({
-        "read_file", "read_file_range", "search_files", "find_files", "list_dir",
+        "read_file", "read_document", "read_file_range", "search_files", "find_files", "list_dir",
         "web_search", "fetch_url", "memory_recall", "memory_search",
         "get_config", "list_tasks", "list_crons", "list_subagents", "get_subagent_status",
         "email_log", "list_core_skills", "plugin_list"

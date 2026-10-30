@@ -13,7 +13,7 @@ SAFE_TOOLS: frozenset[str] = frozenset({
     # Web & search
     "web_search", "fetch_url",
     # Filesystem (excluding modification tools)
-    "list_dir", "read_file", "create_dir",
+    "list_dir", "read_file", "read_document", "create_dir",
     "search_files", "get_cwd", "list_projects",
     # Shell / code (none are auto-approved)
     # Memory
