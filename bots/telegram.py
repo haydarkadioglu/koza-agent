@@ -16,6 +16,7 @@ from typing import Dict, Callable
 
 from skills.agents.background import BackgroundTaskManager, _background_tasks
 from cli.i18n import _T
+from utils.stream_fences import ensure_closed_fences, split_fenced
 
 logger = logging.getLogger(__name__)
 
@@ -133,14 +134,8 @@ def _markdown_to_html(text: str) -> str:
     # Normalise carriage returns
     text = text.replace('\r\n', '\n')
 
-    # Self-correcting for code blocks in streaming:
-    # If there is an odd number of ```, append a closing fence.
-    if text.count('```') % 2 != 0:
-        text += '\n```'
-
-    # Similarly, if there is an odd number of inline code backticks, close it.
-    if text.count('`') % 2 != 0:
-        text += '`'
+    # Self-correcting for code blocks and inline code spans in streaming.
+    text = ensure_closed_fences(text)
 
     placeholders = {}
     counter = [0]
@@ -498,6 +493,73 @@ async def _process_message(update, context, agent_factory: Callable,
             else:
                 user_text = f"{file_info}\n" + _T("File saved. The user will specify what action to take.")
 
+    # ── Voice note / audio support (speech-to-text) ────────────────────────
+    elif msg and (msg.voice or msg.audio):
+        media = msg.voice or msg.audio
+        duration = getattr(media, "duration", 0) or 0
+        vn_cfg = ((_bot_cfg or {}).get("messaging", {}).get("telegram", {}).get("voice_notes") or {})
+        vn_enabled = vn_cfg.get("enabled", True)
+        max_seconds = vn_cfg.get("max_seconds", 300)
+        timeout_seconds = vn_cfg.get("timeout_seconds", 120)
+
+        if not vn_enabled:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Voice notes are disabled. Set `messaging.telegram.voice_notes.enabled` to true in config.yaml.",
+            )
+            return
+        if max_seconds and duration > max_seconds:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Voice note is too long ({duration}s). The limit is {max_seconds}s.",
+            )
+            return
+
+        tg_file = await context.bot.get_file(media.file_id)
+        dl_dir = Path((_bot_cfg or {}).get("workspace_path", Path.home() / ".Koza" / "workspace")) / "downloads" / "telegram"
+        dl_dir.mkdir(parents=True, exist_ok=True)
+        if msg.voice:
+            filename = f"voice_{media.file_id[:8]}.ogg"
+        else:
+            original_name = getattr(media, "file_name", None) or ""
+            suffix = Path(re.sub(r"[^\w\.\-]", "_", original_name)).suffix if original_name else ""
+            filename = f"audio_{media.file_id[:8]}{suffix}"
+        dest = _unique_path(dl_dir, filename)
+        await tg_file.download_to_drive(str(dest))
+
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+        try:
+            from skills.voice import transcribe_audio_file
+            transcript = await asyncio.wait_for(
+                asyncio.to_thread(transcribe_audio_file, str(dest), _bot_cfg or {}),
+                timeout=timeout_seconds or None,
+            )
+            transcript = (transcript or "").strip()
+        except TimeoutError:
+            # The worker thread cannot be killed; abandon it and report.
+            logger.warning(f"Voice transcription timed out after {timeout_seconds}s (duration={duration}s)", exc_info=True)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"❌ Voice transcription failed: timed out after {timeout_seconds}s",
+            )
+            return
+        except Exception as e:
+            logger.warning(f"Voice transcription failed (duration={duration}s): {e}", exc_info=True)
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ Voice transcription failed: {e}")
+            return
+
+        if not transcript:
+            logger.warning(f"Voice transcription returned empty result (duration={duration}s)")
+            await context.bot.send_message(
+                chat_id=chat_id, text="Could not transcribe the voice note (empty result)."
+            )
+            return
+
+        logger.info(f"Voice note transcribed: duration={duration}s, chars={len(transcript)}")
+        user_text = f"[Voice note transcribed: {dest.name}, duration={duration}s]\n" + "User said:\n" + transcript
+        _recent_attachments_by_chat.setdefault(chat_id, []).append(dest.name)
+
     recent = _recent_attachments_by_chat.get(chat_id)
     if recent and not (msg and (msg.photo or msg.document)):
         files_list = "\n".join(f"- {f}" for f in recent)
@@ -681,9 +743,9 @@ async def _process_message(update, context, agent_factory: Callable,
 
         # Handle overflow
         if len(raw_display) > 4000:
-            raw_overflow = raw_display[4000:]
-            raw_display = raw_display[:4000]
-            
+            # Split without cutting a fenced code block in half
+            raw_display, raw_overflow = split_fenced(raw_display, 4000)
+
             # Flush the current part
             await _send_or_edit(raw_display)
             
@@ -1065,7 +1127,8 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
             logger.error(f"Telegram error: {context.error}", exc_info=context.error)
 
         app.add_handler(MessageHandler(
-            (filters.TEXT | filters.PHOTO | filters.Document.ALL | filters.CAPTION) & ~filters.COMMAND,
+            (filters.TEXT | filters.PHOTO | filters.Document.ALL | filters.CAPTION
+             | filters.VOICE | filters.AUDIO) & ~filters.COMMAND,
             on_message,
         ))
         app.add_handler(CallbackQueryHandler(on_callback_query))
