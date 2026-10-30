@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Core agent loop — tool-calling orchestration."""
 import hashlib
+import logging
 import shutil
 import sys
 import threading
@@ -22,20 +23,16 @@ from utils.json_utils import parse_tool_call_arguments
 from utils.key_health import should_rotate
 from utils.system_utils import _detect_capabilities
 from utils.token_accounting import TokenLedger
+from utils.tool_batch_planner import DEFAULT_PARALLEL_SAFE_TOOLS, plan_tool_batch
 from utils.tool_ids import uniquify_tool_call_ids
 
 if TYPE_CHECKING:
     from utils.context_compressor import ContextCompressor
 
+_log = logging.getLogger(__name__)
 
 
-_PARALLEL_SAFE_TOOLS = {
-    "web_search", "fetch_url",
-    "memory_recall", "memory_store",
-    "get_config", "set_config",
-    "read_file", "read_document", "list_dir",
-    "wm_list", "wm_get", "wm_add"
-}
+_PARALLEL_SAFE_TOOLS = DEFAULT_PARALLEL_SAFE_TOOLS
 
 
 # ── Per-tool execution deadline & interruptibility ───────────────────────────
@@ -2125,254 +2122,26 @@ class Agent:
 
                 # ── Execute each tool call ────────────────────────────────────────
                 permanent_failure = False
-                
-                use_parallel = len(calls) > 1 and all(c["name"] in _PARALLEL_SAFE_TOOLS for c in calls)
-                
-                if use_parallel:
-                    denied_indices = set()
-                    for idx, call in enumerate(calls):
-                        name, args = call["name"], call["arguments"]
-                        if self.permission_callback and not self.permission_callback(name, args):
-                            denied_indices.add(idx)
-                            yield {"type": "tool_denied", "name": name}
-                            self.messages.append({
-                                "role": "tool",
-                                "tool_call_id": call["id"],
-                                "name": name,
-                                "content": "Permission denied by user.",
-                            })
-                    
-                    parallel_calls = [(idx, c) for idx, c in enumerate(calls) if idx not in denied_indices]
-                    
-                    if parallel_calls:
-                        non_blocked_parallel_calls = []
-                        blocked_results = {}
-                        for idx, call in parallel_calls:
-                            name, args = call["name"], call["arguments"]
-                            blocked, synth_err = self._guardrail.before_call(name, args)
-                            if blocked:
-                                blocked_results[call["id"]] = synth_err
-                            else:
-                                non_blocked_parallel_calls.append((idx, call))
-
-                        for _, call in parallel_calls:
-                            name, args = call["name"], call["arguments"]
-                            yield {"type": "tool_start", "name": name, "args": args}
-                            if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
-                                try:
-                                    preview_parts = []
-                                    for pk, pv in list(args.items())[:3]:
-                                        if pk not in ("code", "script", "content", "text", "body"):
-                                            preview_parts.append(f"{pk}={repr(pv)[:30]}")
-                                    preview = ", ".join(preview_parts)
-                                    self.tool_progress_callback("tool.started", name, preview, args)
-                                except Exception:
-                                    pass
-                        
-                        # Each parallel call runs on its own daemon worker and
-                        # reports through a queue. A wedged tool can then be
-                        # abandoned instead of blocking the batch — an executor's
-                        # ``with`` block joins its workers on exit, so one hung
-                        # call used to freeze the whole round. This loop polls for
-                        # results, interruption and the per-call deadline.
-                        if non_blocked_parallel_calls:
-                            import queue as _queue
-
-                            timeout_s = _resolve_tool_timeout(self)
-                            results_q: _queue.Queue = _queue.Queue()
-                            started_at: dict = {}
-
-                            def _worker(call, _q=results_q):
-                                name, args = call["name"], call["arguments"]
-                                t0 = time.time()
-                                failed = False
-                                try:
-                                    res = self._execute_tool(name, args)
-                                except Exception as e:
-                                    import traceback
-                                    res = f"Error executing tool: {e}\n{traceback.format_exc()}"
-                                    failed = True
-                                _q.put((call["id"], res, time.time() - t0, failed))
-
-                            pending: dict = {}
-                            for idx, call in non_blocked_parallel_calls:
-                                pending[call["id"]] = call
-                                started_at[call["id"]] = time.time()
-                                threading.Thread(
-                                    target=_worker, args=(call,),
-                                    name=f"koza-tool-{call['name']}", daemon=True,
-                                ).start()
-
-                            completed_results = {}
-                            while pending:
-                                if self._cancel.is_set():
-                                    break
-                                try:
-                                    call_id, res, t_elapsed, _call_failed = results_q.get(
-                                        timeout=_SEQUENTIAL_INTERRUPT_POLL_SECONDS
-                                    )
-                                except _queue.Empty:
-                                    call_id = None
-                                    _call_failed = None
-
-                                if call_id is not None and call_id in pending:
-                                    call = pending.pop(call_id)
-                                    name, args = call["name"], call["arguments"]
-                                    # `failed` is the worker's own verdict when the handler
-                                    # raised; None means "not reported" (classify the text).
-                                    res = self._guardrail.after_call(
-                                        name, args, res, failed=(True if _call_failed else None)
-                                    )
-                                    completed_results[call_id] = (res, t_elapsed)
-                                    if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
-                                        try:
-                                            self.tool_progress_callback("tool.completed", name, str(res)[:300], args, duration=t_elapsed)
-                                        except Exception:
-                                            pass
-
-                                # Abandon any call that overran its deadline.
-                                if timeout_s is not None and pending:
-                                    now = time.time()
-                                    for cid in list(pending):
-                                        if now - started_at[cid] >= timeout_s:
-                                            overrun = pending.pop(cid)
-                                            # Abandoned on its deadline: a failure the
-                                            # executor already knows about, so the guardrail
-                                            # counts it without guessing from the text.
-                                            timed_out = _tool_timeout_message(overrun["name"], timeout_s)
-                                            completed_results[cid] = (
-                                                self._guardrail.after_call(
-                                                    overrun["name"], overrun["arguments"],
-                                                    timed_out, failed=True,
-                                                ),
-                                                timeout_s,
-                                            )
-
-                            for idx, call in non_blocked_parallel_calls:
-                                call_id = call["id"]
-                                if call_id in completed_results:
-                                    res, t_elapsed = completed_results[call_id]
-                                else:
-                                    res = "Tool execution cancelled or skipped."
-                                    t_elapsed = 0.0
-
-                                name, args = call["name"], call["arguments"]
-                                yield {"type": "tool_done", "name": name, "result": res, "elapsed": t_elapsed}
-                                res_str = str(res)
-                                self.messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": call_id,
-                                    "name": name,
-                                    # Mark external output as data, neutralized so pages cannot close the block.
-                                    "content": self._untrusted_policy.wrap(name, res_str),
-                                })
-                                if "PERMANENT FAILURE" in res_str:
-                                    permanent_failure = True
-                        
-                        for idx, call in parallel_calls:
-                            if call["id"] in blocked_results:
-                                name, args = call["name"], call["arguments"]
-                                res_str = blocked_results[call["id"]]
-                                yield {"type": "tool_done", "name": name, "result": res_str, "elapsed": 0.0}
-                                self.messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": call["id"],
-                                    "name": name,
-                                    "content": res_str,
-                                })
-                        if self._cancel.is_set():
-                            yield {"type": "interrupted"}
-                            return
-                else:
-                    for i, call in enumerate(calls):
-                        if self._cancel.is_set():
-                            for remaining_call in calls[i:]:
-                                self.messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": remaining_call["id"],
-                                    "name": remaining_call["name"],
-                                    "content": "Process interrupted by user.",
-                                })
-                            yield {"type": "interrupted"}
-                            return
-                        if self._guardrail.halt_decision is not None:
-                            # The guardrail ended the turn: stop evaluating the rest of this
-                            # batch. The calls that never ran still get a result, so every
-                            # tool_call_id stays paired in the transcript.
-                            self._append_skipped_tool_results(calls[i:])
-                            break
-                        name, args = call["name"], call["arguments"]
-                        
-                        # Check loop guardrail before call
-                        blocked, synth_err = self._guardrail.before_call(name, args)
-                        if blocked:
-                            yield {"type": "tool_start", "name": name, "args": args}
-                            yield {"type": "tool_done", "name": name, "result": synth_err, "elapsed": 0.0}
-                            self.messages.append({
-                                "role": "tool",
-                                "tool_call_id": call["id"],
-                                "name": name,
-                                "content": synth_err,
-                            })
-                            continue
-
-                        if self.permission_callback and not self.permission_callback(name, args):
-                            yield {"type": "tool_denied", "name": name}
-                            self.messages.append({
-                                "role": "tool",
-                                "tool_call_id": call["id"],
-                                "name": name,
-                                "content": "Permission denied by user.",
-                            })
-                            continue
-                        yield {"type": "tool_start", "name": name, "args": args}
-                        if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
-                            try:
-                                preview_parts = []
-                                for pk, pv in list(args.items())[:3]:
-                                    if pk not in ("code", "script", "content", "text", "body"):
-                                        preview_parts.append(f"{pk}={repr(pv)[:30]}")
-                                preview = ", ".join(preview_parts)
-                                self.tool_progress_callback("tool.started", name, preview, args)
-                            except Exception:
-                                pass
-                        # Per-call deadline + interrupt poll: a wedged tool is
-                        # abandoned instead of blocking the whole loop forever.
-                        result, t_elapsed, _outcome = self._run_tool_with_deadline(name, args)
-
-                        # Check loop guardrail after call. A call abandoned on its deadline is
-                        # a failure the executor already knows about, so it is reported as one
-                        # instead of being guessed from the result text.
-                        result = self._guardrail.after_call(
-                            name, args, result, failed=(True if _outcome == "timeout" else None)
-                        )
-
-                        if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
-                            try:
-                                self.tool_progress_callback("tool.completed", name, str(result)[:300], args, duration=t_elapsed)
-                            except Exception:
-                                pass
-                        yield {"type": "tool_done", "name": name, "result": result, "elapsed": t_elapsed}
-                        result_str = str(result)
-                        self.messages.append({
-                            "role": "tool",
-                            "tool_call_id": call["id"],
-                            "name": name,
-                            # Mark external output as data, neutralized so pages cannot close the block.
-                            "content": self._untrusted_policy.wrap(name, result_str),
-                        })
-                        if "PERMANENT FAILURE" in result_str:
-                            permanent_failure = True
-                        if _outcome == "interrupted":
-                            for remaining_call in calls[i + 1:]:
-                                self.messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": remaining_call["id"],
-                                    "name": remaining_call["name"],
-                                    "content": "Process interrupted by user.",
-                                })
-                            yield {"type": "interrupted"}
-                            return
+                _segments = plan_tool_batch(calls, settings=getattr(self, "cfg", None))
+                _seg_index = 0
+                while _seg_index < len(_segments):
+                    _kind, _segment = _segments[_seg_index]
+                    _rest = [c for _k, _seg in _segments[_seg_index + 1:] for c in _seg]
+                    if _kind == "parallel":
+                        _outcome, _pf = yield from self._run_parallel_batch(_segment)
+                    else:
+                        _outcome, _pf = yield from self._run_sequential_batch(_segment)
+                    permanent_failure = permanent_failure or _pf
+                    if _outcome == "interrupted" or self._cancel.is_set():
+                        # Answer the later segments before the event: consumers stop
+                        # iterating on `interrupted`, so nothing after it would run.
+                        self._append_interrupted_tool_results(_rest)
+                        yield {"type": "interrupted"}
+                        return
+                    if _outcome == "halt":
+                        self._append_skipped_tool_results(_rest)
+                        break
+                    _seg_index += 1
 
                 # ── Guardrail halt: end the turn instead of asking the model again ──
                 # Without this the loop simply kept going to MAX_ROUNDS, paying for a
@@ -2686,6 +2455,283 @@ class Agent:
                 "name": call["name"],
                 "content": _GUARDRAIL_HALT_SKIP_NOTE,
             })
+
+    def _append_interrupted_tool_results(self, calls: list) -> None:
+        """Pair every call a user interrupt stopped from running with a result."""
+        for call in calls:
+            self.messages.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "name": call["name"],
+                "content": "Process interrupted by user.",
+            })
+
+    def _run_parallel_batch(self, calls: list):
+        """Run one parallel segment; yields events, returns ``(outcome, permanent_failure)``.
+
+        ``outcome`` is ``"ok"``, ``"halt"`` or ``"interrupted"``. Every call in
+        ``calls`` is answered here, in call order; the caller answers later
+        segments and emits the ``interrupted`` event.
+        """
+        import time
+
+        permanent_failure = False
+        first_result = len(self.messages)
+
+        denied_indices = set()
+        for idx, call in enumerate(calls):
+            name, args = call["name"], call["arguments"]
+            if self.permission_callback and not self.permission_callback(name, args):
+                denied_indices.add(idx)
+                yield {"type": "tool_denied", "name": name}
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "name": name,
+                    "content": "Permission denied by user.",
+                })
+
+        parallel_calls = [(idx, c) for idx, c in enumerate(calls) if idx not in denied_indices]
+
+        if parallel_calls:
+            non_blocked_parallel_calls = []
+            blocked_results = {}
+            for idx, call in parallel_calls:
+                name, args = call["name"], call["arguments"]
+                blocked, synth_err = self._guardrail.before_call(name, args)
+                if blocked:
+                    blocked_results[call["id"]] = synth_err
+                else:
+                    non_blocked_parallel_calls.append((idx, call))
+
+            for _, call in parallel_calls:
+                name, args = call["name"], call["arguments"]
+                yield {"type": "tool_start", "name": name, "args": args}
+                if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                    try:
+                        preview_parts = []
+                        for pk, pv in list(args.items())[:3]:
+                            if pk not in ("code", "script", "content", "text", "body"):
+                                preview_parts.append(f"{pk}={repr(pv)[:30]}")
+                        preview = ", ".join(preview_parts)
+                        self.tool_progress_callback("tool.started", name, preview, args)
+                    except Exception:
+                        pass
+
+            # Each parallel call runs on its own daemon worker and
+            # reports through a queue. A wedged tool can then be
+            # abandoned instead of blocking the batch — an executor's
+            # ``with`` block joins its workers on exit, so one hung
+            # call used to freeze the whole round. This loop polls for
+            # results, interruption and the per-call deadline.
+            if non_blocked_parallel_calls:
+                import queue as _queue
+
+                timeout_s = _resolve_tool_timeout(self)
+                results_q: _queue.Queue = _queue.Queue()
+                started_at: dict = {}
+
+                def _worker(call, _q=results_q):
+                    name, args = call["name"], call["arguments"]
+                    t0 = time.time()
+                    failed = False
+                    try:
+                        res = self._execute_tool(name, args)
+                    except Exception as e:
+                        import traceback
+                        res = f"Error executing tool: {e}\n{traceback.format_exc()}"
+                        failed = True
+                    _q.put((call["id"], res, time.time() - t0, failed))
+
+                pending: dict = {}
+                for idx, call in non_blocked_parallel_calls:
+                    if self._cancel.is_set():
+                        break
+                    pending[call["id"]] = call
+                    started_at[call["id"]] = time.time()
+                    threading.Thread(
+                        target=_worker, args=(call,),
+                        name=f"koza-tool-{call['name']}", daemon=True,
+                    ).start()
+
+                completed_results = {}
+                while pending:
+                    if self._cancel.is_set():
+                        break
+                    try:
+                        call_id, res, t_elapsed, _call_failed = results_q.get(
+                            timeout=_SEQUENTIAL_INTERRUPT_POLL_SECONDS
+                        )
+                    except _queue.Empty:
+                        call_id = None
+                        _call_failed = None
+
+                    if call_id is not None and call_id in pending:
+                        call = pending.pop(call_id)
+                        name, args = call["name"], call["arguments"]
+                        # `failed` is the worker's own verdict when the handler
+                        # raised; None means "not reported" (classify the text).
+                        res = self._guardrail.after_call(
+                            name, args, res, failed=(True if _call_failed else None)
+                        )
+                        completed_results[call_id] = (res, t_elapsed)
+                        if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                            try:
+                                self.tool_progress_callback("tool.completed", name, str(res)[:300], args, duration=t_elapsed)
+                            except Exception:
+                                pass
+
+                    # Abandon any call that overran its deadline.
+                    if timeout_s is not None and pending:
+                        now = time.time()
+                        for cid in list(pending):
+                            if now - started_at[cid] >= timeout_s:
+                                overrun = pending.pop(cid)
+                                # Abandoned on its deadline: a failure the
+                                # executor already knows about, so the guardrail
+                                # counts it without guessing from the text.
+                                timed_out = _tool_timeout_message(overrun["name"], timeout_s)
+                                completed_results[cid] = (
+                                    self._guardrail.after_call(
+                                        overrun["name"], overrun["arguments"],
+                                        timed_out, failed=True,
+                                    ),
+                                    timeout_s,
+                                )
+
+                for idx, call in non_blocked_parallel_calls:
+                    call_id = call["id"]
+                    if call_id in completed_results:
+                        res, t_elapsed = completed_results[call_id]
+                    else:
+                        res = "Tool execution cancelled or skipped."
+                        t_elapsed = 0.0
+
+                    name, args = call["name"], call["arguments"]
+                    yield {"type": "tool_done", "name": name, "result": res, "elapsed": t_elapsed}
+                    res_str = str(res)
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "name": name,
+                        # Mark external output as data, neutralized so pages cannot close the block.
+                        "content": self._untrusted_policy.wrap(name, res_str),
+                    })
+                    if "PERMANENT FAILURE" in res_str:
+                        permanent_failure = True
+
+            for idx, call in parallel_calls:
+                if call["id"] in blocked_results:
+                    name, args = call["name"], call["arguments"]
+                    res_str = blocked_results[call["id"]]
+                    yield {"type": "tool_done", "name": name, "result": res_str, "elapsed": 0.0}
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "name": name,
+                        "content": res_str,
+                    })
+
+        # Denied and blocked calls are answered around the executed ones.
+        order = {c["id"]: i for i, c in enumerate(calls)}
+        try:
+            self.messages[first_result:] = sorted(
+                self.messages[first_result:], key=lambda m: order.get(m["tool_call_id"], len(order))
+            )
+        except Exception:  # noqa: BLE001 - ordering is cosmetic, never worth a turn
+            _log.debug("tool batch: could not restore call order", exc_info=True)
+        if self._cancel.is_set():
+            return "interrupted", permanent_failure
+        if self._guardrail.halt_decision is not None:
+            return "halt", permanent_failure
+        return "ok", permanent_failure
+
+    def _run_sequential_batch(self, calls: list):
+        """Run one sequential segment; yields events, returns ``(outcome, permanent_failure)``.
+
+        Same contract as ``_run_parallel_batch``.
+        """
+        permanent_failure = False
+
+        for i, call in enumerate(calls):
+            if self._cancel.is_set():
+                self._append_interrupted_tool_results(calls[i:])
+                return "interrupted", permanent_failure
+            if self._guardrail.halt_decision is not None:
+                # The guardrail ended the turn: stop evaluating the rest of this
+                # batch. The calls that never ran still get a result, so every
+                # tool_call_id stays paired in the transcript.
+                self._append_skipped_tool_results(calls[i:])
+                return "halt", permanent_failure
+            name, args = call["name"], call["arguments"]
+
+            # Check loop guardrail before call
+            blocked, synth_err = self._guardrail.before_call(name, args)
+            if blocked:
+                yield {"type": "tool_start", "name": name, "args": args}
+                yield {"type": "tool_done", "name": name, "result": synth_err, "elapsed": 0.0}
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "name": name,
+                    "content": synth_err,
+                })
+                continue
+
+            if self.permission_callback and not self.permission_callback(name, args):
+                yield {"type": "tool_denied", "name": name}
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "name": name,
+                    "content": "Permission denied by user.",
+                })
+                continue
+            yield {"type": "tool_start", "name": name, "args": args}
+            if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                try:
+                    preview_parts = []
+                    for pk, pv in list(args.items())[:3]:
+                        if pk not in ("code", "script", "content", "text", "body"):
+                            preview_parts.append(f"{pk}={repr(pv)[:30]}")
+                    preview = ", ".join(preview_parts)
+                    self.tool_progress_callback("tool.started", name, preview, args)
+                except Exception:
+                    pass
+            # Per-call deadline + interrupt poll: a wedged tool is
+            # abandoned instead of blocking the whole loop forever.
+            result, t_elapsed, _outcome = self._run_tool_with_deadline(name, args)
+
+            # Check loop guardrail after call. A call abandoned on its deadline is
+            # a failure the executor already knows about, so it is reported as one
+            # instead of being guessed from the result text.
+            result = self._guardrail.after_call(
+                name, args, result, failed=(True if _outcome == "timeout" else None)
+            )
+
+            if hasattr(self, "tool_progress_callback") and self.tool_progress_callback:
+                try:
+                    self.tool_progress_callback("tool.completed", name, str(result)[:300], args, duration=t_elapsed)
+                except Exception:
+                    pass
+            yield {"type": "tool_done", "name": name, "result": result, "elapsed": t_elapsed}
+            result_str = str(result)
+            self.messages.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "name": name,
+                # Mark external output as data, neutralized so pages cannot close the block.
+                "content": self._untrusted_policy.wrap(name, result_str),
+            })
+            if "PERMANENT FAILURE" in result_str:
+                permanent_failure = True
+            if _outcome == "interrupted":
+                self._append_interrupted_tool_results(calls[i + 1:])
+                return "interrupted", permanent_failure
+
+        if self._guardrail.halt_decision is not None:
+            return "halt", permanent_failure
+        return "ok", permanent_failure
 
     def _run_tool_with_deadline(self, name: str, args: dict) -> tuple[str, float, str]:
         """Run one tool call on a daemon worker, polled for interrupt and deadline.

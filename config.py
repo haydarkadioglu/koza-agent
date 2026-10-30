@@ -118,6 +118,12 @@ def default_config() -> dict:
         },
         "tool_approval": True,      # False = auto-approve tools; True = ask for non-safe tools
         "tool_timeout_seconds": 600,  # per-call deadline for a tool call (0 = no deadline)
+        "tool_batching": {          # run independent tool calls in one batch concurrently
+            "enabled": True,        # False = every batch runs sequentially, in call order
+            "path_scoped": True,    # let read/write calls join a parallel run unless their paths conflict
+            "parallel_safe_tools": [],   # extra tool names admitted as stateless/parallel-safe
+            "never_parallel_tools": [],  # extra tool names that must always run alone
+        },
         "security": {
             # Wrap results of network-facing tools in an untrusted-data block so fetched
             # pages and MCP servers cannot issue instructions to the model.

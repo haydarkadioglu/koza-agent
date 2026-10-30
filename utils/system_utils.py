@@ -42,15 +42,6 @@ def _detect_capabilities() -> dict:
     return caps
 
 
-_PARALLEL_SAFE_TOOLS = {
-    "web_search", "fetch_url",
-    "memory_recall", "memory_store",
-    "get_config", "set_config",
-    "read_file", "read_document", "list_dir",
-    "wm_list", "wm_get", "wm_add"
-}
-
-
 # Cached at startup — re-detect only on explicit request
 _SYSTEM_CAPS: dict = {}
 
