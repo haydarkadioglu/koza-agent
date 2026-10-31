@@ -826,14 +826,79 @@ _DROPPED_TOOLCALL_NUDGE = (
 )
 
 
-def _select_tools(user_input: str, messages: list[dict] = None, router_groups: set[str] | None = None) -> list[dict]:
+# Map of tool groups to skill names
+_GROUP_TO_SKILL_MAP = {
+    "email": "email_skill",
+    "message": "messaging",
+    "github": "github_skill",
+    "cron": "cron",
+    "creative": "creative",
+    "productivity": "productivity",
+    "security": "security",
+    "mlops": "mlops",
+    "finance": "finance",
+    "gaming": "gaming",
+    "research": "research",
+    "media": "media",
+    "social": "social",
+    "smarthome": "smarthome",
+    "devops": "devops",
+    "vision": "vision",
+    "code": "code_tools",
+    "kanban": "kanban",
+    "mcp": "mcp_skill",
+}
+
+
+def _enable_skill_groups(groups: set[str] | None) -> bool:
+    """Auto-enable disabled skills whose group is requested.
+
+    Returns True when a skill was enabled and the registry rebuilt. A failure is
+    logged, not raised: the turn carries on with the tools it already has.
     """
-    Return a targeted subset of tools based on keywords in the user message,
-    recent history, and recently executed tools, optionally augmented by LLM routing decision.
-    - If keywords/router match or tools were recently called → return those tool groups (+ always-on core tools)
-    - If no match → return only the minimal _CORE_TOOL_NAMES set
-    Never returns ALL_TOOLS upfront; groups are expanded dynamically during the
-    agentic loop via _expand_tools_for_call() when the model requests them.
+    if not groups:
+        return False
+    from config import load_config, save_config
+    from tools.registry import rebuild_registry
+    try:
+        cfg = load_config()
+        disabled = cfg.get("disabled_skills") or []
+        needed = {_GROUP_TO_SKILL_MAP[g] for g in groups if g in _GROUP_TO_SKILL_MAP}
+        needed.intersection_update(disabled)
+        if not needed:
+            return False
+        cfg["disabled_skills"] = [s for s in disabled if s not in needed]
+        save_config(cfg)
+        rebuild_registry(force=True)
+        return True
+    except Exception:
+        _log.warning("Auto-enabling skills failed for groups %s", sorted(groups), exc_info=True)
+        return False
+
+
+def _selection_history(messages: list[dict] | None) -> tuple[frozenset, frozenset]:
+    """What _select_tools reads from recent history: user texts and called tool names."""
+    texts: set[str] = set()
+    called: set[str] = set()
+    for msg in (messages or [])[-6:]:
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                texts.add(content)
+            elif isinstance(content, list):
+                texts.update(item.get("text", "") for item in content
+                             if isinstance(item, dict) and item.get("type") == "text")
+        elif msg.get("role") == "assistant" and msg.get("tool_calls"):
+            called.update(tc.get("name") for tc in msg["tool_calls"])
+    return frozenset(texts), frozenset(called)
+
+
+def _requested_tool_groups(user_input: str, messages: list[dict] = None,
+                           router_groups: set[str] | None = None) -> set[str]:
+    """Return the tool groups this turn asks for, from text, history and the router.
+
+    Pure: no config read, no registry rebuild. `_select_tools` and the per-turn
+    skill auto-enable both derive from this, so they can never disagree.
     """
     lower = user_input.lower()
     groups: set[str] = set()
@@ -891,49 +956,20 @@ def _select_tools(user_input: str, messages: list[dict] = None, router_groups: s
                             if tc_name in group_tools:
                                 groups.add(g)
 
-    # Auto-enable disabled skills if their group is requested
-    if groups:
-        from config import load_config, save_config
-        from tools.registry import rebuild_registry
-        try:
-            cfg = load_config()
-            disabled = cfg.get("disabled_skills", [])
-            if disabled:
-                # Map of tool groups to skill names
-                _GROUP_TO_SKILL_MAP = {
-                    "email": "email_skill",
-                    "message": "messaging",
-                    "github": "github_skill",
-                    "cron": "cron",
-                    "creative": "creative",
-                    "productivity": "productivity",
-                    "security": "security",
-                    "mlops": "mlops",
-                    "finance": "finance",
-                    "gaming": "gaming",
-                    "research": "research",
-                    "media": "media",
-                    "social": "social",
-                    "smarthome": "smarthome",
-                    "devops": "devops",
-                    "vision": "vision",
-                    "code": "code_tools",
-                    "kanban": "kanban",
-                    "mcp": "mcp_skill",
-                }
-                needed_skills = []
-                for g in groups:
-                    skill_id = _GROUP_TO_SKILL_MAP.get(g)
-                    if skill_id and skill_id in disabled:
-                        needed_skills.append(skill_id)
-                if needed_skills:
-                    for skill_id in needed_skills:
-                        disabled.remove(skill_id)
-                    cfg["disabled_skills"] = disabled
-                    save_config(cfg)
-                    rebuild_registry(force=True)
-        except Exception:
-            pass
+    return groups
+
+
+def _select_tools(user_input: str, messages: list[dict] = None, router_groups: set[str] | None = None) -> list[dict]:
+    """Return a targeted subset of tools based on keywords in the user message,
+    recent history, and recently executed tools, optionally augmented by the LLM
+    routing decision.
+    - If keywords/router match or tools were recently called → return those tool groups (+ always-on core tools)
+    - If no match → return only the minimal _CORE_TOOL_NAMES set
+    Never returns ALL_TOOLS upfront; groups are expanded dynamically during the
+    agentic loop via _expand_tools_for_call() when the model requests them.
+    Pure selection: no config I/O and no registry rebuild (see _enable_skill_groups).
+    """
+    groups = _requested_tool_groups(user_input, messages, router_groups)
 
     # Always include core tools
     core = [t for t in ALL_TOOLS if _tool_name(t) in _CORE_TOOL_NAMES]
@@ -996,6 +1032,9 @@ class Agent:
         # lives, so the provider's cached prefix — which starts at the tool
         # schema — stays valid instead of being re-rendered every turn.
         self._session_tool_order: list[str] = []
+        # K-10: rounds of one turn reuse the selection instead of redoing it.
+        from utils.tool_resolution_cache import ToolResolutionCache
+        self._tool_resolution_cache = ToolResolutionCache()
         self._session_progress: float = self.cfg.get("session_progress", 0.0)
         self._stream_lock: threading.Lock = threading.Lock()
         self.db_path = db_path
@@ -1011,7 +1050,8 @@ class Agent:
         from router import IntentRouter
         from providers.think_scrubber import StreamingThinkScrubber
         coding_enabled = self.cfg.get("coding_mode", {}).get("enabled", False)
-        self._router = IntentRouter(provider, coding_enabled=coding_enabled)
+        router_cache_size = ((self.cfg or {}).get("router") or {}).get("cache_size", 128)
+        self._router = IntentRouter(provider, coding_enabled=coding_enabled, cache_size=router_cache_size)
         self._stream_think_scrubber = StreamingThinkScrubber()
         
         # Initialize tool execution middleware list
@@ -1375,6 +1415,16 @@ class Agent:
         })
 
 
+    def _tool_resolution_context(self, is_local: bool) -> tuple:
+        """Everything else the resolved tool list depends on, for the memo key."""
+        return (
+            is_local,
+            bool(getattr(self, "cfg", {}).get("dynamic_tool_selection_cloud", False)),
+            _selection_history(self.messages),
+            tuple(_tool_name(t) for t in ALL_TOOLS),
+            tuple(getattr(self, "_session_tool_order", None) or ()),
+        )
+
     def _resolve_available_tools(
         self,
         user_input: str,
@@ -1385,7 +1435,36 @@ class Agent:
         """
         Resolve the final list of tools (up to 128) based on routing selection,
         plugin tools prioritization, and optional merging with previously expanded tools.
+        Memoized: a repeat with nothing changed returns the same list without reselecting.
         """
+        from tools.registry import registry_generation
+        cache = getattr(self, "_tool_resolution_cache", None)
+        if cache is None:
+            from utils.tool_resolution_cache import ToolResolutionCache
+            cache = self._tool_resolution_cache = ToolResolutionCache()
+        key = (
+            registry_generation(),
+            frozenset(tool_groups or ()),
+            user_input,
+            tuple(_tool_name(t) for t in (previous_tools or [])),
+        )
+        tools = cache.get(*key, context=self._tool_resolution_context(is_local))
+        if tools is None:
+            tools = self._compute_available_tools(user_input, tool_groups, is_local, previous_tools)
+            # Keyed on the state after this resolution: it extends the session tool
+            # order, and only an identical follow-up call can reuse the result.
+            cache.put(*key, tools, context=self._tool_resolution_context(is_local))
+        self._sent_tool_names = {_tool_name(t) for t in tools}
+        return tools
+
+    def _compute_available_tools(
+        self,
+        user_input: str,
+        tool_groups: set[str] | None,
+        is_local: bool,
+        previous_tools: list[dict] | None = None
+    ) -> list[dict]:
+        """Select and merge the tool list for one round (no memoization)."""
         tools = _select_tools(user_input, self.messages, router_groups=tool_groups)
         if not is_local:
             # For remote providers, maximize capabilities (up to 128 tools),
@@ -1429,9 +1508,7 @@ class Agent:
         # visible, so the model can reach them (K-06).
         tools = _ensure_bridge(tools)
         # K-13: never narrow the schema mid-conversation.
-        tools = self._stabilize_tool_set(tools)
-        self._sent_tool_names = {_tool_name(t) for t in tools}
-        return tools
+        return self._stabilize_tool_set(tools)
 
     def _stabilize_tool_set(self, tools: list[dict]) -> list[dict]:
         """Keep the conversation's tool array stable and append-only (K-13).
@@ -1493,6 +1570,10 @@ class Agent:
         """
         import time
 
+        # A selection never outlives its turn.
+        if getattr(self, "_tool_resolution_cache", None) is not None:
+            self._tool_resolution_cache.clear()
+
         if not hasattr(self, "_untrusted_policy"):
             from utils.untrusted_content import UntrustedContentPolicy
             self._untrusted_policy = UntrustedContentPolicy.from_config(
@@ -1509,7 +1590,7 @@ class Agent:
             for event in self._pre_fetch_links(user_input):
                 yield event
         except Exception:
-            pass
+            _log.debug("link pre-fetch failed", exc_info=True)
 
         processed_input = user_input
         if getattr(self, "_pre_fetched_context", ""):
@@ -1561,6 +1642,12 @@ class Agent:
 
         is_local = getattr(self.provider, "name", "ollama") in ("ollama", "lm_studio")
         tool_groups = set(routing_decision.tool_groups) if routing_decision else None
+        # K-10: one skill auto-enable per turn, driven by the same group set the
+        # selector uses (router + keywords + history), so it can never enable less
+        # than _select_tools would have.
+        requested_groups = _requested_tool_groups(processed_input, self.messages, tool_groups)
+        if _enable_skill_groups(requested_groups):
+            _log.debug("auto-enabled skills for groups %s", sorted(requested_groups))
         tools = self._resolve_available_tools(processed_input, tool_groups, is_local)
         self._activated_tools = set()  # bridge activations are per-turn (K-06)
 
@@ -2059,8 +2146,6 @@ class Agent:
                 # and gets a bounded number of rounds to re-issue the call.
                 if invalid_args:
                     invalid_json_retries += 1
-                    import logging
-                    _log = logging.getLogger(__name__)
                     _first_reason = next(iter(invalid_args.values()))
 
                     if invalid_json_retries > MAX_INVALID_JSON_RETRIES:
@@ -2822,6 +2907,8 @@ class Agent:
         self._active_session_id = None  # reset active session ID
         # K-13: a new conversation starts from a freshly selected tool set.
         self._session_tool_order = []
+        if getattr(self, "_tool_resolution_cache", None) is not None:
+            self._tool_resolution_cache.clear()
         self.messages = [{"role": "system", "content": self._static_system_prompt(None)}]
         self._pending_dynamic_context = ""
         self._context_summary = ""

@@ -1,9 +1,18 @@
 """Tool registry — ALL_TOOLS and ALL_HANDLERS assembled from all skill modules."""
+import logging
 from typing import Callable
 
 # Runtime plugin tools accumulator — populated by plugin_manager
 _PLUGIN_TOOLS: list[dict] = []
 _PLUGIN_HANDLERS: dict[str, Callable] = {}
+
+# Bumped whenever ALL_TOOLS is rebuilt, so derived selections can tell they are stale.
+_REGISTRY_GENERATION = 0
+
+
+def registry_generation() -> int:
+    """Return the number of times the tool registry has been rebuilt."""
+    return _REGISTRY_GENERATION
 
 
 def register_plugin_tools(tools: list[dict], handlers: dict[str, Callable]) -> None:
@@ -12,7 +21,7 @@ def register_plugin_tools(tools: list[dict], handlers: dict[str, Callable]) -> N
     Called at runtime by plugin_manager.load_plugin(). After registration,
     ALL_TOOLS and ALL_HANDLERS are rebuilt to include the new entries.
     """
-    global ALL_TOOLS, ALL_HANDLERS
+    global ALL_TOOLS, ALL_HANDLERS, _REGISTRY_GENERATION
     _PLUGIN_TOOLS.extend(_normalize(tools))
     _PLUGIN_HANDLERS.update(handlers)
     
@@ -24,6 +33,7 @@ def register_plugin_tools(tools: list[dict], handlers: dict[str, Callable]) -> N
     new_handlers = _build_all_handlers()
     ALL_HANDLERS.clear()
     ALL_HANDLERS.update(new_handlers)
+    _REGISTRY_GENERATION += 1
 
 
 def _build_all_tools() -> list[dict]:
@@ -205,7 +215,7 @@ ALL_HANDLERS = _build_all_handlers()
 
 def rebuild_registry(force: bool = False) -> None:
     """Rebuild the tool registry based on config and plugin state."""
-    global ALL_TOOLS, ALL_HANDLERS, _STATIC_TOOLS, _STATIC_HANDLERS, _PLUGIN_TOOLS, _PLUGIN_HANDLERS, _REGISTRY_INITIALIZED
+    global ALL_TOOLS, ALL_HANDLERS, _STATIC_TOOLS, _STATIC_HANDLERS, _PLUGIN_TOOLS, _PLUGIN_HANDLERS, _REGISTRY_INITIALIZED, _REGISTRY_GENERATION
     if _REGISTRY_INITIALIZED and not force:
         return
     import sys
@@ -255,8 +265,11 @@ def rebuild_registry(force: bool = False) -> None:
             plugin_manager._loaded_plugins.clear()
         # Call load_all_plugins with this module to register them
         plugin_manager.load_all_plugins(registry_module=sys.modules[__name__])
+    except ImportError as exc:
+        # No plugin_manager module in this build: nothing to load, not an error.
+        logging.getLogger(__name__).debug("Plugin loading unavailable: %s", exc)
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("Plugin load failed during registry rebuild", exc_info=True)
 
     try:
         from skills.mcp_skill import load_dynamic_mcp_tools
@@ -264,7 +277,7 @@ def rebuild_registry(force: bool = False) -> None:
         _PLUGIN_TOOLS.extend(_normalize(mcp_tools))
         _PLUGIN_HANDLERS.update(mcp_handlers)
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("Dynamic MCP tool load failed during registry rebuild", exc_info=True)
     
     # 4. Update ALL_TOOLS and ALL_HANDLERS in-place
     new_tools = _normalize(_STATIC_TOOLS + _PLUGIN_TOOLS)
@@ -282,6 +295,7 @@ def rebuild_registry(force: bool = False) -> None:
         if hasattr(core_mod, "_TOOL_BY_NAME") and hasattr(core_mod, "_tool_name"):
             core_mod._TOOL_BY_NAME.clear()
             core_mod._TOOL_BY_NAME.update({core_mod._tool_name(t): t for t in ALL_TOOLS})
+    _REGISTRY_GENERATION += 1
 
 
 def coerce_tool_args(tool_name: str, args: dict) -> dict:
