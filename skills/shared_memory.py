@@ -10,6 +10,13 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from utils.memory_retrieval import (
+    RecallPolicy,
+    build_fts_query,
+    build_like_patterns,
+    rank_memories,
+    tokenize_query,
+)
 from utils.secure_files import atomic_write_private
 
 _db_path: str = ""
@@ -124,26 +131,23 @@ def memory_search(query: str, limit: int = 10) -> str:
     """Search shared memory by keyword across keys, values, and tags."""
     if not _db_path:
         return "Shared memory DB not initialized."
-    with _conn() as conn:
-        try:
-            # FTS5 full-text search — fast and supports prefix matching (e.g. "key*")
-            rows = conn.execute(
-                """SELECT sm.key, sm.value, sm.tags, sm.source, sm.updated_at
-                   FROM shared_memory sm
-                   JOIN shared_memory_fts fts ON sm.id = fts.rowid
-                   WHERE shared_memory_fts MATCH ?
-                   ORDER BY sm.updated_at DESC LIMIT ?""",
-                (query, limit),
-            ).fetchall()
-        except Exception:
-            # FTS query syntax error — fall back to LIKE
-            q = f"%{query.lower()}%"
+    terms = tokenize_query(query, _recall_policy().max_terms)
+    if terms:
+        with _conn() as conn:
+            candidates = _fetch_candidates(conn, terms, max(limit * 4, 20))
+        rows = rank_memories(candidates, terms, limit)
+    elif str(query or "").strip():
+        # No content terms (e.g. a short keyword like "db"): plain substring match.
+        q = f"%{str(query).strip().lower()}%"
+        with _conn() as conn:
             rows = conn.execute(
                 """SELECT key, value, tags, source, updated_at FROM shared_memory
                    WHERE lower(key) LIKE ? OR lower(value) LIKE ? OR lower(tags) LIKE ?
                    ORDER BY updated_at DESC LIMIT ?""",
                 (q, q, q, limit),
             ).fetchall()
+    else:
+        rows = []
     if not rows:
         return f"No memories found matching '{query}'."
     lines = []
@@ -188,34 +192,71 @@ def memory_delete(key: str) -> str:
     return f"✅ Deleted '{key}'" if n else f"Key '{key}' not found."
 
 
-def get_relevant_context(query: str, limit: int = 5) -> str:
-    """Return a compact memory context string for injecting into sub-agent prompts."""
-    if not _db_path:
-        return ""
-    with _conn() as conn:
+def _recall_policy() -> RecallPolicy:
+    """Resolve the recall policy from config; any failure yields defaults."""
+    try:
+        from config import load_config
+        return RecallPolicy.from_config(load_config())
+    except Exception:  # noqa: BLE001 - a broken config must never break a turn
+        return RecallPolicy()
+
+
+def _fetch_candidates(conn: sqlite3.Connection, terms: list[str], fetch: int) -> list:
+    """Fetch rows matching any term: FTS5 first, LIKE as the fallback."""
+    cols = "sm.key, sm.value, sm.tags, sm.source, sm.updated_at"
+    fts_query = build_fts_query(terms)
+    if fts_query:
         try:
-            rows = conn.execute(
-                """SELECT sm.key, sm.value
+            return conn.execute(
+                f"""SELECT {cols}
                    FROM shared_memory sm
                    JOIN shared_memory_fts fts ON sm.id = fts.rowid
                    WHERE shared_memory_fts MATCH ?
-                   ORDER BY sm.updated_at DESC LIMIT ?""",
-                (query, limit),
+                   ORDER BY fts.rank LIMIT ?""",
+                (fts_query, fetch),
             ).fetchall()
-        except Exception:
-            q = f"%{query.lower()}%"
-            rows = conn.execute(
-                """SELECT key, value FROM shared_memory
-                   WHERE lower(key) LIKE ? OR lower(value) LIKE ? OR lower(tags) LIKE ?
-                   ORDER BY updated_at DESC LIMIT ?""",
-                (q, q, q, limit),
-            ).fetchall()
-        if not rows:
-            # Fall back to most recent entries
-            rows = conn.execute(
-                "SELECT key, value FROM shared_memory ORDER BY updated_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        except sqlite3.Error:
+            pass  # FTS table missing or unusable: use the LIKE fallback below
+    patterns = build_like_patterns(terms)
+    if not patterns:
+        return []
+    where = " OR ".join(
+        "lower(sm.key) LIKE ? OR lower(sm.value) LIKE ? OR lower(sm.tags) LIKE ?"
+        for _ in patterns
+    )
+    params = [p for p in patterns for _ in range(3)]
+    return conn.execute(
+        f"SELECT {cols} FROM shared_memory sm WHERE {where} ORDER BY sm.updated_at DESC LIMIT ?",
+        (*params, fetch),
+    ).fetchall()
+
+
+def get_relevant_context(query: str, limit: int = 5) -> str:
+    """Return a compact memory context string for injecting into sub-agent prompts.
+
+    Rows are ranked by lexical relevance to ``query``; when the query has
+    content terms but nothing matches, nothing is injected. A query without
+    content terms (empty or stopword-only) falls back to the most recent rows.
+    """
+    if not _db_path:
+        return ""
+    policy = _recall_policy()
+    if not policy.enabled:
+        return ""
+    limit = max(1, min(int(limit), policy.limit))
+    terms = tokenize_query(query, policy.max_terms)
+    try:
+        with _conn() as conn:
+            if terms:
+                candidates = _fetch_candidates(conn, terms, max(limit * 4, 20))
+                rows = rank_memories(candidates, terms, limit)
+            else:
+                rows = conn.execute(
+                    "SELECT key, value FROM shared_memory ORDER BY updated_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+    except sqlite3.Error:
+        return ""
     if not rows:
         return ""
     lines = [f"- [{r['key']}]: {_safe_memory_snippet(r['value'])}" for r in rows]
