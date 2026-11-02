@@ -1043,6 +1043,10 @@ class Agent:
         session_memory.init_db(db_path)
         shared_memory.init_db(db_path)
         working_memory.init_db(db_path)
+        # Redaction happens at the single wm_add choke point; resolve the policy once.
+        working_memory.set_redaction_enabled(
+            bool(self.cfg.get("security", {}).get("redact_secrets", True))
+        )
         from skills import agents
         agents.init_db(db_path)
         

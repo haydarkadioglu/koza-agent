@@ -6,14 +6,26 @@ Oldest entries are automatically dropped when the buffer is full.
 
 Contrast with shared_memory (permanent, retrieved only on demand).
 """
+import logging
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from utils.redact import redact_sensitive_text
+
+logger = logging.getLogger(__name__)
+
 _db_path: str = ""
 _shared_conn: sqlite3.Connection | None = None
+_redact_enabled = True
 MAX_ENTRIES = 20  # ring buffer size
+
+
+def set_redaction_enabled(enabled: bool) -> None:
+    """Enable/disable secret redaction for rows written to working memory."""
+    global _redact_enabled
+    _redact_enabled = enabled
 
 
 def init_db(db_path: str) -> None:
@@ -75,12 +87,29 @@ def _trim() -> None:
             """, (count - MAX_ENTRIES,))
 
 
+# ─── Internal: secret redaction ──────────────────────────────────────────────
+
+def _scrub(text: str) -> str:
+    """Mask secrets in text; a redactor failure must never break a tool call."""
+    if not _redact_enabled:
+        return text
+    try:
+        # force=True: security.redact_secrets is the only switch for this table.
+        return redact_sensitive_text(text, force=True)
+    except Exception as exc:  # noqa: BLE001 - telemetry must never break a tool call
+        logger.debug("Working memory redaction failed: %s", type(exc).__name__)
+        return text
+
+
 # ─── Core operations ─────────────────────────────────────────────────────────
 
 def wm_add(summary: str, detail: str = "", event_type: str = "action") -> str:
     """Add an event to working memory (internal, called automatically)."""
     if not _db_path:
         return "Working memory not initialized."
+    # Scrub before slicing, so a secret cannot be cut into a shape no regex matches.
+    summary = _scrub(summary)
+    detail = _scrub(detail)
     with _conn() as conn:
         conn.execute(
             "INSERT INTO working_memory (event_type, summary, detail, ts) VALUES (?,?,?,?)",

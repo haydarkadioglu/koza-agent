@@ -141,6 +141,9 @@ def default_config() -> dict:
                                      "mcp_call_tool", "mcp_list_tools", "webhook_listen"],
             "untrusted_tool_prefixes": ["browser_", "mcp_"],
             "untrusted_min_chars": 32,
+            # Redact API keys, tokens and passwords before tool calls/results are written to
+            # working memory (which is injected into the system prompt every turn).
+            "redact_secrets": True,
         },
         "tool_loop_guardrails": {   # warn -> block -> halt escalation for looping tool calls
             "warnings_enabled": True,          # append loop warnings to tool results
