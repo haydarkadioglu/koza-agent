@@ -5,10 +5,11 @@ decisions: background delegation, coding mode activation, tool group selection.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from prompt_loader import PromptLoader
@@ -218,15 +219,58 @@ def _heuristic_decision(message: str, coding_enabled: bool, ignore_hybrid: bool 
 class IntentRouter:
     """Classifies user messages via a single LLM call returning structured JSON."""
 
-    def __init__(self, provider: "LLMProvider", coding_enabled: bool = False) -> None:
+    def __init__(self, provider: "LLMProvider", coding_enabled: bool = False, cache_size: int = 128) -> None:
         self._provider = provider
         self._coding_enabled = coding_enabled
+        try:
+            self._cache_size = int(cache_size)
+        except (TypeError, ValueError):
+            self._cache_size = 128
+        self._cache: dict[str, RoutingDecision] = {}
+
+    @staticmethod
+    def _cache_key(message: str) -> str:
+        # Digest the whole normalized message: truncating it would let two long
+        # messages that share an opening share a routing decision.
+        normalized = " ".join(message.split()).lower()
+        return hashlib.sha1(normalized.encode("utf-8", "replace")).hexdigest()
+
+    @staticmethod
+    def _copy_decision(decision: RoutingDecision) -> RoutingDecision:
+        # The dataclass is frozen but its lists are not.
+        return replace(
+            decision,
+            tool_groups=list(decision.tool_groups),
+            prompt_sections=list(decision.prompt_sections),
+        )
+
+    def _cached_decision(self, message: str) -> RoutingDecision | None:
+        if self._cache_size <= 0:
+            return None
+        try:
+            cached = self._cache.get(self._cache_key(message))
+            return self._copy_decision(cached) if cached is not None else None
+        except Exception:
+            logger.debug("Router cache lookup failed", exc_info=True)
+            return None
+
+    def _remember_decision(self, message: str, decision: RoutingDecision) -> None:
+        if self._cache_size <= 0:
+            return
+        try:
+            self._cache[self._cache_key(message)] = self._copy_decision(decision)
+            while len(self._cache) > self._cache_size:
+                self._cache.pop(next(iter(self._cache)))
+        except Exception:
+            logger.debug("Router cache store failed", exc_info=True)
 
     def classify(self, message: str) -> RoutingDecision:
         """Classify user message into a routing decision.
 
-        Makes exactly one LLM call. On any failure, returns a safe fallback
-        (empty decision = include all tools, use default sections).
+        Makes at most one LLM call; a repeated message reuses the earlier
+        decision. On any failure, returns a safe fallback (empty decision =
+        include all tools, use default sections) that is not remembered, so a
+        transient provider error cannot pin the message to the fallback.
         """
         if not message or not message.strip():
             return RoutingDecision()
@@ -235,6 +279,11 @@ class IntentRouter:
         if heuristic:
             return heuristic
 
+        cached = self._cached_decision(message)
+        if cached is not None:
+            return cached
+
+        llm_answered = False
         try:
             response = self._provider.chat(
                 [
@@ -254,6 +303,7 @@ class IntentRouter:
                 tool_groups=_validate_groups(data.get("tool_groups", [])),
                 prompt_sections=[s for s in data.get("prompt_sections", []) if isinstance(s, str)],
             )
+            llm_answered = True
         except Exception as e:
             logger.warning(f"Router LLM call/parse failed: {e}")
             decision = RoutingDecision()
@@ -268,4 +318,6 @@ class IntentRouter:
                     tool_groups=relaxed.tool_groups,
                     prompt_sections=list(set(decision.prompt_sections + relaxed.prompt_sections)),
                 )
+        if llm_answered:
+            self._remember_decision(message, decision)
         return decision

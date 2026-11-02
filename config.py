@@ -1,5 +1,7 @@
 """Koza Agent — Configuration management."""
+import copy
 import os
+import threading
 from pathlib import Path
 
 import yaml
@@ -12,6 +14,13 @@ load_dotenv()
 load_dotenv(Path.home() / ".Koza" / ".env")
 
 CONFIG_PATH = Path.home() / ".Koza" / "config.yaml"
+
+# Parsed file contents as ((path, mtime_ns, size), parsed). yaml.safe_load is what
+# makes load_config() expensive; the merge on top of it stays per-call.
+_yaml_cache: tuple[tuple, dict] | None = None
+_yaml_cache_hits = 0
+_yaml_cache_misses = 0
+_yaml_cache_lock = threading.Lock()
 
 
 def default_config() -> dict:
@@ -167,27 +176,67 @@ def default_config() -> dict:
         "self_improvement": {
             "enabled": True,
         },
+        "router": {
+            "cache_size": 128,  # remembered LLM routing decisions (0 = no caching)
+        },
         "language": "en",
         "disabled_skills": [],
     }
 
 
+def _load_yaml_file() -> dict:
+    """Return a private copy of the parsed config file, {} if it cannot be parsed."""
+    global _yaml_cache, _yaml_cache_hits, _yaml_cache_misses
+    try:
+        st = CONFIG_PATH.stat()
+        key = (str(CONFIG_PATH), st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = None
+    with _yaml_cache_lock:
+        if key is not None and _yaml_cache is not None and _yaml_cache[0] == key:
+            _yaml_cache_hits += 1
+            return copy.deepcopy(_yaml_cache[1])
+        _yaml_cache_misses += 1
+
+    harden_permissions(CONFIG_PATH, 0o600)
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+    except Exception as e:
+        print(f"Warning: Failed to load config.yaml due to syntax error: {e}")
+        print(f"A backup of the broken config will be saved to config.yaml.broken")
+        try:
+            import shutil
+            shutil.copy(CONFIG_PATH, str(CONFIG_PATH) + ".broken")
+        except Exception:
+            pass
+        return {}
+
+    if key is not None:
+        with _yaml_cache_lock:
+            _yaml_cache = (key, loaded)
+    return copy.deepcopy(loaded)
+
+
+def config_cache_info() -> dict:
+    """Return the parsed-config cache counters."""
+    with _yaml_cache_lock:
+        return {"hits": _yaml_cache_hits, "misses": _yaml_cache_misses}
+
+
+def clear_config_cache() -> None:
+    """Drop the parsed config and reset the cache counters."""
+    global _yaml_cache, _yaml_cache_hits, _yaml_cache_misses
+    with _yaml_cache_lock:
+        _yaml_cache = None
+        _yaml_cache_hits = 0
+        _yaml_cache_misses = 0
+
+
 def load_config() -> dict:
     cfg = default_config()
     if CONFIG_PATH.exists():
-        harden_permissions(CONFIG_PATH, 0o600)
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                loaded = yaml.safe_load(f) or {}
-        except Exception as e:
-            print(f"Warning: Failed to load config.yaml due to syntax error: {e}")
-            print(f"A backup of the broken config will be saved to config.yaml.broken")
-            try:
-                import shutil
-                shutil.copy(CONFIG_PATH, str(CONFIG_PATH) + ".broken")
-            except Exception:
-                pass
-            loaded = {}
+        loaded = _load_yaml_file()
 
         # Deep merge providers
         for key, val in loaded.items():
@@ -256,10 +305,14 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
+    global _yaml_cache
     atomic_write_private(
         CONFIG_PATH,
         yaml.safe_dump(cfg, default_flow_style=False, allow_unicode=True),
     )
+    # A coarse filesystem mtime could hide this write from the stat key.
+    with _yaml_cache_lock:
+        _yaml_cache = None
 
 
 def config_exists() -> bool:
