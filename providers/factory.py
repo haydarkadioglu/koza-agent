@@ -70,8 +70,12 @@ def get_provider(cfg: dict) -> LLMProvider:
     if fallback_name and fallback_name != primary_name:
         fallback_model = cfg.get("fallback_model", "")
         fallback = _build_provider(fallback_name, cfg, fallback_model)
+        from utils.failover_policy import FailoverPolicy
+
         from .fallback_provider import FallbackProvider
-        provider = FallbackProvider(primary, fallback)
+        provider = FallbackProvider(
+            primary, fallback, policy=FailoverPolicy.from_config(cfg)
+        )
     else:
         provider = primary
 
