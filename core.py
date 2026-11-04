@@ -1700,6 +1700,9 @@ class Agent:
 
                 # ── Collect the streaming response ──────────────────────────────
                 full = ""
+                # K-31: native reasoning for this round — display-only, never
+                # added to ``full`` or ``self.messages``.
+                reasoning_text = ""
                 _tool_buf: dict[int, dict] = {}
 
                 _stream_retried = False
@@ -1738,6 +1741,11 @@ class Agent:
                                 )
                             elif isinstance(item, dict) and item.get("__finish_reason__"):
                                 _finish_reason = item["__finish_reason__"]
+                            elif isinstance(item, dict) and item.get("__reasoning__"):
+                                _reasoning_token = item.get("token") or ""
+                                if _reasoning_token:
+                                    reasoning_text += _reasoning_token
+                                    yield {"type": "thinking_delta", "token": _reasoning_token}
                             else:
                                 token = item if isinstance(item, str) else (item.get("token", "") if isinstance(item, dict) else "")
                                 if token:

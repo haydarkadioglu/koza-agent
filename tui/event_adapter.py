@@ -24,6 +24,11 @@ def stream_event_to_record(event: dict) -> tuple[str, str]:
     etype = event.get("type", "")
     if etype == "thinking":
         return "status", "Thinking..."
+    if etype == "thinking_delta":
+        lines = [ln.strip() for ln in str(event.get("token", "") or "").splitlines() if ln.strip()]
+        if not lines:
+            return "ignore", ""
+        return "status", "Reasoning… " + lines[-1][:80]
     if etype == "tool_start":
         name = event.get("name", "")
         arg_text = summarize_tool_args(event.get("args", {}))

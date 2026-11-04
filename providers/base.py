@@ -7,6 +7,31 @@ from typing import Any, Generator
 
 from utils.key_health import KeyPool, KeyRotationPolicy
 
+REASONING_DELTA_KEYS = ("reasoning_content", "reasoning", "thinking")
+
+
+def extract_reasoning_delta(delta) -> str:
+    """Return the reasoning text carried by a streaming delta, if any.
+
+    Works on streaming deltas and on full response messages alike. Providers
+    expose native reasoning under different field names; the OpenAI SDK puts
+    fields it does not model into ``model_extra``. Display-only (K-31): the
+    result must never be fed back into the transcript.
+    """
+    if delta is None:
+        return ""
+    try:
+        extra = getattr(delta, "model_extra", None)
+        for key in REASONING_DELTA_KEYS:
+            value = getattr(delta, key, None)
+            if value is None and isinstance(extra, dict):
+                value = extra.get(key)
+            if isinstance(value, str) and value:
+                return value
+    except Exception:  # noqa: BLE001 - a malformed delta must never break the stream
+        return ""
+    return ""
+
 
 def create_openai_stream(client: Any, kwargs: dict) -> Any:
     """Open a streaming completion that also reports token usage.
