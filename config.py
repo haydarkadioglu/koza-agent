@@ -29,6 +29,13 @@ def default_config() -> dict:
         "model": "",
         "fallback_provider": "",
         "fallback_model": "",
+        # K-30: provider failover policy. "blocked_reasons" lists extra
+        # FailoverReason names (auth, billing, rate_limit, overloaded,
+        # server_error, timeout, context_overflow, unknown) that must never
+        # trigger a switch to the fallback provider.
+        "fallback": {
+            "blocked_reasons": [],
+        },
         "key_rotation": {
             "auth_disables_key": True,
             "billing_cooldown_seconds": 1800,
