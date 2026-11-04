@@ -2,7 +2,7 @@
 from typing import Generator
 import json
 from openai import OpenAI
-from .base import LLMProvider, create_openai_stream
+from .base import LLMProvider, create_openai_stream, extract_reasoning_delta
 from utils.token_accounting import usage_event
 
 
@@ -49,7 +49,11 @@ class OpenAIProvider(LLMProvider):
                 {"id": tc.id, "name": tc.function.name, "arguments": json.loads(tc.function.arguments)}
                 for tc in msg.tool_calls
             ]
-        return {"content": msg.content, "tool_calls": tool_calls}
+        return {
+            "content": msg.content,
+            "tool_calls": tool_calls,
+            "reasoning": extract_reasoning_delta(msg) or None,
+        }
 
     def stream_chat(self, messages, tools=None, cancel_event=None) -> Generator[str | dict, None, None]:
         kwargs = {"model": self._model, "messages": self._normalize_openai_messages(messages), "stream": True}
@@ -76,6 +80,11 @@ class OpenAIProvider(LLMProvider):
             delta = choice.delta
             if getattr(choice, "finish_reason", None):
                 _finish_reason = choice.finish_reason
+
+            # Native reasoning (display-only, never part of the text)
+            _reasoning = extract_reasoning_delta(delta)
+            if _reasoning:
+                yield {"__reasoning__": True, "token": _reasoning}
 
             # Buffer tool call deltas
             if delta.tool_calls:

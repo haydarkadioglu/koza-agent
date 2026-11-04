@@ -95,6 +95,8 @@ class StreamRenderer:
         self._text_started: bool = False
         self._full_response: str = ""
         self._line_buf: str = ""
+        # Native reasoning tail (K-31) — status bar only, never the answer box
+        self._reasoning_tail: str = ""
         self._model_name: str = model_name
         self._token_limit: int = token_limit
         self._session_start: float = session_start or time.time()
@@ -175,7 +177,14 @@ class StreamRenderer:
             target = self._get_target_pct("thinking")
             self._spinner.start("Reasoning…", target_pct=target)
 
+        elif etype == "thinking_delta":
+            self._reasoning_tail = (self._reasoning_tail + (event.get("token", "") or ""))[-2000:]
+            lines = [ln.strip() for ln in self._reasoning_tail.splitlines() if ln.strip()]
+            if lines:
+                self.layout.set_status(self._format_status(_C("◐ " + lines[-1][:70], "dim")))
+
         elif etype == "tool_start":
+            self._reasoning_tail = ""
             name = event["name"]
             args = event.get("args", {})
             visible_parts = []
@@ -244,6 +253,7 @@ class StreamRenderer:
             self._spinner.start("Reasoning…", target_pct=target)
 
         elif etype == "text":
+            self._reasoning_tail = ""
             token = event.get("token", "")
             if self._tool_box_open:
                 self._close_tool_box()
