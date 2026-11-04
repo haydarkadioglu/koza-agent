@@ -94,6 +94,10 @@ def default_config() -> dict:
         },
         "vault_path":      str(Path.home() / "notes"),
         "db_path":         str(Path.home() / ".Koza" / "koza.db"),
+        "memory": {
+            "recall":       {"enabled": True, "limit": 8, "max_terms": 12},
+            "user_profile": {"max_rules": 20, "max_notes": 20, "max_chars": 2000, "max_entry_chars": 280},
+        },
         "workspace_path":  str(Path.home() / ".Koza" / "workspace"),
         "multi_host": {
             "mode":                   "single",   # single | master | client | demo
