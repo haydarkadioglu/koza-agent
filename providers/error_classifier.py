@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import enum
+import math
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 
 class FailoverReason(enum.Enum):
@@ -12,6 +15,7 @@ class FailoverReason(enum.Enum):
     server_error = "server_error"        # Internal server error
     timeout = "timeout"                  # Connection or read timeout
     context_overflow = "context_overflow" # Context length exceeded
+    invalid_request = "invalid_request"  # Malformed request / unknown model
     unknown = "unknown"                  # Unclassifiable error
 
 @dataclass
@@ -22,6 +26,7 @@ class ClassifiedError:
     model: str | None = None
     message: str = ""
     retryable: bool = True
+    retry_after: float | None = None     # Server-requested wait in seconds
 
 def _extract_status_code(error: Exception) -> int | None:
     current = error
@@ -61,6 +66,78 @@ def _extract_message(error: Exception, body: dict) -> str:
             return str(body["message"])
     return str(error)
 
+def _parse_retry_after(value) -> float | None:
+    """Parse a Retry-After value (seconds or HTTP-date) into seconds, or None."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            seconds = float(text)
+        except ValueError:
+            try:
+                when = parsedate_to_datetime(text)
+            except (TypeError, ValueError, IndexError):
+                return None
+            if when is None:
+                return None
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=UTC)
+            return max(0.0, (when - datetime.now(UTC)).total_seconds())
+    else:
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
+
+
+def _header_value(headers, name: str):
+    getter = getattr(headers, "get", None)
+    if not callable(getter):
+        return None
+    value = getter(name)
+    if value is None:
+        value = getter(name.title())
+    if value is None and hasattr(headers, "items"):
+        for key, candidate in headers.items():
+            if isinstance(key, str) and key.lower() == name:
+                return candidate
+    return value
+
+
+def _extract_retry_after(error: Exception, body: dict) -> float | None:
+    """Return the server-requested retry delay in seconds, or None.
+
+    Reads the Retry-After header from the error (or its response), then the
+    retry_after / retryAfter body keys. Fail-open: header objects come from
+    arbitrary SDKs, so any lookup failure means "no hint" rather than an error.
+    """
+    try:
+        response = getattr(error, "response", None)
+        for headers in (
+            getattr(response, "headers", None) if response is not None else None,
+            getattr(error, "headers", None),
+        ):
+            if headers is None:
+                continue
+            value = _header_value(headers, "retry-after")
+            if value is not None:
+                parsed = _parse_retry_after(value)
+                if parsed is not None:
+                    return parsed
+        if isinstance(body, dict):
+            for key in ("retry_after", "retryAfter"):
+                if key in body:
+                    return _parse_retry_after(body[key])
+    except Exception:  # noqa: BLE001 — a malformed hint must never break classification
+        return None
+    return None
+
+
 def classify_api_error(
     error: Exception,
     *,
@@ -78,7 +155,8 @@ def classify_api_error(
         status_code = 429
     body = _extract_error_body(error)
     msg = _extract_message(error, body).lower()
-    
+    retry_after = _extract_retry_after(error, body)
+
     # 1. Billing patterns
     billing_patterns = [
         "insufficient credits",
@@ -131,6 +209,7 @@ def classify_api_error(
             model=model,
             message=msg,
             retryable=True,
+            retry_after=retry_after,
         )
 
     # 3. Context overflow patterns
@@ -157,7 +236,35 @@ def classify_api_error(
             retryable=False,
         )
 
-    # 4. Overloaded patterns
+    # 4. Invalid request patterns. Retrying or failing over cannot fix a
+    # malformed request or a bad model id, and every retry burns the
+    # key-rotation budget, so these are terminal. Context overflow is matched
+    # above so a 400 "maximum context length" still reaches overflow recovery.
+    invalid_request_patterns = [
+        "model_not_found",
+        "model not found",
+        "model does not exist",
+        "invalid model",
+        "invalid_request_error",
+        "unknown model",
+    ]
+    if (
+        status_code in (400, 404, 422)
+        or any(p in msg for p in invalid_request_patterns)
+        # OpenAI words it as "The model `x` does not exist" — require both halves
+        # so an auth message like "api key does not exist" keeps its own class.
+        or ("does not exist" in msg and "model" in msg)
+    ):
+        return ClassifiedError(
+            reason=FailoverReason.invalid_request,
+            status_code=status_code,
+            provider=provider,
+            model=model,
+            message=msg,
+            retryable=False,
+        )
+
+    # 5. Overloaded patterns
     overloaded_patterns = [
         "overloaded",
         "busy",
@@ -174,8 +281,9 @@ def classify_api_error(
             model=model,
             message=msg,
             retryable=True,
+            retry_after=retry_after,
         )
-    # 5. Server error patterns
+    # 6. Server error patterns
     if status_code in (500, 502, 504) or "500" in msg or "502" in msg or "504" in msg:
         return ClassifiedError(
             reason=FailoverReason.server_error,
@@ -184,9 +292,10 @@ def classify_api_error(
             model=model,
             message=msg,
             retryable=True,
+            retry_after=retry_after,
         )
 
-    # 6. Transport / Timeout patterns
+    # 7. Transport / Timeout patterns
     timeout_patterns = [
         "timeout",
         "time out",
@@ -202,9 +311,10 @@ def classify_api_error(
             model=model,
             message=msg,
             retryable=True,
+            retry_after=retry_after,
         )
 
-    # 7. Authentication patterns
+    # 8. Authentication patterns
     auth_patterns = [
         "unauthorized",
         "invalid api key",
@@ -224,7 +334,7 @@ def classify_api_error(
             retryable=False,
         )
 
-    # 8. Unknown (retryable by default)
+    # 9. Unknown (retryable by default)
     return ClassifiedError(
         reason=FailoverReason.unknown,
         status_code=status_code,
@@ -232,6 +342,7 @@ def classify_api_error(
         model=model,
         message=msg,
         retryable=True,
+        retry_after=retry_after,
     )
 
 
