@@ -33,6 +33,9 @@ providers:
     antigravity_url: "http://localhost:5188"  # only for auth: antigravity
   ollama:
     base_url: "http://localhost:11434"       # local Ollama server
+    num_ctx: 8192                            # optional: context window sent per request (omitted = auto-detect from the server, else server default)
+    num_predict: 512                         # optional: cap generated tokens (omitted = server default)
+    context_length: 8192                     # optional: caps an auto-detected num_ctx (VRAM guard)
   lm_studio:
     base_url: "http://localhost:1234/v1"     # local LM Studio server
   github:
