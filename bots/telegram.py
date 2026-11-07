@@ -11,6 +11,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Dict, Callable
 
@@ -238,46 +239,73 @@ def _sanitize_response(text: str) -> str:
 # No more keyword lists here — the LLM decides what's a coding task.
 
 
-def _register_completion_watcher(task_id: str, chat_id: int, bot, loop=None) -> None:
+def _send_watcher_notification(bot, loop, chat_id: int, text: str) -> None:
+    """Schedule a Telegram message on the bot loop; a failure must not kill the watcher."""
+    try:
+        asyncio.run_coroutine_threadsafe(
+            bot.send_message(chat_id=chat_id, text=text),
+            loop,
+        )
+    except Exception as e:  # noqa: BLE001 — a failed notification must not kill the watcher
+        logger.debug("Completion watcher failed to send notification: %s", e)
+
+
+def _completion_watcher_loop(
+    task_id: str,
+    chat_id: int,
+    bot,
+    loop,
+    *,
+    poll_interval: float = 5.0,
+    sleeper=time.sleep,
+) -> None:
+    """Poll task status until terminal and send a notification on done/error."""
+    while True:
+        sleeper(poll_interval)
+        try:
+            status = BackgroundTaskManager.get_status(task_id)
+        except Exception:
+            break
+        if not status:
+            break
+        if status["status"] == "done":
+            summary = BackgroundTaskManager.get_summary(task_id)
+            msg_text = f"✅ Task {task_id} done:\n{summary}"
+            _send_watcher_notification(bot, loop, chat_id, msg_text)
+            break
+        elif status["status"] == "error":
+            from skills.agents._registry import _subagents
+            task_reg = _background_tasks.get(task_id) or _subagents.get(task_id)
+            err = (
+                getattr(task_reg, "error_message", None)
+                or (task_reg.get("result", "") if isinstance(task_reg, dict) else "")
+                or "Unknown error"
+            )
+            msg_text = f"❌ Task {task_id} failed:\n{err}"
+            _send_watcher_notification(bot, loop, chat_id, msg_text)
+            break
+        elif status["status"] == "cancelled":
+            break
+
+
+def _register_completion_watcher(
+    task_id: str,
+    chat_id: int,
+    bot,
+    loop=None,
+    *,
+    poll_interval: float = 5.0,
+) -> None:
     """Poll task status and send notification on completion."""
     assert loop is not None, "_register_completion_watcher requires a running event loop"
 
-    def _watcher():
-        import time
-        while True:
-            time.sleep(5)
-            try:
-                status = BackgroundTaskManager.get_status(task_id)
-            except Exception:
-                break
-            if not status:
-                break
-            if status["status"] == "done":
-                summary = BackgroundTaskManager.get_summary(task_id)
-                msg_text = f"✅ Task {task_id} done:\n{summary}"
-                asyncio.run_coroutine_threadsafe(
-                    bot.send_message(chat_id=chat_id, text=msg_text),
-                    loop,
-                )
-                break
-            elif status["status"] == "error":
-                from skills.agents._registry import _subagents
-                task_reg = _background_tasks.get(task_id) or _subagents.get(task_id)
-                err = (
-                    getattr(task_reg, "error_message", None)
-                    or (task_reg.get("result", "") if isinstance(task_reg, dict) else "")
-                    or "Unknown error"
-                )
-                msg_text = f"❌ Task {task_id} failed:\n{err}"
-                asyncio.run_coroutine_threadsafe(
-                    bot.send_message(chat_id=chat_id, text=msg_text),
-                    loop,
-                )
-                break
-            elif status["status"] == "cancelled":
-                break
-
-    threading.Thread(target=_watcher, daemon=True, name=f"tg-watcher-{task_id}").start()
+    threading.Thread(
+        target=_completion_watcher_loop,
+        args=(task_id, chat_id, bot, loop),
+        kwargs={"poll_interval": poll_interval},
+        daemon=True,
+        name=f"tg-watcher-{task_id}",
+    ).start()
 
 
 # chat_id → Agent instance
