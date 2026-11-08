@@ -155,6 +155,11 @@ def default_config() -> dict:
             # Redact API keys, tokens and passwords before tool calls/results are written to
             # working memory (which is injected into the system prompt every turn).
             "redact_secrets": True,
+            # Refuse any shell command that runs `git push`, checked where the process is
+            # spawned. False is the owner's explicit opt-in to let the agent push.
+            "block_git_push": True,
+            "blocked_command_patterns": [],  # extra regexes refused when they match the raw command
+            "blocked_command_allow": [],     # regexes checked first; a match skips every check
         },
         "tool_loop_guardrails": {   # warn -> block -> halt escalation for looping tool calls
             "warnings_enabled": True,          # append loop warnings to tool results

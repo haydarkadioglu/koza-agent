@@ -40,6 +40,11 @@ def get_windows_bash_path() -> str | None:
 
 class LocalEnvironment(BaseEnvironment):
     def execute(self, command: str, cwd: str = None, timeout: int = 30) -> tuple[int, str, str]:
+        # Every model-driven shell command funnels through this policy check.
+        from utils.command_policy import check_command
+        reason = check_command(command)
+        if reason:
+            return 126, "", reason
         system = platform.system()
         if system == "Windows":
             bash_path = get_windows_bash_path()
@@ -168,6 +173,11 @@ class DockerEnvironment(BaseEnvironment):
         return False
 
     def execute(self, command: str, cwd: str = None, timeout: int = 30) -> tuple[int, str, str]:
+        # Every model-driven shell command funnels through this policy check.
+        from utils.command_policy import check_command
+        reason = check_command(command)
+        if reason:
+            return 126, "", reason
         if not self._ensure_container_running():
             return -1, "", "ERROR: Docker daemon is not running or sandbox container cannot be started."
 
