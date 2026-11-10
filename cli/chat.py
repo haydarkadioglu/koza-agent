@@ -14,6 +14,9 @@ from cli.ui import (
     _select_menu,
 )
 from cli.i18n import _T
+from cli.slash_result import (
+    SlashAction, SlashResult, outcome_text, retry_last_user_message,
+)
 
 # ── prompt_toolkit availability ───────────────────────────────────────────────
 try:
@@ -379,8 +382,8 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             sys.stdout.flush()
 
     # ── Inline command handler ────────────────────────────────────────────────
-    def _handle_inline(user_input: str) -> bool:
-        """Returns True if input was a slash command (consumed)."""
+    def _handle_inline(user_input: str) -> SlashResult:
+        """Return the explicit outcome of a slash command (or not_command())."""
         nonlocal total_tokens
         if user_input.lower() in ("exit", "quit"):
             # If background services are active, spawn mini-daemon to keep them alive
@@ -401,7 +404,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 _hr()
                 print(_C("\n  Goodbye! 👋\n", "yellow"))
                 _hr()
-            return None  # signal exit
+            return SlashResult.exit_app()
         if user_input == "/clear":
             layout = _ui_layout[0]
             renderer = _ui_renderer[0]
@@ -413,7 +416,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                     layout.set_status(renderer._format_status(_C("● Idle", "green")))
             else:
                 print(_C("  ✓  Screen refreshed.\n", "green"))
-            return True
+            return SlashResult.handled()
         if user_input == "/reset":
             agent.reset()
             total_tokens = 0
@@ -430,7 +433,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             else:
                 # Fallback mode: use print
                 print(_C("  ✓  Chat reset.\n", "green"))
-            return True
+            return SlashResult.handled()
         if user_input == "/kanban":
             layout = _ui_layout[0]
             if layout is not None:
@@ -453,7 +456,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             else:
                 from cli.commands import cmd_kanban
                 cmd_kanban([])
-            return True
+            return SlashResult.handled()
         if user_input == "/memory":
             from skills.working_memory import wm_get_context
             ctx = wm_get_context()
@@ -468,7 +471,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 _hr("·", "grey")
                 print(ctx or _C("  (working memory is empty)", "dim"))
                 _hr("·", "grey")
-            return True
+            return SlashResult.handled()
         if user_input in ("/help", "/?"):
             layout = _ui_layout[0]
             if layout is not None:
@@ -502,7 +505,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output("\n".join(lines) + "\n")
             else:
                 _print_inline_help()
-            return True
+            return SlashResult.handled()
         if user_input.startswith("/mode"):
             parts = user_input.split(None, 1)
             mode = parts[1].lower().strip() if len(parts) > 1 else ""
@@ -522,7 +525,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 else:
                     print(_C("  ✓  Coding mode activated. Multi-persona orchestration enabled.\n", "green"))
                     print(_C("  ℹ  Use /mode off to return to normal chat.\n", "grey"))
-                return True
+                return SlashResult.handled()
             elif mode == "off":
                 _coding_mode_on[0] = False
                 # Disable coding mode on dispatcher if available
@@ -535,7 +538,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                         )
                 else:
                     print(_C("  ✓  Coding mode deactivated. Back to normal chat.\n", "green"))
-                return True
+                return SlashResult.handled()
             else:
                 if _ui_layout[0] is not None:
                     _ui_layout[0].append_output(
@@ -543,7 +546,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                     )
                 else:
                     print(_C(f"  Unknown mode: {mode!r}. Available: coding, off\n", "red"))
-                return True
+                return SlashResult.handled()
         if user_input == "/provider":
             from cli.setup import cmd_provider
             cmd_provider([])
@@ -572,7 +575,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                         _ui_layout[0].append_output(_C(f"  ✗  Failed: {e}\n", "red"))
                     else:
                         print(_C(f"  ✗  Failed: {e}\n", "red"))
-            return True
+            return SlashResult.handled()
 
         # ── /save [title] ── manually save current session ──────────────────
         if user_input.startswith("/save"):
@@ -585,7 +588,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output(msg)
             else:
                 print(msg)
-            return True
+            return SlashResult.handled()
 
         # ── /sessions ── browse / load / delete sessions ─────────────────────
         if user_input == "/sessions":
@@ -602,7 +605,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
 
             if not rows:
                 _out(_C("  ℹ  No saved sessions.\n", "grey"))
-                return True
+                return SlashResult.handled()
 
             # Build list display
             lines = [_C("\n  Saved Sessions\n", "bold")]
@@ -623,23 +626,23 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             try:
                 choice = _select_menu("Select session", labels, default_idx=len(labels) - 1)
             except (KeyboardInterrupt, EOFError):
-                return True
+                return SlashResult.handled()
 
             if choice == "— Cancel —":
-                return True
+                return SlashResult.handled()
 
             sid = int(choice.split()[0].lstrip("#"))
 
             try:
                 action = _select_menu(f"Session #{sid}", ["Load (resume)", "Delete", "Cancel"], default_idx=0)
             except (KeyboardInterrupt, EOFError):
-                return True
+                return SlashResult.handled()
 
             if action.startswith("Load"):
                 msgs = _load_session(sid)
                 if not msgs:
                     _out(_C(f"  ✗  Session #{sid} not found or empty.\n", "red"))
-                    return True
+                    return SlashResult.handled()
                 # Restore messages into agent (keep system prompt)
                 sys_msg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
                 agent.messages = ([sys_msg] if sys_msg else []) + msgs
@@ -660,12 +663,12 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                     confirm = input(_C(f"  Delete session #{sid}? Type 'yes': ", "red")).strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     _out(_C("  Cancelled.\n", "grey"))
-                    return True
+                    return SlashResult.handled()
                 if confirm == "yes":
                     _out(_C(f"  {_del_session(sid)}\n", "green"))
                 else:
                     _out(_C("  Cancelled.\n", "grey"))
-            return True
+            return SlashResult.handled()
 
         # ── /title [name] ── rename current session ──────────────────────────
         if user_input.startswith("/title"):
@@ -683,27 +686,17 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                     _out(_C(f"  ✓  Session saved and named: {new_title}\n", "green"))
             else:
                 _out(_C("  Usage: /title <session name>\n", "grey"))
-            return True
+            return SlashResult.handled()
 
         # ── /retry ── resend last user message ────────────────────────────────
         if user_input == "/retry":
-            # Find last user message and resend
-            msgs = agent.messages
-            last_user = None
-            for m in reversed(msgs):
-                if m.get("role") == "user" and m.get("content"):
-                    last_user = m
-                    break
-            if last_user:
-                # Remove assistant's last response and send again
-                for i in range(len(msgs) - 1, -1, -1):
-                    if msgs[i].get("role") == "assistant":
-                        del msgs[i]
-                        break
-                _out(_C("  🔄 Retrying last message...\n", "yellow"))
-                return False  # Let the main loop process it
-            _out(_C("  ℹ  No previous user message to retry.\n", "grey"))
-            return True
+            # Rewind to before the last user turn; the caller re-submits its text
+            retry_text = retry_last_user_message(agent.messages)
+            if retry_text is None:
+                _out(_C("  ℹ  No previous user message to retry.\n", "grey"))
+                return SlashResult.handled()
+            _out(_C("  🔄 Retrying last message...\n", "yellow"))
+            return SlashResult.resubmit(retry_text)
 
         # ── /undo ── remove last exchange ────────────────────────────────────
         if user_input == "/undo":
@@ -717,7 +710,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 if removed >= 2:  # Removed one assistant + one user
                     break
             _out(_C(f"  ↩️  Last exchange undone ({removed} messages removed).\n", "green"))
-            return True
+            return SlashResult.handled()
 
         # ── /model [name] ── show or change model ────────────────────────────
         if user_input.startswith("/model"):
@@ -736,7 +729,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             else:
                 _out(_C(f"  Current model: {model_name}\n", "cyan"))
                 _out(_C("  Usage: /model <model_name> (e.g. /model gpt-4o)\n", "grey"))
-            return True
+            return SlashResult.handled()
 
         # ── /history ── show recent conversation ──────────────────────────────
         if user_input == "/history":
@@ -753,7 +746,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output("\n".join(lines))
             else:
                 print("\n".join(lines))
-            return True
+            return SlashResult.handled()
 
         # ── /plugin ── manage plugins ────────────────────────────────────────
         if user_input.startswith("/plugin ") or user_input == "/plugin":
@@ -779,7 +772,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output(result + "\n")
             else:
                 print(result)
-            return True
+            return SlashResult.handled()
 
         # ── /plugins ── list plugins ─────────────────────────────────────────
         if user_input == "/plugins":
@@ -793,7 +786,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output(result + "\n")
             else:
                 print(result)
-            return True
+            return SlashResult.handled()
 
         # ── /skills ── list skills ───────────────────────────────────────────
         if user_input == "/skills":
@@ -807,7 +800,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output(result + "\n")
             else:
                 print(result)
-            return True
+            return SlashResult.handled()
 
         # ── /tools ── list available tool groups ─────────────────────────────
         if user_input == "/tools":
@@ -821,7 +814,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output("\n".join(lines) + "\n")
             else:
                 print("\n".join(lines))
-            return True
+            return SlashResult.handled()
 
         # ── /compress ── manually compress context ─────────────────────────
         if user_input == "/compress":
@@ -831,7 +824,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 _out(_C("  ✓  Context compressed.\n", "green"))
             except Exception as e:
                 _out(_C(f"  ✗  Compression failed: {e}\n", "red"))
-            return True
+            return SlashResult.handled()
 
         # ── google-login / /google-login ── OAuth login ──────────────────────
         if user_input in ("google-login", "/google-login"):
@@ -844,7 +837,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                     _out(_C("  ❌ Connection failed.\n", "red"))
             except Exception as e:
                 _out(_C(f"  ❌ Error: {e}\n", "red"))
-            return True
+            return SlashResult.handled()
 
         # ── anthropic-login / /anthropic-login ── OAuth login ──────────────────
         if user_input in ("anthropic-login", "/anthropic-login", "claude-login", "/claude-login"):
@@ -857,7 +850,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                     _out(_C("  ❌ Connection failed.\n", "red"))
             except Exception as e:
                 _out(_C(f"  ❌ Error: {e}\n", "red"))
-            return True
+            return SlashResult.handled()
 
         # ── codex-login / /codex-login ── Codex login ────────────────────────
         if user_input in ("codex-login", "/codex-login"):
@@ -868,7 +861,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 _out(_C(f"  {result}\n", "green") if "✅" in result or "ℹ️" in result else _C(f"  {result}\n", "yellow"))
             except Exception as e:
                 _out(_C(f"  ❌ Error: {e}\n", "red"))
-            return True
+            return SlashResult.handled()
 
         # ── email-setup / /email-setup ── Email configuration ────────────────
         if user_input in ("email-setup", "/email-setup"):
@@ -879,7 +872,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 _out(_C(f"  {result}\n", "green"))
             except Exception as e:
                 _out(_C(f"  ❌ Error: {e}\n", "red"))
-            return True
+            return SlashResult.handled()
 
         # ── email-log / /email-log ── Show sent email log ────────────────────
         if user_input in ("email-log", "/email-log"):
@@ -893,7 +886,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 layout.append_output(result + "\n")
             else:
                 print(result)
-            return True
+            return SlashResult.handled()
 
         # ── /swarm <goal> ── Run parallel agent swarm ───────────────────────
         if user_input.startswith("/swarm"):
@@ -901,7 +894,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             swarm_goal = parts[1].strip() if len(parts) > 1 else ""
             if not swarm_goal:
                 _out(_C("  Usage: /swarm <goal>\n", "grey"))
-                return True
+                return SlashResult.handled()
             
             layout = _ui_layout[0]
             if layout is not None:
@@ -927,7 +920,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                         print(err_msg)
             
             threading.Thread(target=_run_swarm_bg, daemon=True).start()
-            return True
+            return SlashResult.handled()
 
         # ── /self-improve ── Run self-evolution pass ────────────────────────
         if user_input == "/self-improve":
@@ -959,9 +952,9 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                         print(err_msg)
             
             threading.Thread(target=_run_improve_bg, daemon=True).start()
-            return True
+            return SlashResult.handled()
 
-        return False
+        return SlashResult.not_command()
 
     # ── Main loop — prompt_toolkit Application (split-pane UI) ──────────────────
     if _HAS_PT:
@@ -1013,17 +1006,17 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 )
                 return
             # Check slash commands first
-            cmd = _handle_inline(text)
-            if cmd is None:
-                # exit/quit — close the application
+            result = _handle_inline(text)
+            if result.action is SlashAction.EXIT:
                 app.exit()
                 return
-            if cmd:
+            send_text = outcome_text(result, text)
+            if send_text is None:
                 # Command was handled, don't send to agent
                 return
-            # Normal message — render and dispatch
-            renderer.render_user_message(text)
-            dispatcher.submit(text)
+            # Normal message (or a command's resubmission) — render and dispatch
+            renderer.render_user_message(send_text)
+            dispatcher.submit(send_text)
 
         layout.on_submit = on_submit
 
@@ -1176,10 +1169,11 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
         if user_input == "/":
             print(_C("  Commands: /help /sessions /save /title /clear /retry /undo /provider /model /kanban /memory /tools /plugins /skills /compress /reset /swarm /self-improve", "grey"))
             continue
-        cmd = _handle_inline(user_input)
-        if cmd is None:
+        result = _handle_inline(user_input)
+        if result.action is SlashAction.EXIT:
             break
-        if cmd:
+        send_text = outcome_text(result, user_input)
+        if send_text is None:
             continue
 
         # If agent is busy streaming, interrupt current stream first
@@ -1202,8 +1196,8 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 _processing.clear()
                 agent._busy = False
 
-        total_tokens += max(1, len(user_input) // 4)
+        total_tokens += max(1, len(send_text) // 4)
         _proc_thread[0] = threading.Thread(
-            target=_process, args=(user_input,), daemon=True
+            target=_process, args=(send_text,), daemon=True
         )
         _proc_thread[0].start()
