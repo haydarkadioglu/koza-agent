@@ -32,7 +32,7 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
 
     # Work tracking
     "kanban": ["create_task", "create_task_plan", "list_tasks", "move_task", "update_task", "delete_task"],
-    "cron": ["create_cron", "create_once_cron", "list_crons", "delete_cron"],
+    "cron": ["create_cron", "create_once_cron", "list_crons", "delete_cron", "cron_control"],
 
     # Messaging channels
     "messaging": ["send_telegram", "send_email"],
