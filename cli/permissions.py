@@ -23,6 +23,7 @@ SAFE_TOOLS: frozenset[str] = frozenset({
     # Kanban & Cron
     "list_tasks", "add_task", "update_task", "delete_task", "move_task",
     "list_crons", "create_cron", "add_cron", "delete_cron", "run_cron",
+    # cron_control is deliberately absent: action='run_now' executes a shell command.
     # Multi-host sync
     "sync_status", "sync_now", "list_hosts",
     # Sub-agents
