@@ -10,6 +10,7 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, RichLog, TabPane, TabbedContent
 
+from cli.slash_registry import COMMANDS as _REGISTRY
 from core import Agent
 from tui.event_adapter import stream_event_to_record
 
@@ -20,19 +21,8 @@ class TuiCommand:
     description: str
 
 
-COMMANDS: tuple[TuiCommand, ...] = (
-    TuiCommand("/help", "Show command palette help"),
-    TuiCommand("/reset", "Reset chat after saving the current session"),
-    TuiCommand("/save", "Save current session"),
-    TuiCommand("/sessions", "List saved sessions"),
-    TuiCommand("/load <id>", "Load a saved session"),
-    TuiCommand("/provider <name> [model]", "Switch provider/model for this TUI session"),
-    TuiCommand("/tasks", "Switch to the Tasks tab"),
-    TuiCommand("/agents", "Switch to the Agents tab"),
-    TuiCommand("/memory <query>", "Search memory"),
-    TuiCommand("/tracked <goal>", "Start a tracked coding task"),
-    TuiCommand("/once <minutes> <instruction>", "Schedule one one-shot @agent follow-up"),
-    TuiCommand("/status", "Refresh dashboard panels"),
+COMMANDS: tuple[TuiCommand, ...] = tuple(
+    TuiCommand(c.usage, c.description) for c in _REGISTRY if "tui" in c.surfaces
 )
 
 

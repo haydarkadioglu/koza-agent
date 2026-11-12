@@ -18,12 +18,9 @@ from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.widgets import TextArea
 from prompt_toolkit.completion import WordCompleter
 
-_SLASH_CMDS = [
-    "/help", "/sessions", "/save", "/title", "/clear", "/retry", "/undo",
-    "/provider", "/model", "/kanban", "/memory", "/tools",
-    "/plugins", "/skills", "/compress", "/reset",
-    "/mode coding", "/mode off", "/swarm", "/self-improve",
-]
+from cli.slash_registry import COMMANDS
+
+_SLASH_CMDS = [c.usage for c in COMMANDS if "cli" in c.surfaces]
 
 
 _MAX_OUTPUT_LINES = 10_000
