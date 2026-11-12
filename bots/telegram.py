@@ -16,6 +16,12 @@ from typing import Dict, Callable
 
 from skills.agents.background import BackgroundTaskManager, _background_tasks
 from cli.i18n import _T
+from cli.slash_registry import (
+    find_command,
+    help_text,
+    looks_like_slash_command,
+    unknown_command_message,
+)
 from utils.stream_fences import ensure_closed_fences, split_fenced
 
 logger = logging.getLogger(__name__)
@@ -426,6 +432,20 @@ async def _process_message(update, context, agent_factory: Callable,
                 logger.debug(f"chat_id={chat_id} tried to message but owner is {_saved}.")
         except Exception:
             pass
+
+    # ── Slash commands: answer locally, never forward them to the LLM ────────
+    if not override_text and msg and looks_like_slash_command(user_text):
+        try:
+            if find_command(user_text, surface="bot"):
+                reply = help_text("bot")  # /help only, for now
+            elif find_command(user_text, surface="cli"):
+                reply = "That command is only available in the CLI."
+            else:
+                reply = unknown_command_message(user_text, surface="bot")
+            await msg.reply_text(reply)
+            return
+        except Exception as e:  # noqa: BLE001 — fail open to the agent
+            logger.debug(f"Slash command handling failed, forwarding to agent: {e}")
 
     if not override_text:
         # React with 👀 to acknowledge the message immediately
@@ -1129,6 +1149,14 @@ def start_bot_thread(agent_factory: Callable, cfg: dict) -> bool:
         app.add_handler(MessageHandler(
             (filters.TEXT | filters.PHOTO | filters.Document.ALL | filters.CAPTION
              | filters.VOICE | filters.AUDIO) & ~filters.COMMAND,
+            on_message,
+        ))
+        # Slash commands the bot answers itself (/help, unknown commands). The bot's own
+        # commands (/start, /version, /whoami) are registered below and matched first, so
+        # they are excluded here to keep their dedicated handlers.
+        _bot_cmds = r"^/(start|version|whoami)(@\w+)?$"
+        app.add_handler(MessageHandler(
+            filters.COMMAND & ~filters.Regex(_bot_cmds),
             on_message,
         ))
         app.add_handler(CallbackQueryHandler(on_callback_query))

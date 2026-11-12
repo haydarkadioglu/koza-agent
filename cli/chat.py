@@ -14,6 +14,13 @@ from cli.ui import (
     _select_menu,
 )
 from cli.i18n import _T
+from cli.slash_registry import (
+    help_rows,
+    hint_text,
+    is_known_command,
+    looks_like_slash_command,
+    unknown_command_message,
+)
 
 # ── prompt_toolkit availability ───────────────────────────────────────────────
 try:
@@ -382,7 +389,10 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
     def _handle_inline(user_input: str) -> bool:
         """Returns True if input was a slash command (consumed)."""
         nonlocal total_tokens
-        if user_input.lower() in ("exit", "quit"):
+        if looks_like_slash_command(user_input) and not is_known_command(user_input, surface="cli"):
+            _out(_C("  " + unknown_command_message(user_input) + "\n", "yellow"))
+            return True
+        if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
             # If background services are active, spawn mini-daemon to keep them alive
             if _active_services:
                 try:
@@ -474,28 +484,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             if layout is not None:
                 lines = []
                 lines.append(_C(_T("  Commands"), "bold"))
-                cmds = [
-                    ("/help",     _T("Show this help")),
-                    ("/sessions", _T("Browse / load / delete saved sessions")),
-                    ("/save [title]", _T("Save current session")),
-                    ("/title [name]", _T("Rename current session")),
-                    ("/clear",    _T("Refresh screen from recent history")),
-                    ("/retry",    _T("Resend last message")),
-                    ("/undo",     _T("Remove last exchange")),
-                    ("/history",  _T("Show recent conversation")),
-                    ("/provider", _T("Switch LLM provider")),
-                    ("/model [name]", _T("Show or change model")),
-                    ("/kanban",   _T("Show Kanban board & cron jobs")),
-                    ("/memory",   _T("Show working memory")),
-                    ("/tools",    _T("List available tool groups")),
-                    ("/plugins",  _T("List installed plugins")),
-                    ("/plugin create <name> [desc]", _T("Create a new plugin template")),
-                    ("/skills",   _T("List saved skills")),
-                    ("/compress", _T("Compress conversation context")),
-                    ("/reset",    _T("Clear conversation history")),
-                    ("/mode coding", _T("Activate coding mode")),
-                    ("exit",      _T("Quit Koza")),
-                ]
+                cmds = help_rows("cli", translate=_T)
                 for cmd, desc in cmds:
                     lines.append(f"  {_C(cmd, 'cyan'):<28}  {desc}")
                 lines.append("")
@@ -593,12 +582,6 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             from skills.session_memory import get_session_rows, delete_session as _del_session, load_session as _load_session
             rows = get_session_rows(limit=20)
             layout = _ui_layout[0]
-
-            def _out(txt):
-                if layout is not None:
-                    layout.append_output(txt)
-                else:
-                    print(txt, end="")
 
             if not rows:
                 _out(_C("  ℹ  No saved sessions.\n", "grey"))
@@ -1001,15 +984,9 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
                 return
             # Slash hint: lone "/" shows available commands
             if text == "/":
-                _SLASH_CMDS = [
-                    "/help", "/sessions", "/save", "/title", "/clear", "/retry", "/undo",
-                    "/provider", "/model", "/kanban", "/memory", "/tools",
-                    "/plugins", "/skills", "/compress", "/reset",
-                    "/mode coding", "/mode off", "/swarm", "/self-improve",
-                ]
                 layout.append_output(
                     _C("  Commands: ", "grey")
-                    + _C("  ".join(_SLASH_CMDS), "cyan") + "\n"
+                    + _C("  ".join(u for u, _ in help_rows("cli")), "cyan") + "\n"
                 )
                 return
             # Check slash commands first
@@ -1174,7 +1151,7 @@ def _plain_cli(agent, cfg: dict, initial_msg: str = None, skip_banner: bool = Fa
             continue
         # Slash hint in fallback mode too
         if user_input == "/":
-            print(_C("  Commands: /help /sessions /save /title /clear /retry /undo /provider /model /kanban /memory /tools /plugins /skills /compress /reset /swarm /self-improve", "grey"))
+            print(_C("  " + hint_text("cli"), "grey"))
             continue
         cmd = _handle_inline(user_input)
         if cmd is None:

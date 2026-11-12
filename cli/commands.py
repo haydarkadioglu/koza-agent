@@ -443,15 +443,8 @@ def cmd_help(args: list) -> None:
     for ex in examples:
         print(f"    {_C(ex, 'white')}")
     print(_C("\n  CHAT COMMANDS  (inside chat)\n", "bold"))
-    chat_cmds = [
-        ("/help",   "Show inline help"),
-        ("/clear",  "Refresh screen from recent history"),
-        ("/kanban", "Show Kanban board"),
-        ("/memory", "Show working memory"),
-        ("/reset",  "Clear conversation history"),
-        ("exit",    "Quit Koza"),
-    ]
-    for cmd, desc in chat_cmds:
+    from cli.slash_registry import help_rows
+    for cmd, desc in help_rows("cli"):
         print(f"    {_C(f'{cmd:<22}', 'cyan')}  {desc}")
     print()
     _hr()

@@ -69,17 +69,8 @@ def _print_banner(cfg: dict) -> None:
 
 def _print_inline_help() -> None:
     from cli.i18n import _T
+    from cli.slash_registry import help_rows
     print(_C(_T("  Commands"), "bold"))
-    cmds = [
-        ("/help",         _T("Show this help")),
-        ("/sessions",     _T("Browse / load / delete saved sessions")),
-        ("/save [title]", _T("Save current session")),
-        ("/kanban",       _T("Show Kanban board & cron jobs")),
-        ("/memory",       _T("Show working memory")),
-        ("/reset",        _T("Clear conversation history")),
-        ("/provider",     _T("Switch LLM provider")),
-        ("exit",          _T("Quit Koza")),
-    ]
-    for cmd, desc in cmds:
+    for cmd, desc in help_rows("cli", translate=_T):
         print(f"  {_C(cmd, 'cyan'):<28}  {desc}")
     print()
