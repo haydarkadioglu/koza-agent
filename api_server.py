@@ -8,6 +8,7 @@ import hmac
 import re
 
 from core import Agent
+from utils.async_stream import stream_in_thread
 from utils.config_secrets import load_or_create_token, redact_config, strip_masked
 
 app = FastAPI(title="Koza API Server")
@@ -186,6 +187,20 @@ async def list_models():
         }]
     }
 
+def _sse(delta: dict, finish_reason: str | None = None) -> str:
+    """Render one OpenAI-style chat.completion.chunk as an SSE data line."""
+    chunk = {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion.chunk",
+        "model": "koza-engine",
+        "choices": [{
+            "index": 0,
+            "delta": delta,
+            "finish_reason": finish_reason
+        }]
+    }
+    return f"data: {json.dumps(chunk)}\n\n"
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
@@ -201,90 +216,38 @@ async def chat_completions(request: Request):
     agent.messages = [m for m in messages if m.get("role") != "user" or m != messages[-1]]
 
     async def event_generator():
-        for event in agent.stream_chat(user_input):
-            if event["type"] == "text":
-                chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "model": "koza-engine",
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": event["token"]},
-                        "finish_reason": None
-                    }]
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
-                
-            elif event["type"] == "tool_start":
-                # Convert tool start into a UI-friendly markdown message instead of a native tool call, 
-                # so Koza UI just displays it rather than trying to execute it (Koza executes it).
-                msg = f"\n\n> 🛠️ **Koza Tool:** `{event['name']}`\n> ```json\n> {json.dumps(event['args'], indent=2)}\n> ```\n\n"
-                chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "model": "koza-engine",
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": msg},
-                        "finish_reason": None
-                    }]
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
-                
-            elif event["type"] == "tool_done":
-                # Show completion in UI
-                msg = f"\n> ✅ *Finished in {event.get('elapsed', 0):.2f}s*\n\n"
-                chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "model": "koza-engine",
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": msg},
-                        "finish_reason": None
-                    }]
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
-                
-            elif event["type"] == "tool_denied":
-                msg = f"\n> 🚫 **Tool Denied:** `{event.get('name')}`\n\n"
-                chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "model": "koza-engine",
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": msg},
-                        "finish_reason": None
-                    }]
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
+        # stream_chat is a blocking generator; iterate it on a worker thread so
+        # one turn does not freeze every other request on the event loop.
+        events = stream_in_thread(agent.stream_chat(user_input), name="koza-sse")
+        try:
+            async for event in events:
+                if event["type"] == "text":
+                    yield _sse({"content": event["token"]})
 
-            elif event["type"] == "error":
-                msg = f"\n> ❌ **Error:** {event.get('message')}\n\n"
-                chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "model": "koza-engine",
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": msg},
-                        "finish_reason": None
-                    }]
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
-                
-        final_chunk = {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion.chunk",
-            "model": "koza-engine",
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop"
-            }]
-        }
-        yield f"data: {json.dumps(final_chunk)}\n\n"
+                elif event["type"] == "tool_start":
+                    # Convert tool start into a UI-friendly markdown message instead of a native tool call,
+                    # so Koza UI just displays it rather than trying to execute it (Koza executes it).
+                    msg = f"\n\n> 🛠️ **Koza Tool:** `{event['name']}`\n> ```json\n> {json.dumps(event['args'], indent=2)}\n> ```\n\n"
+                    yield _sse({"content": msg})
+
+                elif event["type"] == "tool_done":
+                    # Show completion in UI
+                    msg = f"\n> ✅ *Finished in {event.get('elapsed', 0):.2f}s*\n\n"
+                    yield _sse({"content": msg})
+
+                elif event["type"] == "tool_denied":
+                    msg = f"\n> 🚫 **Tool Denied:** `{event.get('name')}`\n\n"
+                    yield _sse({"content": msg})
+
+                elif event["type"] == "error":
+                    msg = f"\n> ❌ **Error:** {event.get('message')}\n\n"
+                    yield _sse({"content": msg})
+        finally:
+            # A client disconnect closes this generator; close the bridge too so
+            # the sync turn stops work instead of running on unobserved.
+            await events.aclose()
+
+        yield _sse({}, finish_reason="stop")
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
