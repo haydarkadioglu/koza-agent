@@ -54,6 +54,8 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "port": {"type": "integer", "default": 9988},
                     "timeout": {"type": "integer", "default": 30},
+                    "host":  {"type": "string", "default": "127.0.0.1", "description": "Bind address; loopback by default. A non-loopback host requires token."},
+                    "token": {"type": "string", "default": "", "description": "Shared secret expected in the X-Koza-Token header when host is not loopback."},
                 },
                 "required": [],
             },
@@ -105,15 +107,49 @@ def docker_run(image: str, command: str = "", detach: bool = False,
         return f"ERROR: {e}"
 
 
-def webhook_listen(port: int = 9988, timeout: int = 30) -> str:
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+_WEBHOOK_MAX_BODY = 1_000_000
+
+
+def webhook_listen(port: int = 9988, timeout: int = 30, host: str = "127.0.0.1", token: str = "") -> str:
     from http.server import HTTPServer, BaseHTTPRequestHandler
+    import hmac
     import json as _json
+
+    if host not in _LOOPBACK_HOSTS and not token:
+        return (f"ERROR: refusing to expose the webhook listener on {host} without a token. "
+                "Pass token=... or leave host on 127.0.0.1.")
 
     received = []
 
     class Handler(BaseHTTPRequestHandler):
+        def _authorized(self) -> bool:
+            if not token:
+                return True
+            supplied = self.headers.get("X-Koza-Token", "")
+            if hmac.compare_digest(supplied.encode(), token.encode()):
+                return True
+            self.send_response(401)
+            self.end_headers()
+            self.wfile.write(b"unauthorized")
+            return False
+
         def do_POST(self):
-            length = int(self.headers.get("Content-Length", 0))
+            if not self._authorized():
+                return
+            try:
+                declared = int(self.headers.get("Content-Length", 0) or 0)
+            except (TypeError, ValueError):
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"bad content-length")
+                return
+            if declared > _WEBHOOK_MAX_BODY:
+                self.send_response(413)
+                self.end_headers()
+                self.wfile.write(b"payload too large")
+                return
+            length = min(declared, _WEBHOOK_MAX_BODY)
             body = self.rfile.read(length).decode("utf-8", errors="replace")
             received.append({"method": "POST", "path": self.path, "body": body})
             self.send_response(200)
@@ -121,6 +157,8 @@ def webhook_listen(port: int = 9988, timeout: int = 30) -> str:
             self.wfile.write(b"OK")
 
         def do_GET(self):
+            if not self._authorized():
+                return
             received.append({"method": "GET", "path": self.path})
             self.send_response(200)
             self.end_headers()
@@ -129,7 +167,7 @@ def webhook_listen(port: int = 9988, timeout: int = 30) -> str:
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("", port), Handler)
+    server = HTTPServer((host, port), Handler)
     server.timeout = timeout
     server.handle_request()
     server.server_close()

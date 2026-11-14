@@ -345,16 +345,22 @@ class DaemonServer:
         token     = mh.get("sync_token", "")
         host_name = mh.get("host_name", "")
         db_path   = self.cfg.get("db_path", "")
+        bind_host = str(mh.get("sync_bind_host", "127.0.0.1") or "127.0.0.1")
         if not token:
             _log("Multi-host: sync_token not set, sync server not started.")
             return
         try:
             from skills.sync.server import start_sync_server
-            ok = start_sync_server(db_path, token, port=port, host_name=host_name)
+            ok = start_sync_server(db_path, token, port=port, host_name=host_name,
+                                   bind_host=bind_host)
             if ok:
-                _log(f"Multi-host: sync server started on 0.0.0.0:{port}")
+                _log(f"Multi-host: sync server started on {bind_host}:{port}")
+                if bind_host not in ("127.0.0.1", "localhost", "::1"):
+                    _log(f"Multi-host: WARNING sync server bound to non-loopback {bind_host}; "
+                         "the sync token travels in cleartext HTTP (use a private network or tunnel).")
             else:
-                _log(f"Multi-host: sync server failed to bind on port {port} (in use?)")
+                _log(f"Multi-host: sync server failed to bind on {bind_host}:{port} "
+                     "(port in use, bad address, or empty sync_token).")
         except Exception as e:
             _log(f"Multi-host: sync server error: {e}")
 

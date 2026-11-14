@@ -8,7 +8,14 @@ Endpoints:
   POST /api/sync/register        → client registration (host_name, client_id)
 
 Auth: X-Koza-Token header (shared secret, set in config multi_host.sync_token)
+
+Binding: the server binds 127.0.0.1 by default. A non-empty token is mandatory;
+start_sync_server() refuses to start without one and the handler rejects every
+request when no token is configured. Setting multi_host.sync_bind_host to a LAN
+address exposes the API over plain HTTP, so the token travels in cleartext —
+only do that on a private network or behind a tunnel (SSH, WireGuard, ...).
 """
+import hmac
 import json
 import sqlite3
 import threading
@@ -59,11 +66,14 @@ SYNCABLE_TABLES = {
     },
 }
 
+DEFAULT_BIND_HOST = "127.0.0.1"
+
 _server_instance: Optional[HTTPServer] = None
 _server_thread:   Optional[threading.Thread] = None
 _db_path:  str = ""
 _token:    str = ""
 _host_name: str = ""
+_bind_host: str = DEFAULT_BIND_HOST
 _started_at: float = 0.0
 
 
@@ -359,7 +369,10 @@ class _SyncHandler(BaseHTTPRequestHandler):
         pass  # suppress default access log
 
     def _auth(self) -> bool:
-        return self.headers.get("X-Koza-Token", "") == _token
+        if not _token:
+            return False
+        supplied = self.headers.get("X-Koza-Token", "")
+        return hmac.compare_digest(supplied.encode(), _token.encode())
 
     def _send_json(self, code: int, data: dict):
         body = json.dumps(data, ensure_ascii=False).encode()
@@ -392,6 +405,7 @@ class _SyncHandler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 "status":      "ok",
                 "host_name":   _host_name,
+                "bind_host":   get_bind_host(),
                 "db_path":     _db_path,
                 "uptime_s":    round(time.time() - _started_at, 1),
                 "tables":      list(SYNCABLE_TABLES.keys()),
@@ -534,9 +548,16 @@ class _SyncHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
 
-def start_sync_server(db_path: str, token: str, port: int = 7420, host_name: str = "") -> bool:
-    """Start the sync HTTP server in a daemon thread. Returns True on success."""
-    global _server_instance, _server_thread, _db_path, _token, _host_name, _started_at
+def start_sync_server(db_path: str, token: str, port: int = 7420, host_name: str = "",
+                      bind_host: str = DEFAULT_BIND_HOST) -> bool:
+    """Start the sync HTTP server in a daemon thread. Returns True on success.
+
+    Fails closed: returns False without opening a socket when token is empty.
+    """
+    global _server_instance, _server_thread, _db_path, _token, _host_name, _bind_host, _started_at
+
+    if not token.strip():
+        return False
 
     if _server_instance is not None:
         return True  # already running
@@ -549,9 +570,10 @@ def start_sync_server(db_path: str, token: str, port: int = 7420, host_name: str
     _ensure_clients_table(db_path)
 
     try:
-        _server_instance = HTTPServer(("0.0.0.0", port), _SyncHandler)
-    except OSError as e:
+        _server_instance = HTTPServer((bind_host, port), _SyncHandler)
+    except OSError:
         return False
+    _bind_host = bind_host
 
     _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True)
     _server_thread.start()
@@ -563,9 +585,15 @@ def is_running() -> bool:
     return _server_instance is not None
 
 
+def get_bind_host() -> str:
+    """Return the address the sync server is bound to, or "" when not running."""
+    return _bind_host if _server_instance is not None else ""
+
+
 def stop_sync_server():
     """Stop the sync server."""
     global _server_instance
     if _server_instance:
         _server_instance.shutdown()
+        _server_instance.server_close()
         _server_instance = None
