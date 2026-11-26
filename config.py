@@ -128,6 +128,8 @@ def default_config() -> dict:
                 "provider": "system",         # system | kokoro | openai | gemini | elevenlabs | skip
                 "model": "",                  # provider-specific model id
                 "voice": "af_sky",            # provider-specific voice id/name
+                "max_chars": 4096,            # longest text one speak_text call accepts
+                "output_dir": "",             # speak_text files; empty = ~/.Koza/audio
             },
             "input_device": None,
             "output_device": None,

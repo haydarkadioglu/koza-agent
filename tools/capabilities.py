@@ -54,6 +54,9 @@ CAPABILITY_GROUPS: dict[str, list[str]] = {
 
     # Note-taking / Obsidian
     "notes": ["obsidian_create_note", "obsidian_search"],
+
+    # Text-to-speech into an audio file
+    "voice": ["speak_text"],
 }
 
 # All known capability group names (for validation / LLM enum hints)

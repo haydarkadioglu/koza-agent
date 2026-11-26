@@ -49,6 +49,8 @@ SAFE_TOOLS: frozenset[str] = frozenset({
     "get_env_var", "set_env_var", "list_env_vars",
     # Image gen
     "generate_image",
+    # Voice
+    "speak_text",  # TTS synthesis into ~/.Koza/audio (billed per character by cloud providers)
 })
 
 

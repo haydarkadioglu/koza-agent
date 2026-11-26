@@ -69,6 +69,7 @@ class StreamRenderer:
         "spawn_subagent": "Spawning sub-agent", "get_subagent_status": "Checking sub-agent",
         "translate": "Translating text", "summarize": "Summarizing",
         "diff": "Comparing files", "run_swarm": "Running parallel swarm",
+        "speak_text": "Synthesizing speech",
     }
 
     # Args that are too bulky to show in preview

@@ -123,7 +123,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
     "github":     ["github_search_code", "github_create_issue", "github_list_prs",
                    "github_repo_info", "github_clone_repo", "github_prepare_repo"],
     "finance":    ["crypto_price", "stock_price", "crypto_top"],
-    "media":      ["spotify_search", "youtube_search", "gif_search", "youtube_download"],
+    "media":      ["spotify_search", "youtube_search", "gif_search", "youtube_download", "speak_text"],
     "system":     ["get_os_info", "get_env_var", "list_processes"],
     "research":   ["arxiv_search", "wikipedia_search", "polymarket_search"],
     "security":   ["port_scan", "http_headers_check", "ssl_check", "whois_lookup",
@@ -218,6 +218,7 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     # media
     "spotify": ["media"], "youtube": ["media"], "gif": ["media"], "music": ["media"],
     "video": ["media"],
+    "speak": ["media"], "text to speech": ["media"], "read aloud": ["media"], "seslendir": ["media"],
     # system
     "system": ["system"], "process": ["system"], "cpu": ["system"], "memory usage": ["system"],
     # research
