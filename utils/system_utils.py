@@ -57,7 +57,7 @@ _TOOL_GROUPS: dict[str, list[str]] = {
                    "create_project", "list_projects", "extract_project",
                    "patch_file", "koza_edit", "search_files", "format_code", "lint_code", "run_tests", "read_file_range"],
     "kanban":     ["create_task", "create_task_plan", "list_tasks", "move_task", "update_task", "delete_task"],
-    "cron":       ["create_cron", "create_once_cron", "list_crons", "delete_cron"],
+    "cron":       ["create_cron", "create_once_cron", "list_crons", "delete_cron", "cron_control"],
     "memory":     ["memory_store", "memory_recall", "memory_search", "memory_list", "memory_delete",
                    "credential_set", "credential_get", "credential_list",
                    "wm_add", "wm_get", "wm_list", "wm_clear", "save_session", "recall_sessions", "list_sessions"],
