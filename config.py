@@ -109,6 +109,7 @@ def default_config() -> dict:
         "multi_host": {
             "mode":                   "single",   # single | master | client | demo
             "sync_port":              7420,
+            "sync_bind_host":         "127.0.0.1",    # loopback by default; LAN only if you accept cleartext token
             "sync_token":             "",         # auto-generated on master setup
             "master_url":             "",         # http://master-ip:7420  (client only)
             "sync_on_startup":        True,

@@ -87,10 +87,12 @@ def cmd_start(args: list) -> None:
             port  = int(mh.get("sync_port", 7420))
             token = mh.get("sync_token", "")
             hname = mh.get("host_name", "")
+            bind_host = str(mh.get("sync_bind_host", "127.0.0.1") or "127.0.0.1")
             if token:
-                ok = start_sync_server(cfg["db_path"], token, port=port, host_name=hname)
+                ok = start_sync_server(cfg["db_path"], token, port=port, host_name=hname,
+                                       bind_host=bind_host)
                 if ok:
-                    print(_C(f"  ✓  Sync server listening on port {port}\n", "teal"))
+                    print(_C(f"  ✓  Sync server listening on {bind_host}:{port}\n", "teal"))
         except Exception:
             pass
     elif mh_mode in ("client", "demo"):
