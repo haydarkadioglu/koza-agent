@@ -17,8 +17,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 from bots.telegram import (
-    _register_completion_watcher,
+    _completion_watcher_loop,
     _process_message,
+    _register_completion_watcher,
 )
 
 
@@ -133,40 +134,80 @@ class TestAutoDetectionIntegration:
             tg_module._bot_cfg = original_cfg
 
 
-class TestCompletionWatcher:
-    """Test _register_completion_watcher behavior."""
+class _FakeBot:
+    """Bot whose send_message is a real coroutine that records each call."""
 
-    def test_watcher_sends_done_notification(self):
-        """When task completes, watcher sends done notification.
+    def __init__(self):
+        self.calls = []
+        self.sent = threading.Event()
+
+    async def send_message(self, chat_id, text):
+        self.calls.append({"chat_id": chat_id, "text": text})
+        self.sent.set()
+
+
+@pytest.fixture
+def running_loop():
+    """A real event loop running in a daemon thread, stopped and closed on teardown."""
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True, name="tg-test-loop")
+    thread.start()
+    try:
+        yield loop
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        loop.close()
+
+
+def _drain(loop):
+    """Wait until every callback already queued on ``loop`` has run."""
+    async def _noop():
+        return None
+
+    asyncio.run_coroutine_threadsafe(_noop(), loop).result(timeout=2)
+
+
+def _no_sleep(_seconds):
+    return None
+
+
+class TestCompletionWatcher:
+    """Test _completion_watcher_loop / _register_completion_watcher behavior."""
+
+    def test_watcher_sends_done_notification(self, running_loop):
+        """When task completes, watcher sends exactly one done notification.
 
         **Validates: Requirements 3.3**
         """
-        mock_loop = asyncio.new_event_loop()
-        mock_bot = MagicMock()
-        mock_bot.send_message = AsyncMock()
+        bot = _FakeBot()
 
         with patch(
             "bots.telegram.BackgroundTaskManager.get_status",
             return_value={"status": "done", "id": "test123", "goal": "test"},
+        ), patch(
+            "bots.telegram.BackgroundTaskManager.get_summary",
+            return_value="build finished",
         ):
-            with patch(
-                "bots.telegram.BackgroundTaskManager.get_summary",
-                return_value="Task completed successfully",
-            ):
-                _register_completion_watcher("test123", 99999, mock_bot, loop=mock_loop)
-                # Give the watcher thread time to poll and send
-                time.sleep(6)
+            _completion_watcher_loop(
+                "test123", 99999, bot, running_loop,
+                poll_interval=0, sleeper=_no_sleep,
+            )
 
-        mock_loop.close()
+        assert bot.sent.wait(timeout=2)
+        _drain(running_loop)
+        assert len(bot.calls) == 1
+        assert bot.calls[0]["chat_id"] == 99999
+        assert "test123" in bot.calls[0]["text"]
+        assert "build finished" in bot.calls[0]["text"]
 
-    def test_watcher_sends_error_notification(self):
-        """When task errors, watcher sends error notification.
+    def test_watcher_sends_error_notification(self, running_loop):
+        """When task errors, watcher sends exactly one error notification.
 
         **Validates: Requirements 3.4**
         """
-        mock_loop = asyncio.new_event_loop()
-        mock_bot = MagicMock()
-        mock_bot.send_message = AsyncMock()
+        bot = _FakeBot()
 
         mock_task = MagicMock()
         mock_task.error_message = "Something went wrong"
@@ -174,60 +215,106 @@ class TestCompletionWatcher:
         with patch(
             "bots.telegram.BackgroundTaskManager.get_status",
             return_value={"status": "error", "id": "test456", "goal": "test"},
+        ), patch(
+            "bots.telegram._background_tasks",
+            {"test456": mock_task},
         ):
-            with patch(
-                "bots.telegram._background_tasks",
-                {"test456": mock_task},
-            ):
-                _register_completion_watcher("test456", 99999, mock_bot, loop=mock_loop)
-                # Give the watcher thread time to poll and send
-                time.sleep(6)
+            _completion_watcher_loop(
+                "test456", 99999, bot, running_loop,
+                poll_interval=0, sleeper=_no_sleep,
+            )
 
-        mock_loop.close()
+        assert bot.sent.wait(timeout=2)
+        _drain(running_loop)
+        assert len(bot.calls) == 1
+        assert bot.calls[0]["chat_id"] == 99999
+        assert "test456" in bot.calls[0]["text"]
+        assert "Something went wrong" in bot.calls[0]["text"]
 
-    def test_watcher_exits_on_cancelled(self):
-        """When task is cancelled, watcher exits without sending notification.
+    def test_watcher_exits_on_cancelled(self, running_loop):
+        """When task is cancelled, watcher returns without sending a notification.
 
         **Validates: Requirements 3.4**
         """
-        mock_loop = asyncio.new_event_loop()
-        mock_bot = MagicMock()
-        mock_bot.send_message = AsyncMock()
+        bot = _FakeBot()
 
         with patch(
             "bots.telegram.BackgroundTaskManager.get_status",
             return_value={"status": "cancelled", "id": "test789", "goal": "test"},
-        ):
-            _register_completion_watcher("test789", 99999, mock_bot, loop=mock_loop)
-            # Give the watcher thread time to poll
-            time.sleep(6)
+        ) as mock_status:
+            # Returns (rather than hanging) because cancelled is terminal.
+            _completion_watcher_loop(
+                "test789", 99999, bot, running_loop,
+                poll_interval=0, sleeper=_no_sleep,
+            )
 
-        mock_loop.close()
+        _drain(running_loop)
+        assert mock_status.call_count == 1
+        assert bot.calls == []
+        assert not bot.sent.is_set()
 
-    def test_watcher_spawns_daemon_thread(self):
-        """Watcher thread is a daemon thread so it doesn't block process exit."""
-        mock_loop = asyncio.new_event_loop()
-        mock_bot = MagicMock()
-
-        initial_threads = threading.active_count()
+    def test_watcher_polls_until_terminal(self, running_loop):
+        """A running status keeps polling; only the terminal done status sends."""
+        bot = _FakeBot()
+        sleeps = []
 
         with patch(
             "bots.telegram.BackgroundTaskManager.get_status",
             side_effect=[{"status": "running"}, {"status": "done"}],
+        ) as mock_status, patch(
+            "bots.telegram.BackgroundTaskManager.get_summary",
+            return_value="build finished",
         ):
-            with patch(
-                "bots.telegram.BackgroundTaskManager.get_summary",
-                return_value="done",
-            ):
-                _register_completion_watcher("test_daemon", 99999, mock_bot, loop=mock_loop)
-                time.sleep(0.1)  # Let thread start
+            _completion_watcher_loop(
+                "test_poll", 99999, bot, running_loop,
+                poll_interval=0, sleeper=sleeps.append,
+            )
 
-                # Find the watcher thread
+        assert bot.sent.wait(timeout=2)
+        _drain(running_loop)
+        assert mock_status.call_count == 2
+        assert sleeps == [0, 0]
+        assert len(bot.calls) == 1
+        assert "test_poll" in bot.calls[0]["text"]
+        assert "build finished" in bot.calls[0]["text"]
+
+    def test_watcher_spawns_daemon_thread(self, running_loop):
+        """Watcher thread is a daemon thread so it doesn't block process exit."""
+        bot = _FakeBot()
+        release = threading.Event()
+        statuses = iter([{"status": "running"}, {"status": "done"}])
+
+        def _get_status(_task_id):
+            # Hold the watcher on its first poll so the thread is observably alive.
+            release.wait(timeout=2)
+            return next(statuses)
+
+        with patch(
+            "bots.telegram.BackgroundTaskManager.get_status",
+            side_effect=_get_status,
+        ), patch(
+            "bots.telegram.BackgroundTaskManager.get_summary",
+            return_value="done",
+        ):
+            _register_completion_watcher(
+                "test_daemon", 99999, bot, loop=running_loop, poll_interval=0.01,
+            )
+
+            deadline = time.monotonic() + 2
+            watcher_threads = []
+            while not watcher_threads and time.monotonic() < deadline:
                 watcher_threads = [
                     t for t in threading.enumerate()
                     if t.name == "tg-watcher-test_daemon"
                 ]
-                assert len(watcher_threads) == 1
-                assert watcher_threads[0].daemon is True
 
-        mock_loop.close()
+            assert len(watcher_threads) == 1
+            assert watcher_threads[0].daemon is True
+
+            release.set()
+            watcher_threads[0].join(timeout=2)
+            assert not watcher_threads[0].is_alive()
+
+        assert bot.sent.wait(timeout=2)
+        _drain(running_loop)
+        assert len(bot.calls) == 1
