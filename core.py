@@ -1017,6 +1017,8 @@ class Agent:
         self._busy: bool = False
         self.cfg = cfg or {}
         self._compressor_cache: tuple[tuple, "ContextCompressor"] | None = None  # noqa: UP037
+        # K-33: retry backoff policy, resolved lazily from cfg.
+        self._retry_policy_cache = None
         from utils.untrusted_content import UntrustedContentPolicy
         self._untrusted_policy = UntrustedContentPolicy.from_config(self.cfg)
         # K-27: cost accounting policy and per-model price cache.
@@ -1174,6 +1176,19 @@ class Agent:
             "api_key": str(getattr(client, "api_key", "")
                            or provider_cfg.get("api_key") or ""),
         }
+
+    def _resolve_retry_policy(self):
+        """Return this agent's cached RetryPolicy, falling back to defaults (K-33)."""
+        from utils.retry_utils import RetryPolicy
+
+        policy = getattr(self, "_retry_policy_cache", None)
+        if policy is None:
+            try:
+                policy = RetryPolicy.from_config(getattr(self, "cfg", None))
+            except Exception:  # noqa: BLE001 — a bad config must not break retries
+                policy = RetryPolicy()
+            self._retry_policy_cache = policy
+        return policy
 
     def _token_ledger_for_turn(self) -> TokenLedger:
         """Return this conversation's token ledger, creating it on first use.
@@ -1949,19 +1964,24 @@ class Agent:
                                 full = ""
                                 _tool_buf = {}
                                 
-                                # Calculate jittered backoff delay
-                                import random
+                                # Honour the server's Retry-After, else jittered backoff
                                 import time
-                                exponent = max(0, _stream_call_retries - 1)
-                                base_delay = 3.0
-                                max_delay = 30.0
-                                delay = min(base_delay * (2 ** exponent), max_delay)
-                                jitter = random.uniform(0, 0.5 * delay)
-                                wait_time = delay + jitter
-                                
+
+                                from utils.retry_utils import next_delay
+                                _policy = self._resolve_retry_policy()
+                                wait_time = next_delay(
+                                    _policy, _stream_call_retries, err.retry_after
+                                )
+                                _wait_source = (
+                                    " (Retry-After)"
+                                    if _policy.respect_retry_after
+                                    and err.retry_after is not None
+                                    else ""
+                                )
+
                                 import logging
                                 logging.getLogger(__name__).warning(
-                                    f"Stream API call failed ({_e}). Waiting {wait_time:.2f}s before retry {_stream_call_retries}/{_MAX_STREAM_RETRIES}..."
+                                    f"Stream API call failed ({_e}). Waiting {wait_time:.2f}s{_wait_source} before retry {_stream_call_retries}/{_MAX_STREAM_RETRIES}..."
                                 )
                                 
                                 # Sleep but check for cancellation
